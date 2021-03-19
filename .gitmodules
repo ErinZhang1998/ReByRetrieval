@@ -1,0 +1,3 @@
+[submodule "ARM_erin"]
+	path = ARM_erin
+	url = git@github.com:ErinZhang1998/ARM_erin.git
