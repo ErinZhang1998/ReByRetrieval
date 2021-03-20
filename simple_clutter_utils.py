@@ -53,38 +53,17 @@ from matplotlib.collections import PatchCollection
 #     return np.all((p1.astype('int') + p2.astype('int') + p3.astype('int') + p4.astype('int')) > 0)
 
 
-def draw_boundary_points_rect(obj_xyzs, all_obj_bounds, layout_filename=None):
+def draw_boundary_points_rect(corners4s):
     fig, ax = plt.subplots()
-    for i in range(len(all_obj_bounds)):
-        x,y,_ = obj_xyzs[i]
-        bound = all_obj_bounds[i]
+    for corners4 in corners4s:
+        poly = patches.Polygon(corners4, linewidth=1, edgecolor='r', facecolor='g')
+        ax.add_artist(poly)
         
-        x = x*100
-        y = y*100
-        bound = bound*100
-        width = bound[1,0] - bound[0,0]
-        height = bound[1,1] - bound[0,1]
-        rx,ry = x+bound[0,0], y+bound[0,1]
-        rect = patches.Rectangle((rx,ry), width, height, linewidth=1, edgecolor='r', facecolor='g')
-        # ax.add_patch(rect)
-        ax.add_artist(rect)
-        ax.scatter([x],[y], s=30)
-        cx = rx + width/2.0
-        cy = ry + height/2.0
-        if i == 0:
-            phrase = "Table"
-        else:
-            phrase = "Object{}".format(i-1)
-        ax.annotate(phrase, (cx, cy), color='w', weight='bold', 
-                    fontsize=6, ha='center', va='center')
-
-    plt.xlim([-400, 400]) 
-    plt.ylim([-400, 400]) 
+    plt.xlim([-4, 4]) 
+    plt.ylim([-4, 4]) 
     ax.set_aspect('equal')
-    if not layout_filename:
-        plt.show()
-    else:
-        plt.savefig(layout_filename)  
+    
+    plt.show()
 
 
  
@@ -127,16 +106,8 @@ def draw_boundary_points(obj_trans, obj_xyzs,  all_obj_bounds, layout_filename=N
         
         corners4 = get_bound_2d_4corners(obj_trans[i], bound)
         poly = patches.Polygon(corners4, linewidth=1, edgecolor='r', facecolor='g')
-
         ax.add_artist(poly)
         
-        # if i == 0:
-        #     phrase = " "
-        # else:
-        #     phrase = "Object{}".format(i-1)
-        # ax.annotate(phrase, (x, y), color='w', weight='bold', 
-        #             fontsize=6, ha='center', va='center')
-
     plt.xlim([-4, 4]) 
     plt.ylim([-4, 4]) 
     ax.set_aspect('equal')
@@ -146,9 +117,20 @@ def draw_boundary_points(obj_trans, obj_xyzs,  all_obj_bounds, layout_filename=N
     else:
         plt.savefig(layout_filename) 
 
+def update_object_position_region(object_position_region, probs, selected_region):
+    new_probs = [0] * len(probs)
 
+    for i in range(len(probs)):
+        if i == selected_region:
+            new_probs[i] = probs[i] * (1/5)
+        else:
+            new_probs[i] = probs[i] + (probs[selected_region] * (4/5) * (1/7)) 
 
-def generate_object_xy(object_position_region, 
+    return new_probs
+    
+
+def generate_object_xy(object_position_region,
+                    probs,
                     prev_polys, 
                     obj_trans, 
                     obj_rotations, 
@@ -160,33 +142,41 @@ def generate_object_xy(object_position_region,
     avoid_all_squares = False 
     x,y = None, None
     acc = 0
+    selected_region = None 
     while not avoid_all_squares:
-        region = np.random.choice(8, 1, p=[0.15,0.15,0.15,0.15,0.1,0.1,0.1,0.1])[0]
+        region = np.random.choice(8, 1, p=probs)[0]
+        
         acc += 1
         region_range = object_position_region[region]
-        x = np.random.uniform(region_range[0][0], region_range[0][1], 1)[0]
-        y = np.random.uniform(region_range[1][0], region_range[1][1], 1)[0]
+        x = np.random.uniform(region_range[0][0]/2, region_range[0][1]/2, 1)[0]
+        y = np.random.uniform(region_range[1][0]/2, region_range[1][1]/2, 1)[0]
         
         if len(prev_polys) == 0:
             avoid_all_squares = True
             continue 
+
+        selected_region = region 
         
         r = R.from_euler('xyz', object_rot, degrees=False) 
+        r = R.from_euler('xyz', [0,0,0], degrees=False)
+        r = R.from_euler('xyz', [0,0,object_rot[-1]], degrees=False)
         trans = autolab_core.RigidTransform(rotation = r.as_matrix(), translation = np.asarray([x,y,z]), from_frame='guess')
         corners4 = get_bound_2d_4corners(trans, bound)
-        # print(corners4)
         poly = Polygon(corners4)
 
         
         all_outside = True
         for prev_poly in prev_polys:
-            #draw_boundary_points(obj_trans+[trans], obj_xyzs+[[x,y,z]],  all_obj_bounds+[bound])
+            # draw_boundary_points(obj_trans+[trans], obj_xyzs+[[x,y,z]],  all_obj_bounds+[bound])
+            # draw_boundary_points(obj_trans, obj_xyzs,  all_obj_bounds)
             if prev_poly.intersects(poly):
                 all_outside = False
                 break
         avoid_all_squares = all_outside
-
-    return x,y
+    
+    # import pdb; pdb.set_trace()
+    new_probs = update_object_position_region(object_position_region, probs, selected_region)
+    return x,y, new_probs
 
 def generate_object_xy_rect(prev_bbox, bound, object_position_region, draw1, draw2, zz):
     avoid_all_squares = False 
@@ -224,7 +214,6 @@ def generate_object_xy_rect(prev_bbox, bound, object_position_region, draw1, dra
                 all_outside = False 
                 break
         avoid_all_squares = all_outside
-    # print("Tried {} times".format(acc))
     return x,y
 
 
@@ -255,26 +244,46 @@ def get_camera_position(camera_distance, table_height, max_object_height, obj_xy
     normal_thetas = np.array(normal_thetas)
     normal_x=np.cos(normal_thetas).flatten() 
     normal_y=np.sin(normal_thetas).flatten() 
-    camera_pos_x = normal_x * camera_distance *0.8
-    camera_pos_y = normal_y * camera_distance *0.8
-    num_camera_x = len(camera_pos_x)
-    # Generate camera heights
-    camera_pos_z = [table_height*1.1, max_object_height*1.2, max_object_height*1.5]
-    num_camera_z = len(camera_pos_z)
-    # [z1,z1,...,z1,z2,z2....z2,....,zn,...,zn]
-    camera_pos_z = np.repeat(camera_pos_z, num_camera_x)
-    # [x1,x2,...,xn,x1,x2,...xn,....,x1,...,xn]
-    # [y1,y2,...,yn,y1,y2,...yn,....,y1,...,yn]
-    camera_pos_x = np.tile(camera_pos_x, num_camera_z)
-    camera_pos_y = np.tile(camera_pos_y, num_camera_z)
     
-    # Where the camera is looking at (num_camera, 3)
-    # Each zi has one camera target
-    mean_object_pos = np.mean(obj_xyzs, axis=0)
-    cam_targets = np.array([mean_object_pos, mean_object_pos, mean_object_pos])
-    cam_targets = np.repeat(cam_targets.reshape(-1,3), num_camera_x, axis=0)
+    cam_xyzs = []
+    cam_targets = []
 
-    return np.vstack([camera_pos_x, camera_pos_y,camera_pos_z]).T, cam_targets
+    camera_pos_z = [max_object_height, max_object_height*1.2, max_object_height*1.5]
+    mean_object_pos = np.mean(obj_xyzs, axis=0)
+    cam_targs = [mean_object_pos, mean_object_pos, mean_object_pos]
+    cam_distances = [camera_distance, camera_distance*0.7, camera_distance*0.7]
+    for z,targ, cam_d in zip(camera_pos_z, cam_targs, cam_distances):
+        camera_pos_x = normal_x * cam_d
+        camera_pos_y = normal_y * cam_d
+        num_camera_x = len(camera_pos_x)
+        zs = np.repeat(z, num_camera_x)
+        
+        cam_xyzs.append(np.vstack([camera_pos_x, camera_pos_y, zs]).T)
+
+        cam_targets.append(np.repeat(targ.reshape(-1,3), num_camera_x, axis=0))
+
+    return np.vstack(cam_xyzs), np.vstack(cam_targets)
+    
+    # camera_pos_x = normal_x * camera_distance *0.8
+    # camera_pos_y = normal_y * camera_distance *0.8
+    # num_camera_x = len(camera_pos_x)
+    # # Generate camera heights
+    # camera_pos_z = [table_height*1.1, max_object_height*1.2, max_object_height*1.5]
+    # num_camera_z = len(camera_pos_z)
+    # # [z1,z1,...,z1,z2,z2....z2,....,zn,...,zn]
+    # camera_pos_z = np.repeat(camera_pos_z, num_camera_x)
+    # # [x1,x2,...,xn,x1,x2,...xn,....,x1,...,xn]
+    # # [y1,y2,...,yn,y1,y2,...yn,....,y1,...,yn]
+    # camera_pos_x = np.tile(camera_pos_x, num_camera_z)
+    # camera_pos_y = np.tile(camera_pos_y, num_camera_z)
+    
+    # # Where the camera is looking at (num_camera, 3)
+    # # Each zi has one camera target
+    # mean_object_pos = np.mean(obj_xyzs, axis=0)
+    # cam_targets = np.array([mean_object_pos, mean_object_pos, mean_object_pos])
+    # cam_targets = np.repeat(cam_targets.reshape(-1,3), num_camera_x, axis=0)
+
+    # return np.vstack([camera_pos_x, camera_pos_y,camera_pos_z]).T, cam_targets
 
 def get_fixed_camera_position(camera_distance, max_object_height, table_xyz):
     num_angles = 8
@@ -301,7 +310,7 @@ def get_fixed_camera_position(camera_distance, max_object_height, table_xyz):
     
     cam_targets = np.array([table_xyz, table_xyz])
     cam_targets = np.repeat(cam_targets.reshape(-1,3), num_camera_x, axis=0)
-    # import pdb; pdb.set_trace()
+    # 
     return np.vstack([camera_pos_x, camera_pos_y,camera_pos_z]).T, cam_targets
 
 
@@ -317,7 +326,6 @@ def transform_to_camera_vector(vector, camera_pos, lookat_pos, camera_up_vector)
 def get_camera_matrix(camera):
     camera_id = camera._render_camera.fixedcamid
     pos = camera._physics.data.cam_xpos[camera_id]
-    print("pos: ", pos)
     rot = camera._physics.data.cam_xmat[camera_id].reshape(3, 3)
     fov = camera._physics.model.cam_fovy[camera_id]
 
@@ -363,7 +371,6 @@ def project_2d(P, camera_tf, pt_3d):
     pixel_coord = P @ (pt_3d_camera[:-1, :])
     pixel_coord = pixel_coord / pixel_coord[-1, :]
     pixel_coord = pixel_coord[:2, :] #(2,N)
-    # import pdb; pdb.set_trace()
     return pixel_coord.astype('int').T
 
 
@@ -392,23 +399,6 @@ def get_camera_matrix_1(camera):
     image[1, 2] = (camera.height - 1) / 2.0
 
     return image @ focal @ rotation @ translation, None
-
-
-def project_2d_1(P, camera_tf, pt_3d):
-    '''
-    pt_3d: (N,3)
-    '''
-    N = len(pt_3d)
-    world_to_camera_tf_mat = camera_tf.inverse().matrix #(4,4)
-    pt_3d_homo = np.append(pt_3d.T, np.ones(N).astype('int').reshape(1,-1), axis=0) #(4,N)
-    pt_3d_camera = world_to_camera_tf_mat @ pt_3d_homo #(4,N)
-    assert np.all(np.abs(pt_3d_camera[-1] - 1) < 1e-6)
-    pixel_coord = P @ (pt_3d_camera[:-1, :])
-    pixel_coord = pixel_coord / pixel_coord[-1, :]
-    pixel_coord = pixel_coord[:2, :] #(2,N)
-    # import pdb; pdb.set_trace()
-    return pixel_coord.astype('int').T
-
 
 
 def load_mesh_convex_parts(shapenet_decomp_filepath, obj_cat, obj_id, scale_mat):
@@ -481,13 +471,13 @@ def determine_object_rotation(object_mesh):
     #     print("1 rot_vec: ", rot_vec)
     if long_side / short_side > 7:
         rot_vec = [0, (1/2)*np.pi, z_rot]
-        print("2 rot_vec: ", rot_vec)
+        # print("2 rot_vec: ", rot_vec)
     elif (long_side / obj_range[2]) < (2/9) or ((long_side / obj_range[2]) > (4.5)):
         rot_vec = [0,0,z_rot]
-        print("1 rot_vec: ", rot_vec)
+        # print("1 rot_vec: ", rot_vec)
     else:
         rot_vec = [(1/2)*np.pi, 0, z_rot]
-        print("3 rot_vec: ", rot_vec)
+        # print("3 rot_vec: ", rot_vec)
         
     
     r = R.from_euler('xyz', rot_vec, degrees=False) 
