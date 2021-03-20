@@ -171,8 +171,6 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
         all_obj_bounds = []
         obj_trans = []
 
-        all_obj_corners = []
-
         prev_polys = []
         probs = [0.15,0.15,0.15,0.15,0.1,0.1,0.1,0.1]
         
@@ -181,37 +179,16 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             obj_cat, obj_id = selected_objects[object_idx]
             obj_mesh_filename = os.path.join(shapenet_filepath,'{}/{}/models/model_normalized.obj'.format(obj_cat, obj_id))
             object_mesh = trimesh.load(obj_mesh_filename, force='mesh')
-            # if obj_cat in ['02992529', '03624134', '02773838','04401088']:
-                # object_mesh.show()
             old_bound = object_mesh.bounds 
             '''
             Determine object rotation
             '''
             # 
             rot_vec, upright_mat  = determine_object_rotation(object_mesh)
-            object_rot = rot_vec 
-            print(object_idx, object_rot)
             object_mesh.apply_transform(upright_mat)
-
-            r = R.from_euler('xyz', [object_rot[0], object_rot[1], 0], degrees=False)
-            transxy = autolab_core.RigidTransform(rotation = r.as_matrix(), translation = np.asarray([0,0,0]), from_frame='tmpnoz')
-            old_bound_x = transxy.matrix @ np.append(old_bound[0], 1)
-            old_bound_y = transxy.matrix @ np.append(old_bound[1], 1)
+            z_rot = np.random.uniform(0,2*np.pi,1)[0]
+            print(object_idx, np.rad2deg(z_rot))
             
-            
-            old_bound_after_rot = object_mesh.bounds
-
-            r = R.from_euler('xyz', [0,0,object_rot[-1]], degrees=False)
-            trans = autolab_core.RigidTransform(rotation = r.as_matrix(), translation = np.asarray([0,0,0]), from_frame='tmptmp')
-            
-            
-            original_4_corners = np.array(np.meshgrid(old_bound_x[:2], old_bound_y[:2])).T.reshape(-1,2)
-            z_rot_4_corners = np.array(np.meshgrid(old_bound_after_rot[:,0], old_bound_after_rot[:,1])).T.reshape(-1,2)
-            
-            
-            import pdb; pdb.set_trace()
-            
-            # object_mesh.show()
             # Store the upright object in .stl file in assets
             stl_obj_mesh_filename = os.path.join(top_dir, f'assets/model_normalized_{thread_num}_{object_idx}.stl')
             f = open(stl_obj_mesh_filename, "w+")
@@ -219,8 +196,8 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             object_mesh.export(stl_obj_mesh_filename)
             # Rotate object to face different directions
             
+            object_rot = rot_vec 
             
-            all_obj_corners.append(object_mesh.scene().bounds_corners)
             '''
             Determine object color
             '''
@@ -312,7 +289,7 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             
             mesh_names = load_mesh_convex_parts(shapenet_decomp_filepath, obj_cat, obj_id, upright_mat)
             
-            add_objects(temp_scene_xml_file, f'object_{object_idx}_{thread_num}', mesh_names, object_xyz, object_size, object_color, [0,0,0], thread_num, add_contacts=False)
+            add_objects(temp_scene_xml_file, f'object_{object_idx}_{thread_num}', mesh_names, object_xyz, object_size, object_color, [0,0,z_rot], thread_num, add_contacts=False)
         
         # 
         scene_folder_path = os.path.join(top_dir, f'{train_or_test}/scene_{scene_num:06}')
@@ -338,7 +315,7 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
         for object_idx in range(num_objects):
             mesh_names = [os.path.join(top_dir, f'assets/model_normalized_{thread_num}_{object_idx}.stl')]
             add_objects(cam_temp_scene_xml_file, f'object_{object_idx}_{thread_num}', mesh_names, obj_xyzs[object_idx], obj_scales[
-                        object_idx], selected_colors[object_idx+1], [0,0,0], thread_num, add_contacts=False)
+                        object_idx], selected_colors[object_idx+1], [0,0,z_rot], thread_num, add_contacts=False)
         
         
         '''
@@ -589,7 +566,7 @@ if __name__ == '__main__':
     # selected_object_indices = np.random.randint(0, len(objects_cat_id), (options.num_scenes, num_objects))
     selected_object_indices = []
     for scene_idx in range(options.num_scenes):
-        num_object = np.random.randint(2,6,1)[0]
+        num_object = np.random.randint(2,3,1)[0]
         selected_object_indices.append(np.random.randint(0, len(objects_cat_id), num_object))
 
     selected_objects = []

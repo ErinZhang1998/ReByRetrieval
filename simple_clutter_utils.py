@@ -462,22 +462,16 @@ def determine_object_rotation(object_mesh):
     short_side = np.min(obj_range[:2])
     upright_mat = np.eye(4)
     # object_mesh.show()
-    z_rot = np.random.uniform(0,2*np.pi,1)[0]
+    z_rot = 0 #np.random.uniform(0,2*np.pi,1)[0]
     rot_vec = None
     r = None
     
-    # if (long_side / obj_range[2]) < (2/9) or ((long_side / obj_range[2]) > (4.5)):
-    #     rot_vec = [0,0,z_rot]
-    #     print("1 rot_vec: ", rot_vec)
     if long_side / short_side > 7:
         rot_vec = [0, (1/2)*np.pi, z_rot]
-        # print("2 rot_vec: ", rot_vec)
     elif (long_side / obj_range[2]) < (2/9) or ((long_side / obj_range[2]) > (4.5)):
         rot_vec = [0,0,z_rot]
-        # print("1 rot_vec: ", rot_vec)
     else:
         rot_vec = [(1/2)*np.pi, 0, z_rot]
-        # print("3 rot_vec: ", rot_vec)
         
     
     r = R.from_euler('xyz', rot_vec, degrees=False) 
