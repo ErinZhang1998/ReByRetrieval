@@ -53,7 +53,7 @@ from matplotlib.collections import PatchCollection
 #     return np.all((p1.astype('int') + p2.astype('int') + p3.astype('int') + p4.astype('int')) > 0)
 
 
-def draw_boundary_points_rect(corners4s):
+def draw_boundary_points_rect(corners4s, layout_filename=None):
     fig, ax = plt.subplots()
     for corners4 in corners4s:
         poly = patches.Polygon(corners4, linewidth=1, edgecolor='r', facecolor='g')
@@ -63,8 +63,11 @@ def draw_boundary_points_rect(corners4s):
     plt.ylim([-4, 4]) 
     ax.set_aspect('equal')
     
-    plt.show()
-
+    if not layout_filename:
+        plt.show()
+    else:
+        plt.savefig(layout_filename) 
+    plt.close()
 
  
 
@@ -116,6 +119,7 @@ def draw_boundary_points(obj_trans, obj_xyzs,  all_obj_bounds, layout_filename=N
         plt.show()
     else:
         plt.savefig(layout_filename) 
+    plt.close()
 
 def update_object_position_region(object_position_region, probs, selected_region):
     new_probs = [0] * len(probs)
@@ -178,43 +182,94 @@ def generate_object_xy(object_position_region,
     new_probs = update_object_position_region(object_position_region, probs, selected_region)
     return x,y, new_probs
 
-def generate_object_xy_rect(prev_bbox, bound, object_position_region, draw1, draw2, zz):
+def get_2d_diagonal_corners(obj_xyzs, all_obj_bounds):
+    corners = []
+    for xyz, bound in zip(obj_xyzs, all_obj_bounds):
+        x,y,_ = xyz 
+        a,b = bound[:,0], bound[:,1]
+        diag_length = np.sqrt((a[1] - a[0]) ** 2 + (b[1] - b[0]) ** 2)
+        diag_length = diag_length * (1/2)
+        pts = np.array([[-diag_length, -diag_length],
+                        [-diag_length, diag_length],
+                        [diag_length, diag_length],
+                        [diag_length, -diag_length]])
+        
+        pts = pts + np.array([x,y])
+        corners.append(pts)
+    
+    return corners
+        
+
+def generate_object_xy_rect(bound, prev_bbox, object_position_region, probs, obj_xyzs, all_obj_bounds):
     avoid_all_squares = False 
     x,y = None, None
-    acc = 0
+    selected_region = None 
     while not avoid_all_squares:
-        region = np.random.choice(8, 1, p=[0.15,0.15,0.15,0.15,0.1,0.1,0.1,0.1])[0]
-        acc += 1
+        region = np.random.choice(8, 1, p=probs)[0]
         region_range = object_position_region[region]
-        x = np.random.uniform(region_range[0][0], region_range[0][1], 1)[0]
-        y = np.random.uniform(region_range[1][0], region_range[1][1], 1)[0]
-        
+        region_width = region_range[0][1] - region_range[0][0]
+        region_height = region_range[1][1] - region_range[1][0]
+        x = np.random.uniform(region_range[0][0] + region_width/4, region_range[0][1] - region_width/4, 1)[0]
+        y = np.random.uniform(region_range[1][0] + region_height/4, region_range[1][1] - region_height/4, 1)[0]
+
         if len(prev_bbox) == 0:
             avoid_all_squares = True
             continue 
-        
-
-        trans = autolab_core.RigidTransform(translation = np.array([x, y, zz]), from_frame='object')
-        ll_pt = autolab_core.Point(bound[0].reshape(-1,1), "object")
-        ur_pt = autolab_core.Point(bound[1].reshape(-1,1), "object")
-        ll = trans.apply(ll_pt).vector[:-1]
-        ur = trans.apply(ur_pt).vector[:-1]
-
-        xbuf = (bound[1,0] - bound[0,0]) / 15
-        ybuf = (bound[1,1] - bound[0,1]) / 15
-        
-
-        # 
+        selected_region = region
+        corner = get_2d_diagonal_corners([[x,y,0]], [bound])[0]
+        ll = corner[0]
+        ur = corner[2]
 
         all_outside = True
-        for prev_ll, prev_ur in prev_bbox:
-
-            # draw_boundary_points(draw1+[[x,y,zz]], draw2+[bound])
-            if doOverlap(ll, ur, prev_ll, prev_ur, 0.05):
+        for prev_corner in prev_bbox:
+            prev_ll = prev_corner[0]
+            prev_ur = prev_corner[2]
+            # draw_boundary_points_rect([corner] + prev_bbox)
+            if doOverlap(ll, ur, prev_ll, prev_ur, 0):
                 all_outside = False 
                 break
         avoid_all_squares = all_outside
-    return x,y
+    new_probs = update_object_position_region(object_position_region, probs, selected_region)
+    # import pdb; pdb.set_trace()
+    return x,y, new_probs
+
+# def generate_object_xy_rect(prev_bbox, bound, object_position_region, probs, obj_xyzs, all_obj_bounds, z):
+#     avoid_all_squares = False 
+#     x,y = None, None
+#     acc = 0
+#     while not avoid_all_squares:
+#         region = np.random.choice(8, 1, p=[0.15,0.15,0.15,0.15,0.1,0.1,0.1,0.1])[0]
+#         acc += 1
+#         region_range = object_position_region[region]
+#         x = np.random.uniform(region_range[0][0], region_range[0][1], 1)[0]
+#         y = np.random.uniform(region_range[1][0], region_range[1][1], 1)[0]
+        
+#         if len(prev_bbox) == 0:
+#             avoid_all_squares = True
+#             continue 
+        
+
+#         trans = autolab_core.RigidTransform(translation = np.array([x, y, zz]), from_frame='object')
+#         ll_pt = autolab_core.Point(bound[0].reshape(-1,1), "object")
+#         ur_pt = autolab_core.Point(bound[1].reshape(-1,1), "object")
+#         ll = trans.apply(ll_pt).vector[:-1]
+#         ur = trans.apply(ur_pt).vector[:-1]
+
+#         xbuf = (bound[1,0] - bound[0,0]) / 15
+#         ybuf = (bound[1,1] - bound[0,1]) / 15
+        
+
+#         # 
+
+#         all_outside = True
+#         for prev_ll, prev_ur in prev_bbox:
+
+#             # draw_boundary_points(draw1+[[x,y,zz]], draw2+[bound])
+#             if doOverlap(ll, ur, prev_ll, prev_ur, 0.05):
+#                 all_outside = False 
+#                 break
+#         avoid_all_squares = all_outside
+#     return x,y
 
 
 
@@ -236,11 +291,11 @@ def doOverlap(l1, r1, l2, r2, buf):
     return True
 
 def get_camera_position(camera_distance, table_height, max_object_height, obj_xyzs):
-    # num_angles = 4
+    num_angles = 12
     # normal_thetas = [((2.0*math.pi)/num_angles)*i for i in range(num_angles)]
     # normal_thetas += [(2.0*math.pi)*(1/8), (2.0*math.pi)*(7/8)]
-    quad = (2.0*math.pi) / 8
-    normal_thetas = [np.random.uniform(i*quad, (i+1.0)*quad,1)[0] for i in range(8)]
+    quad = (2.0*math.pi) / num_angles
+    normal_thetas = [np.random.uniform(i*quad, (i+1.0)*quad,1)[0] for i in range(num_angles)]
     normal_thetas = np.array(normal_thetas)
     normal_x=np.cos(normal_thetas).flatten() 
     normal_y=np.sin(normal_thetas).flatten() 
@@ -248,10 +303,10 @@ def get_camera_position(camera_distance, table_height, max_object_height, obj_xy
     cam_xyzs = []
     cam_targets = []
 
-    camera_pos_z = [max_object_height, max_object_height*1.2, max_object_height*1.5]
+    camera_pos_z = [max_object_height, max_object_height*1.3]
     mean_object_pos = np.mean(obj_xyzs, axis=0)
-    cam_targs = [mean_object_pos, mean_object_pos, mean_object_pos]
-    cam_distances = [camera_distance, camera_distance*0.7, camera_distance*0.7]
+    cam_targs = [mean_object_pos, mean_object_pos]
+    cam_distances = [camera_distance*1.7, camera_distance*0.7]
     for z,targ, cam_d in zip(camera_pos_z, cam_targs, cam_distances):
         camera_pos_x = normal_x * cam_d
         camera_pos_y = normal_y * cam_d
@@ -461,8 +516,7 @@ def determine_object_rotation(object_mesh):
     long_side = np.max(obj_range[:2])
     short_side = np.min(obj_range[:2])
     upright_mat = np.eye(4)
-    # object_mesh.show()
-    z_rot = 0 #np.random.uniform(0,2*np.pi,1)[0]
+    z_rot = 0 
     rot_vec = None
     r = None
     

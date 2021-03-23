@@ -42,9 +42,9 @@ parser.add_option("--json_file_path", dest="json_file_path", default='/media/xia
 parser.add_option("--shape_categories_file_path", dest="shape_categories_file_path", default='/media/xiaoyuz1/hdd5/xiaoyuz1/data/taxonomy_tabletop_small_keys.txt')
 
 parser.add_option("--train_or_test", dest="train_or_test", default='training_set')
-parser.add_option("--num_scenes", dest="num_scenes", type="int", default=1)
+parser.add_option("--num_scenes", dest="num_scenes", type="int", default=1000)
 parser.add_option("--num_threads", dest="num_threads", type="int", default=6)
-# parser.add_option('--single_object', action='store_true')
+parser.add_option("--start_scene_idx", dest="start_scene_idx", type="int", default=0)
 (options, args) = parser.parse_args()
 
 np.set_printoptions(precision=4, suppress=True)
@@ -173,6 +173,7 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
 
         prev_polys = []
         probs = [0.15,0.15,0.15,0.15,0.1,0.1,0.1,0.1]
+        prev_bbox = []
         
         object_position_region = None
         for object_idx in range(num_objects):
@@ -187,7 +188,6 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             rot_vec, upright_mat  = determine_object_rotation(object_mesh)
             object_mesh.apply_transform(upright_mat)
             z_rot = np.random.uniform(0,2*np.pi,1)[0]
-            print(object_idx, np.rad2deg(z_rot))
             
             # Store the upright object in .stl file in assets
             stl_obj_mesh_filename = os.path.join(top_dir, f'assets/model_normalized_{thread_num}_{object_idx}.stl')
@@ -221,12 +221,16 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             '''
             object_z = table_height + object_bottom + 0.005
             if object_idx == 0:
-                left_x, right_x = object_bounds[:,0]
-                down_y, up_y = object_bounds[:,1]
+                a,b,_ = object_bounds[1] - object_bounds[0]
+                diag_length = np.sqrt(a **2 + b**2)
+                left_x, right_x = -diag_length/2, diag_length/2
+                down_y, up_y = -diag_length/2, diag_length/2
                 
                 # To put at the center of the table
                 object_x = (table_bounds[1,0] + table_bounds[0,0]) / 2
                 object_y = (table_bounds[1,1] + table_bounds[0,1]) / 2
+                
+                
 
                 x_top, XMAX =  object_x+right_x, object_x+right_x+REGION_LIMIT
                 x_bottom, XMIN = object_x+left_x, object_x+left_x-REGION_LIMIT
@@ -246,28 +250,33 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                 
 
             else:
-                # 
-                object_x, object_y, probs = generate_object_xy(object_position_region, probs, 
-                    prev_polys, 
-                    obj_trans, 
-                    obj_rotations, 
-                    object_rot, 
-                    object_bounds, 
-                    obj_xyzs, 
-                    all_obj_bounds, 
-                    object_z)
+                object_x, object_y, probs = generate_object_xy_rect(object_bounds, prev_bbox, object_position_region, probs, obj_xyzs, all_obj_bounds)
+                # object_x, object_y, probs = generate_object_xy(object_position_region, probs, 
+                #     prev_polys, 
+                #     obj_trans, 
+                #     obj_rotations, 
+                #     object_rot, 
+                #     object_bounds, 
+                #     obj_xyzs, 
+                #     all_obj_bounds, 
+                #     object_z)
             
             object_xyz = [object_x, object_y, object_z]
-            # lower_left = [object_x+object_bounds[0,0], object_y+object_bounds[0,1]]
-            # upper_right = [object_x+object_bounds[1,0], object_y+object_bounds[1,1]]
+            corner = get_2d_diagonal_corners([object_xyz], [object_bounds])[0]
             
-            r = R.from_euler('xyz', object_rot, degrees=False) 
-            r = R.from_euler('xyz', [0,0,0], degrees=False)
-            r = R.from_euler('xyz', [0,0,object_rot[-1]], degrees=False)
-            trans = autolab_core.RigidTransform(rotation = r.as_matrix(), translation = np.asarray(object_xyz), from_frame='object_{}'.format(object_idx))
+
             
-            corners4 = get_bound_2d_4corners(trans, object_bounds)
-            prev_polys.append(Polygon(corners4))
+            prev_bbox.append(corner)
+            # # lower_left = [object_x+object_bounds[0,0], object_y+object_bounds[0,1]]
+            # # upper_right = [object_x+object_bounds[1,0], object_y+object_bounds[1,1]]
+            
+            # r = R.from_euler('xyz', object_rot, degrees=False) 
+            # r = R.from_euler('xyz', [0,0,0], degrees=False)
+            # r = R.from_euler('xyz', [0,0,object_rot[-1]], degrees=False)
+            # trans = autolab_core.RigidTransform(rotation = r.as_matrix(), translation = np.asarray(object_xyz), from_frame='object_{}'.format(object_idx))
+            
+            # corners4 = get_bound_2d_4corners(trans, object_bounds)
+            # prev_polys.append(Polygon(corners4))
             
             # Determine the maximum object height
             object_height = object_bounds[1][2] - object_bounds[0][2]            
@@ -275,11 +284,11 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             
             # Load objects from .stl file
             object_mesh=trimesh.load(stl_obj_mesh_filename)
-            if object_mesh.faces.shape[0]>200000:
-                print('Too many mesh faces!')
-                continue
+            # if object_mesh.faces.shape[0]>200000:
+            #     print('Too many mesh faces!')
+            #     continue
 
-            obj_trans.append(trans)
+            # obj_trans.append(trans)
             obj_xyzs.append(object_xyz)
             obj_rotations.append([0,0,object_rot[-1]])
             obj_scales.append(object_size)
@@ -299,8 +308,8 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
         os.mkdir(scene_folder_path)
 
         layout_filename = os.path.join(scene_folder_path, 'layout.png')
-        draw_boundary_points(obj_trans, obj_xyzs, all_obj_bounds, layout_filename)
-
+        # draw_boundary_points(obj_trans, obj_xyzs, all_obj_bounds, layout_filename)
+        draw_boundary_points_rect(prev_bbox, layout_filename)
         
         # cam_temp_scene_xml_file=os.path.join(top_dir, f'cam_temp_data_gen_scene_{thread_num}.xml')
         # shutil.copyfile(scene_xml_file, cam_temp_scene_xml_file)
@@ -409,22 +418,25 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                 # num_unoccluded_pix = np.argwhere(unoccluded_segmentation).shape[0]
                 
                 segmentation = np.logical_and(segmentation, unoccluded_segmentation)
-                pix_left_ratio = np.argwhere(segmentation).shape[0] / np.argwhere(unoccluded_segmentation).shape[0]
-                
+                try:
+                    pix_left_ratio = np.argwhere(segmentation).shape[0] / np.argwhere(unoccluded_segmentation).shape[0]
+                except:
+                    continue
+
                 if pix_left_ratio > 0.3:
                     cv2.imwrite(os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}_{present_in_view_ind}.png'), segmentation.astype(np.uint8))
                 present_in_view_ind += 1 
         
-        # 
-        # fig = plt.figure()
-        # ax = fig.add_subplot(111, projection='3d')
+        # # 
+        # # fig = plt.figure()
+        # # ax = fig.add_subplot(111, projection='3d')
         
-        # for object_idx, obj_mesh_filename in enumerate(obj_mesh_filenames):
-        #     cur_position = e.data.qpos.ravel()[7+7*object_idx:7+7*object_idx+3].copy()
-        #     corners8 = get_bound_corners(obj_trans[object_idx], all_obj_bounds[object_idx])
-        #     ax.scatter(corners8[:,0], corners8[:,1], corners8[:,2], marker='o')
+        # # for object_idx, obj_mesh_filename in enumerate(obj_mesh_filenames):
+        # #     cur_position = e.data.qpos.ravel()[7+7*object_idx:7+7*object_idx+3].copy()
+        # #     corners8 = get_bound_corners(obj_trans[object_idx], all_obj_bounds[object_idx])
+        # #     ax.scatter(corners8[:,0], corners8[:,1], corners8[:,2], marker='o')
 
-        # plt.show()
+        # # plt.show()
 
         # #Draw bounding boxes:
         # for cam_num in range(num_camera):
@@ -441,18 +453,17 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
         #     for object_idx in range(num_objects):
 
         #         cur_position = e.data.qpos.ravel()[7+7*object_idx:7+7*object_idx+3].copy()
-        #         corners8 = get_bound_corners(obj_trans[object_idx], all_obj_bounds[object_idx])
+        #         # corners8 = get_bound_corners(obj_trans[object_idx], all_obj_bounds[object_idx])
         #         pixel_coord = project_2d(P,camera_tf, np.array(cur_position.reshape(-1,3)))
-        #         bbox_pixel_coord = project_2d(P,camera_tf, corners8.reshape(-1,3))
-        #         # vertical_img = vertical_img.transpose(Image.FLIP_TOP_BOTTOM)
+        #         # bbox_pixel_coord = project_2d(P,camera_tf, corners8.reshape(-1,3))
         #         ax1.scatter(640 - pixel_coord[:,0], pixel_coord[:,1],   marker=".", c='b', s=30)
-        #         ax1.scatter(640 - bbox_pixel_coord[:,0], bbox_pixel_coord[:,1],   marker=".", c='r', s=30)
+        #         # ax1.scatter(640 - bbox_pixel_coord[:,0], bbox_pixel_coord[:,1],   marker=".", c='r', s=30)
 
             
         #     plt.savefig(os.path.join(scene_folder_path, f'rgb_{(cam_num):05}_center.png'), bbox_inches='tight')
             
         #     plt.close()
-        # import pdb; pdb.set_trace()
+        # # 
 
         scene_description['camera_pos'] = camera_poss
         scene_description['cam_targets'] = cam_targets
@@ -475,6 +486,8 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             object_description['position'] = e.data.qpos.ravel()[7+7*object_idx:7+7*object_idx+3].copy()
             object_description['orientation'] = e.data.qpos.ravel()[7+7*object_idx+3:7+7*object_idx+7].copy()
             object_description['scale'] = obj_scales[object_idx]
+            object_description['obj_cat'], object_description['obj_id'] = selected_objects[object_idx]
+
             cur_position = object_description['position']
             # q = np.zeros(4)
             # q[0] = object_description['orientation'][1]
@@ -489,7 +502,7 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                 world_to_camera_tf_mat = camera_tf.inverse().matrix
 
                 pixel_coord = project_2d(P, camera_tf, np.array(cur_position.reshape(-1,3)))
-                object_center = np.array([640 - pixel_coord[0], ])
+                object_center = np.array([640 - pixel_coord[0], pixel_coord[:,1]])
                 object_description["object_center_{}".format(cam_num)] = pixel_coord
                 object_description["intrinsics_{}".format(cam_num)] = P
                 object_description["world_to_camera_mat_{}".format(cam_num)] = world_to_camera_tf_mat
@@ -518,7 +531,7 @@ def abortable_worker(func, *args, **kwargs):
 
 if __name__ == '__main__':
     
-    np.random.seed(1028)
+    
     #Color of objects:
     all_colors_dict = mcolors.CSS4_COLORS #TABLEAU_COLORS #
     all_colors = []
@@ -557,7 +570,7 @@ if __name__ == '__main__':
         for obj_id in shapenet_models[cat_name]:
             objects_cat_id.append((cat_name, obj_id))
 
-    # import pdb; pdb.set_trace()
+    # 
     # 
     '''
     '''
@@ -566,7 +579,7 @@ if __name__ == '__main__':
     # selected_object_indices = np.random.randint(0, len(objects_cat_id), (options.num_scenes, num_objects))
     selected_object_indices = []
     for scene_idx in range(options.num_scenes):
-        num_object = np.random.randint(2,3,1)[0]
+        num_object = np.random.randint(2,6,1)[0]
         selected_object_indices.append(np.random.randint(0, len(objects_cat_id), num_object))
 
     selected_objects = []
@@ -577,7 +590,8 @@ if __name__ == '__main__':
         selected_objects.append(selected_objects_i)
 
     for scene_num in range(options.num_scenes):
-        gen_data(scene_num, selected_objects[scene_num], options.shapenet_filepath, options.shapenet_decomp_filepath, options.top_dir, options.train_or_test)
+        acc_scene_num = scene_num + options.start_scene_idx
+        gen_data(acc_scene_num, selected_objects[scene_num], options.shapenet_filepath, options.shapenet_decomp_filepath, options.top_dir, options.train_or_test)
 
 
     # num_processes=options.num_threads
