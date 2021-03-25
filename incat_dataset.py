@@ -11,7 +11,6 @@ from PIL import Image
 
 import torch
 import torch.nn
-from PIL import Image
 # from torchvision import transforms
 import utils.transforms as utrans
 
@@ -24,43 +23,40 @@ import numpy as np
 from torch.utils.data.sampler import Sampler
 
 
-
-
-# train_dir = '/media/xiaoyuz1/hdd5/xiaoyuz1/data/cluttered_datasets/training_set/scene_000000'
-# scene_description_dir = os.path.join(train_dir, 'scene_description.p')
-# scene_description = pickle.load(open(scene_description_dir, 'rb'))
-
-
-# cam_num = 0
-# i = 0
-# root_name = f'_{(cam_num):05}'
-# obj_name = f'_{(cam_num):05}_{i}'
-# path = os.path.join(train_dir, 'rgb'+root_name+'.png')
-# img = mpimg.imread(os.path.join(train_dir, 'segmentation'+obj_name+'.png'))
-# plt.figure()
-# plt.imshow(img)
-# plt.show()
-
-
 class InCategoryClutterDataset(Dataset):
-    shapenet_filepath = '/media/xiaoyuz1/hdd5/xiaoyuz1/ShapeNetCore.v2'
     
-    def __init__(self, split, size, dir_root, shape_categories_file_path):
+    def __init__(self, split, size, scene_dir, model_filepath, shape_categories_filepath, shapenet_filepath):
 
         self.split = split 
         self.size = size 
-        self.dir_root = dir_root
-        self.shape_categories_file_path = shape_categories_file_path
+        self.scene_dir = scene_dir
+        self.model_filepath = model_filepath
+        self.shape_categories_filepath = shape_categories_filepath
+        self.shapenet_filepath = shapenet_filepath
 
-        self.dir_list = self.data_dir_list(self.dir_root)
-        # self.cat_ids, self.cat_id_to_label = self.object_cat()
-        self.object_ids, self.object_id_to_label = self.object_cat()
+        self.dir_list = self.data_dir_list(self.scene_dir)
+        
+        self.object_id_to_dict_idx = {}
+        self.object_ids, self.object_id_to_label, self.cat_ids, self.cat_id_to_label = self.object_cat()
 
         self.idx_to_data_dict = dict()
         idx = 0
         for dir_path in self.dir_list:
             idx_to_data_dicti, idx = self.load_sample(dir_path, idx)
             self.idx_to_data_dict.update(idx_to_data_dicti)
+        
+        self.keep_even()
+
+        self.total = []
+        for k,v in self.object_id_to_dict_idx.items():
+            self.total.append(len(v))
+        
+        self.determine_imge_dim()
+    
+    def determine_imge_dim(self):
+        sample = self.idx_to_data_dict[0]
+        rgb_all = mpimg.imread(sample['rgb_all_path'])
+        self.img_h, self.img_w, _ = rgb_all.shape
 
     def data_dir_list(self, root_dir):
         l = []
@@ -78,12 +74,8 @@ class InCategoryClutterDataset(Dataset):
         return l 
     
     def object_cat(self):
-        if self.split == 'train':
-            json_file_path = '/media/xiaoyuz1/hdd5/xiaoyuz1/data/tabletop_small_training_instances.json'
-        else:
-            json_file_path = '/media/xiaoyuz1/hdd5/xiaoyuz1/data/tabletop_small_testing_instances.json'
-
-        shapenet_models = json.load(open(json_file_path))
+        # Automatically containing only object ids for the split
+        shapenet_models = json.load(open(self.model_filepath))
 
         temp = json.load(open(os.path.join(self.shapenet_filepath, 'taxonomy.json'))) 
         taxonomy_dict = {x['name'] : x['synsetId'] for x in temp}
@@ -91,32 +83,44 @@ class InCategoryClutterDataset(Dataset):
         synset_ids_in_dir.remove('taxonomy.json')
         taxonomy_dict = {k:v for (k,v) in taxonomy_dict.items() if v in synset_ids_in_dir}
         
+        # All categories that we are considering 
         table_top_categories = []
-        with open(self.shape_categories_file_path) as shape_categories_file:
+        with open(self.shape_categories_filepath) as shape_categories_file:
             for line in shape_categories_file:
                 if line.strip() == '':
                     continue
                 table_top_categories.append(line.strip())
         
         cat_ids = []
-        cat_id_to_label = {}
-        
-        object_ids = []
-        object_id_to_label = {}
+        object_ids = set()
         for cat_name in table_top_categories:
             for obj_id in shapenet_models[cat_name]:
-                object_ids.append(obj_id)
-            
+                object_ids.add(obj_id)
             cat_ids.append(taxonomy_dict[cat_name])
+        object_ids = list(object_ids)
 
+        cat_id_to_label = {}
         for i in range(len(cat_ids)):
             cat_id_to_label[cat_ids[i]] =  i
         
+        object_id_to_label = {}
         for i in range(len(object_ids)):
             object_id_to_label[object_ids[i]] =  i
 
         return object_ids, object_id_to_label, cat_ids, cat_id_to_label
 
+    def keep_even(self):
+        self.discarded_idx = []
+        for k,v in self.object_id_to_dict_idx.items():
+            if len(v) %2 == 0:
+                continue 
+            j = np.random.randint(0, len(v),1)[0]
+            self.discarded_idx.append(v[j])
+            v.remove(v[j])
+            self.object_id_to_dict_idx[k] = v
+            assert len(v)%2 == 0 
+
+    
     def load_sample(self, dir_path, idx):
         scene_name = dir_path.split("/")[-1]
         scene_description_dir = os.path.join(dir_path, 'scene_description.p')
@@ -132,10 +136,13 @@ class InCategoryClutterDataset(Dataset):
             scale = object_description['scale']
             orientation = object_description['orientation']
             mesh_filename = object_description['mesh_filename']
-            object_cat_id = object_description['obj_id']#object_description['obj_cat']
+            object_cat_id = object_description['obj_cat']
+            object_obj_id = object_description['obj_id']#
             
+            Ai = self.object_id_to_dict_idx.get(object_obj_id, [])
             
             for cam_num in range(num_views):
+
                 
                 root_name = f'_{(cam_num):05}'
                 obj_name = f'_{(cam_num):05}_{i}'
@@ -153,37 +160,25 @@ class InCategoryClutterDataset(Dataset):
                 sample['orientation'] = orientation
                 sample['mesh_filename'] = mesh_filename
                 sample['object_center'] = object_description["object_center_{}".format(cam_num)]
-                sample['obj_cat'] = self.object_id_to_label[object_cat_id]
-                # self.cat_id_to_label[object_cat_id]
+                sample['obj_cat'] = self.cat_id_to_label[object_cat_id]
+                sample['obj_id'] = self.object_id_to_label[object_obj_id]
+                # 
 
                 samples[idx_i] = sample
+                Ai.append(idx_i)
                 idx_i += 1
+
+            self.object_id_to_dict_idx[object_obj_id] = Ai
+
 
         return samples, idx_i
     
     def __len__(self):
-        return len(self.idx_to_data_dict)
+        # return len(self.idx_to_data_dict)
+        return np.sum(self.total)
     
     def __getitem__(self, idx):
         sample = self.idx_to_data_dict[idx]
-        
-        # if self.split == 'train' or self.split == 'trainval':
-        #     trans = transforms.Compose([
-        #             transforms.ToPILImage(),
-        #             transforms.Resize((int(self.size),int(self.size))),
-        #             transforms.ToTensor(),
-        #             transforms.Normalize([0.5,0.5,0.5], [0.5,0.5,0.5])])
-        # else:
-        #     trans = transforms.Compose([
-        #             transforms.ToPILImage(),
-        #             transforms.Resize((int(self.size),int(self.size))),
-        #             transforms.ToTensor(),
-        #             transforms.Normalize([0.5,0.5,0.5], [0.5,0.5,0.5])])    
-        
-        # trans = utrans.Compose([utrans.Resized(width = int(self.size * 1.5), height = int(self.size * 1.5)),
-        #         utrans.RandomCrop(size = int(self.size)),
-        #         utrans.RandomHorizontalFlip(),
-        #     ])
         trans = utrans.Compose([utrans.Resized(width = self.size, height = self.size),
                 utrans.RandomHorizontalFlip(),
             ])
@@ -212,19 +207,9 @@ class InCategoryClutterDataset(Dataset):
         orient_info = torch.FloatTensor(sample['orientation'].reshape(-1,))
         pixel_info = torch.FloatTensor(center_trans.reshape(-1,) / self.size)
         cat_info = torch.FloatTensor(np.array([sample['obj_cat']]).reshape(-1,))
+        id_info = torch.FloatTensor(np.array([sample['obj_id']]).reshape(-1,))
 
         #return image, torch.FloatTensor(pose_info), torch.FloatTensor([sample['obj_cat']])
-        return image, scale_info, orient_info, pixel_info, cat_info
+        return image, scale_info, pixel_info, cat_info, id_info 
 
 
-class DummySampler(Sampler):
-    def __init__(self, data):
-        self.num_samples = len(data)
-
-    def __iter__(self):
-        print ('\tcalling Sampler:__iter__')
-        return iter(range(self.num_samples))
-
-    def __len__(self):
-        print ('\tcalling Sampler:__len__')
-        return self.num_samples

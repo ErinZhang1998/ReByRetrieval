@@ -3,7 +3,9 @@ from __future__ import print_function
 import torch
 import numpy as np
 
-import utils.utils as this_utils
+import utils.utils as uu
+import test
+import loss.triplet_loss as triploss
 
 import os
 import datetime
@@ -11,12 +13,6 @@ import time
 
 import torchvision.utils as vutils
 from tensorboardX import SummaryWriter
-
-from incat_dataset import *
-import resnet_pretrain 
-
-train_dir_root = "/media/xiaoyuz1/hdd5/xiaoyuz1/data/cluttered_datasets/training_set"
-test_dir_root = "/media/xiaoyuz1/hdd5/xiaoyuz1/data/cluttered_datasets/testing_set"
 
 
 def save_this_epoch(args, epoch):
@@ -30,10 +26,11 @@ def get_timestamp():
     timenow = datetime.datetime.fromtimestamp(ts).strftime('%Y_%m_%d_%H_%M_%S')
     return timenow
 
-def save_model(epoch, model_name, model, train_timestamp):
-
-    root_dir = os.getcwd()
-    model_dir = os.path.join(root_dir, 'models', '{}_{}'.format(model_name, train_timestamp))
+def save_model(model_save_dir, epoch, model_name, model, train_timestamp):
+    if not os.path.join(model_save_dir, 'models'):
+        os.mkdir(os.path.join(model_save_dir, 'models'))
+    
+    model_dir = os.path.join(model_save_dir, 'models', '{}_{}'.format(model_name, train_timestamp))
     if not os.path.exists(model_dir):
         os.mkdir(model_dir) 
 
@@ -42,101 +39,112 @@ def save_model(epoch, model_name, model, train_timestamp):
             'epoch': epoch,
             'model_state_dict': model.state_dict(),
             }, model_path)
+
+class Trainer(object):
+    def __init__(self, all_args, model, model_name, train_loader, test_loader, optimizer, scheduler, device):
+
+        self.args = all_args.training_config 
+        self.loss_args = all_args.loss 
+        self.test_args = all_args.testing_config
+        self.model = model 
+        self.model_name = model_name 
+        self.train_loader = train_loader 
+        self.test_loader = test_loader 
+        self.optimizer = optimizer 
+        self.scheduler = scheduler 
+        self.device = device
+
+        self.timenow = get_timestamp()
+        writer_summary_folder = os.path.join(self.args.tensorboard_save_dir, 'runs/{}_{}'.format(model_name, self.timenow))
+        self.writer = SummaryWriter(writer_summary_folder)
+
+        self.model.train()
+
+        self.criterion_scale = torch.nn.MSELoss()
+        self.criterion_pixel = torch.nn.MSELoss()
+
+        self.cnt = 0 
     
-def train(args, model, optimizer, scheduler=None, model_name='resnet50', dataset_size = 227):
-    
-    timenow = get_timestamp()
-    writer_summary_folder = os.path.join(os.getcwd(), 'runs/{}_{}'.format(model_name, timenow))
-    writer = SummaryWriter(writer_summary_folder)
-    
-    train_loader = this_utils.get_data_loader('/media/xiaoyuz1/hdd5/xiaoyuz1/data/cluttered_datasets/training_set', train=True, batch_size=args.batch_size, \
-                                         split='train', \
-                                        dataset_size = dataset_size)
-    test_loader = this_utils.get_data_loader('/media/xiaoyuz1/hdd5/xiaoyuz1/data/cluttered_datasets/testing_set', train=False, batch_size=args.test_batch_size, \
-                                        split='test', \
-                                       dataset_size = dataset_size)
- 
-    model.train()
-    # model = model.to(args.device)
-    
-    selector = this_utils.BatchHardTripletSelector()
-    criterion_embed = torch.nn.TripletMarginLoss(margin = 1, p = 2)
-    criterion_scale = torch.nn.MSELoss()
-    criterion_orient = torch.nn.MSELoss()
-    criterion_pixel = torch.nn.MSELoss()
-    cnt = 0
-    for epoch in range(args.epochs):
-        for batch_idx, (image, scale_info, orient_info, pixel_info, cat_info) in enumerate(train_loader):
-            model = model.to(args.device)
-            image, scale_info, orient_info, pixel_info, cat_info = image.to(args.device), scale_info.to(args.device), orient_info.to(args.device), pixel_info.to(args.device), cat_info.to(args.device)
+    def train(self):
+        for epoch in range(self.args.epochs):
+            self.train_epoch(epoch)
+        
+        if self.args.save_at_end:
+            save_model(self.args.model_save_dir, self.args.epochs, self.model_name, self.model, self.timenow)
+
+        
+        l1,l2,l3,l4 = test.eval_dataset(self.cnt, self.loss_args, self.model, self.device, self.test_loader, self.writer, self.test_args)
+        self.writer.close()
+        return l1,l2,l3,l4,self.cnt
+
+
+    def train_epoch(self, epoch):
+        for batch_idx, (image, scale_info, pixel_info, cat_info, id_info) in enumerate(self.train_loader):
+            self.model = self.model.to(self.device)
+
+            image = image.to(self.device)
+            scale_info = scale_info.to(self.device)
+            pixel_info = pixel_info.to(self.device)
+            cat_info = cat_info.to(self.device)
+            id_info = id_info.to(self.device)
             
-            optimizer.zero_grad()
-            img_embed, pose_pred = model(image)
-            anchor, positives, negatives = selector(img_embed, cat_info.view(-1,))
+            self.optimizer.zero_grad()
+            img_embed, pose_pred = self.model(image)
+            scale_pred = pose_pred[:,:1]
+            pixel_pred = pose_pred[:,1:]
+            img_embed -= img_embed.min(1, keepdim=True)[0]
+            img_embed /= img_embed.max(1, keepdim=True)[0]
 
-            # print(scale_info, orient_info, pixel_info)
-            # print(pose_pred)
 
-            loss_embed = criterion_embed(anchor, positives, negatives)
-            loss_scale = criterion_scale(pose_pred[:,:1], scale_info)
-            loss_orient = criterion_orient(pose_pred[:,1:5], orient_info)
-            loss_pixel = criterion_pixel(pose_pred[:,5:], pixel_info)
+            loss_cat = triploss.batch_all_triplet_loss(labels=cat_info, embeddings=img_embed, margin=self.loss_args.margin, squared=False)
+            loss_obj = triploss.batch_all_triplet_loss(labels=id_info, embeddings=img_embed, margin=self.loss_args.margin, squared=False)
+            loss_scale = self.criterion_scale(scale_pred, scale_info)
+            loss_pixel = self.criterion_pixel(pixel_pred, pixel_info)
 
-            loss = loss_embed + loss_scale + loss_orient + loss_pixel
+            loss = self.loss_args.lambda_cat * loss_cat + \
+                self.loss_args.lambda_obj * loss_obj + \
+                self.loss_args.lambda_scale * loss_scale + \
+                self.loss_args.lambda_pixel * loss_pixel
             loss.backward()
-            optimizer.step()
+            
+            self.optimizer.step()
         
         
-            writer.add_scalar('data/train_loss', loss.item(), cnt)
-            writer.add_scalar('data/train_loss_scale', loss_scale.item(), cnt)
-            writer.add_scalar('data/train_loss_orient', loss_orient.item(), cnt)
-            writer.add_scalar('data/train_loss_pixel', loss_pixel.item(), cnt)
-            writer.add_scalar('data/learning_rate', optimizer.param_groups[0]['lr'], cnt)
+            self.writer.add_scalar('data/train_loss', loss.item(), self.cnt)
+            self.writer.add_scalar('data/train_loss_cat', loss_cat.item(), self.cnt)
+            self.writer.add_scalar('data/train_losss_obj', loss_obj.item(), self.cnt)
+            self.writer.add_scalar('data/train_loss_scale', loss_scale.item(), self.cnt)
+            self.writer.add_scalar('data/train_loss_pixel', loss_pixel.item(), self.cnt)
+            self.writer.add_scalar('data/learning_rate', self.optimizer.param_groups[0]['lr'], self.cnt)
             
             # Log info
-            if cnt % args.log_every == 0:
+            if self.cnt % self.args.log_every == 0:
                 print('Train Epoch: {} [{} ({:.0f}%)]\tLoss: {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}'.format(
-                    epoch, cnt, 100. * batch_idx / len(train_loader), loss.item(), \
-                        loss_embed.item(), loss_scale.item(), loss_orient.item(), loss_pixel.item()))
+                    epoch, self.cnt, 100. * batch_idx / len(self.train_loader), loss.item(), \
+                        loss_cat.item(), loss_obj.item(), loss_scale.item(), loss_pixel.item()))
             
             torch.cuda.empty_cache()
-            del image
-            del scale_info 
-            del orient_info 
-            del pixel_info 
-            del cat_info
 
             # Validation iteration
-            if cnt % args.val_every == 0:
-                model.eval()
-                scale_loss, orient_loss, pixel_loss = this_utils.eval_dataset(model, args.device, test_loader)
-                model.train()
+            if self.cnt % self.args.val_every == 0:
+                self.model.eval()
+                l1,l2,l3,l4 = test.eval_dataset(self.cnt, self.loss_args, self.model, self.device, self.test_loader, self.writer, self.test_args)
+                self.model.train()
                 
-                print('Validate Epoch: {} [{} ({:.0f}%)]\tscale_loss:{:.6f}\torient_loss:{:.6f}\tpixel_loss:{:.6f}'.format(
-                    epoch, cnt, 100. * batch_idx / len(test_loader), scale_loss, orient_loss, pixel_loss))
-                writer.add_scalar('data/test_loss_scale', scale_loss, cnt)
-                writer.add_scalar('data/test_loss_orient', orient_loss, cnt)
-                writer.add_scalar('data/test_loss_pixel', pixel_loss, cnt)
+                print('Validate Epoch: {} [{} ({:.0f}%)]\tLoss: {:.6f}, {:.6f}, {:.6f}, {:.6f}'.format(
+                    epoch, self.cnt, 100. * batch_idx / len(self.test_loader), l1,l2,l3,l4))
 
+                self.writer.add_scalar('data/test_loss_cat', l1, self.cnt)
+                self.writer.add_scalar('data/test_loss_obj', l2, self.cnt)
+                self.writer.add_scalar('data/test_loss_scale', l3, self.cnt)
+                self.writer.add_scalar('data/test_loss_pixel', l4, self.cnt)
+            torch.cuda.empty_cache()
                 
-            cnt += 1
-             
-            #print(torch.cuda.memory_summary(device=None, abbreviated=False))
+            self.cnt += 1
+    
+        if save_this_epoch(self.args, epoch):
+            save_model(self.args.model_save_dir, epoch, self.model_name, self.model, self.timenow)
         
-        if save_this_epoch(args, epoch):
-            save_model(epoch, model_name, model, timenow)
-        if scheduler is not None:
-            scheduler.step()
-    
-    if args.save_at_end:
-        save_model(args.epochs, model_name, model, timenow)
+        if self.scheduler is not None:
+            self.scheduler.step()
 
-    # Validation iteration
-    test_loader = this_utils.get_data_loader('/media/xiaoyuz1/hdd5/xiaoyuz1/data/cluttered_datasets/testing_set', train=False, batch_size=args.test_batch_size, \
-                                        split='test', \
-                                       dataset_size = dataset_size)
-    scale_loss, orient_loss, pixel_loss = this_utils.eval_dataset(model, args.device, test_loader)
-    
-    #writer.export_scalars_to_json("./all_scalars_{}.json".format(model_name))
-    writer.close()
-    return scale_loss, orient_loss, pixel_loss

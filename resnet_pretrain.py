@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 
 
 class PretrainedResNet(nn.Module):
-    def __init__(self, emb_dim = 128):
+    def __init__(self, emb_dim = 128, pose_dim = 3):
         super().__init__()
         res50 = models.resnet50(pretrained=True)
         res50.conv1 = nn.Conv2d(4, 64, kernel_size=(7, 7), stride=(2, 2), padding=(0, 0), bias=False)
@@ -18,7 +18,7 @@ class PretrainedResNet(nn.Module):
         #               nn.Linear(1024, emb_dim)) 
         self.flat_dim = res50.fc.in_features
         self.emb_fc = nn.Linear(res50.fc.in_features, emb_dim)
-        self.pose_fc = nn.Linear(res50.fc.in_features, 7)
+        self.pose_fc = nn.Linear(res50.fc.in_features, pose_dim)
     
     def forward(self, x):
         batch_size = x.size(0)
