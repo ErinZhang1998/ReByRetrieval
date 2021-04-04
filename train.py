@@ -68,10 +68,6 @@ class Trainer(object):
         wandb.login()
         wandb.init(project='erin_retrieval', config=all_args.obj_dict)
         self.wandb_run_name = wandb.run.name
-
-        # self.timenow = get_timestamp()
-        # writer_summary_folder = os.path.join(self.args.tensorboard_save_dir, 'runs/{}_{}'.format(self.wandb_run_name, self.timenow))
-        # self.writer = SummaryWriter(writer_summary_folder)
     
     def train(self):
         for epoch in range(self.args.epochs):
@@ -135,14 +131,6 @@ class Trainer(object):
 
             wandb.log(wandb_dict, step=self.cnt)
             
-        
-            # self.writer.add_scalar('data/train_loss', loss.item(), self.cnt)
-            # self.writer.add_scalar('data/train_loss_cat', loss_cat.item(), self.cnt)
-            # self.writer.add_scalar('data/train_loss_obj', loss_obj.item(), self.cnt)
-            # self.writer.add_scalar('data/train_loss_scale', loss_scale.item(), self.cnt)
-            # self.writer.add_scalar('data/train_loss_pixel', loss_pixel.item(), self.cnt)
-            # self.writer.add_scalar('data/learning_rate', self.optimizer.param_groups[0]['lr'], self.cnt)
-            
             # Log info
             if self.cnt % self.args.log_every == 0:
                 for mask,mask_name in [(mask_cat, "mask_cat"), (mask_id, "mask_id")]:
@@ -162,7 +150,7 @@ class Trainer(object):
             # Validation iteration
             if self.cnt % self.args.val_every == 0:
                 self.model.eval()
-                l1,l2,l3,l4 = test.eval_dataset(self.cnt, self.loss_args, self.model, self.device, self.test_loader, self.writer, self.test_args)
+                l1,l2,l3,l4 = test.eval_dataset(self.cnt, self.model, self.device, self.test_loader, self.loss_args, self.test_args)
                 self.model.train()
                 
                 print('Validate Epoch: {} [{} ({:.0f}%)]\tLoss: {:.6f}, {:.6f}, {:.6f}, {:.6f}'.format(
@@ -174,11 +162,6 @@ class Trainer(object):
                     'test/test_loss_pixel': l4}
 
                 wandb.log(wandb_dict, step=self.cnt)
-
-                # self.writer.add_scalar('data/test_loss_cat', l1, self.cnt)
-                # self.writer.add_scalar('data/test_loss_obj', l2, self.cnt)
-                # self.writer.add_scalar('data/test_loss_scale', l3, self.cnt)
-                # self.writer.add_scalar('data/test_loss_pixel', l4, self.cnt)
             torch.cuda.empty_cache()
                 
             self.cnt += 1

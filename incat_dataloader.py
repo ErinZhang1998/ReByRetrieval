@@ -26,12 +26,24 @@ class InCategoryClutterDataloader(object):
 
             pairs = np.random.permutation(total_pairs)
         
-        pair_map = {}
-        i = 0
+        acc = []
         for k,v in idx_dict.items():
-            for j in range(len(v)//2):
-                pair_map[i] = [v[2*j], v[2*j+1]]
+            acc.append(len(v))
+
+        idx_keys = list(idx_dict.keys())
+
+        i = 0
+        pair_map = {}
+        for c in range(np.max(acc) //2):
+            for r in range(len(acc)):
+                if 2*c >= acc[r]:
+                    continue
+                assert 2*c+1 < acc[r]
+                idx1 = idx_dict[idx_keys[r]][2*c]
+                idx2 = idx_dict[idx_keys[r]][2*c+1]
+                pair_map[i] = [idx1, idx2]
                 i+=1
+        
 
         i = 0
         for bi in range(num_batches):
