@@ -45,9 +45,9 @@ class InCategoryClutterDataloader(object):
                 batch_indices[bi, 2*j+1] = i2 
                 i += 1
             if self.shuffle:
-                row = batch_indices[bi]
+                row = batch_indices[bi][:times*2]
                 row = np.random.permutation(row)
-                batch_indices[bi] = row 
+                batch_indices[bi][:times*2] = row 
         
         return num_batches, last_batch_size, batch_indices
     
@@ -59,19 +59,36 @@ class InCategoryClutterDataloader(object):
         return self 
     
     def compile_batch(self, indices):
-        imaget, scale_infot, pixel_infot, cat_infot, id_infot = [],[],[],[],[]
+        all_data = {}
+
         for i in indices:
             if i < 0:
                 break
-            image, scale_info, pixel_info, cat_info,id_info = self.dataset[i]
-            imaget.append(image)
-            scale_infot.append(scale_info)
-            pixel_infot.append(pixel_info)
-            cat_infot.append(cat_info)
-            id_infot.append(id_info)
+            data = self.dataset[i]
+            for j in range(len(data)):
+                l = all_data.get(j,[])
+                l.append(data[j])
+                all_data[j] = l
         
-        return torch.stack(imaget, dim=0), torch.stack(scale_infot, dim=0), torch.stack(pixel_infot, dim=0), \
-            torch.stack(cat_infot, dim=0), torch.stack(id_infot, dim=0)
+        # imaget, scale_infot, pixel_infot, cat_infot, id_infot = [],[],[],[],[]
+        # for i in indices:
+        #     if i < 0:
+        #         break
+        #     image, scale_info, pixel_info, cat_info,id_info = self.dataset[i]
+        #     imaget.append(image)
+        #     scale_infot.append(scale_info)
+        #     pixel_infot.append(pixel_info)
+        #     cat_infot.append(cat_info)
+        #     id_infot.append(id_info)
+
+        res = []
+        for l in all_data.values(): 
+            res.append(torch.stack(l, dim=0))
+
+        
+        # return torch.stack(imaget, dim=0), torch.stack(scale_infot, dim=0), torch.stack(pixel_infot, dim=0), \
+        #     torch.stack(cat_infot, dim=0), torch.stack(id_infot, dim=0)
+        return res
 
     
     def __next__(self):

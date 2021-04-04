@@ -208,8 +208,9 @@ class InCategoryClutterDataset(Dataset):
         pixel_info = torch.FloatTensor(center_trans.reshape(-1,) / self.size)
         cat_info = torch.FloatTensor(np.array([sample['obj_cat']]).reshape(-1,))
         id_info = torch.FloatTensor(np.array([sample['obj_id']]).reshape(-1,))
+        idx_info = torch.FloatTensor(np.array([idx]).reshape(-1,))
 
         #return image, torch.FloatTensor(pose_info), torch.FloatTensor([sample['obj_cat']])
-        return image, scale_info, pixel_info, cat_info, id_info 
+        return [image, scale_info, pixel_info, cat_info, id_info, idx_info]
 
 

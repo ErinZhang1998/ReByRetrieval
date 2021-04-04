@@ -32,14 +32,14 @@ from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 unused import
 
 parser = OptionParser()
 #path to shapenet dataset
-parser.add_option("--shapenet_filepath", dest="shapenet_filepath", default='/media/xiaoyuz1/hdd5/xiaoyuz1/ShapeNetCore.v2')
+parser.add_option("--shapenet_filepath", dest="shapenet_filepath", default='/raid/xiaoyuz1/ShapeNetCore.v2')
 #filepath to convex decompositions of shapenet objects. I posted this in the slack channel
-parser.add_option("--shapenet_decomp_filepath", dest="shapenet_decomp_filepath", default='/media/xiaoyuz1/hdd5/xiaoyuz1/data/shapenet_conv_decmops')
+parser.add_option("--shapenet_decomp_filepath", dest="shapenet_decomp_filepath", default='/raid/xiaoyuz1/data/shapenet_conv_decmops')
 #root project dir
-parser.add_option("--top_dir", dest="top_dir", default='/media/xiaoyuz1/hdd5/xiaoyuz1/data/cluttered_datasets/')
+parser.add_option("--top_dir", dest="top_dir", default='/raid/xiaoyuz1/cluttered_datasets/')
 #roo project dir+/inhand_datagen
-parser.add_option("--json_file_path", dest="json_file_path", default='/media/xiaoyuz1/hdd5/xiaoyuz1/data/tabletop_small_training_instances.json')
-parser.add_option("--shape_categories_file_path", dest="shape_categories_file_path", default='/media/xiaoyuz1/hdd5/xiaoyuz1/data/taxonomy_tabletop_small_keys.txt')
+parser.add_option("--json_file_path", dest="json_file_path", default='/raid/xiaoyuz1/tabletop_small_training_instances.json')
+parser.add_option("--shape_categories_file_path", dest="shape_categories_file_path", default='/raid/xiaoyuz1/taxonomy_tabletop_small_keys.txt')
 
 parser.add_option("--train_or_test", dest="train_or_test", default='training_set')
 parser.add_option("--num_scenes", dest="num_scenes", type="int", default=1000)
@@ -90,7 +90,7 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
     # Dictionary mapping category name --> category synset id
     taxonomy_dict = {k:v for (k,v) in taxonomy_dict.items() if v in synset_ids_in_dir}
 
-    training_tables_filename = '/media/xiaoyuz1/hdd5/xiaoyuz1/data/training_shapenet_tables.json'
+    training_tables_filename = '/raid/xiaoyuz1/data/training_shapenet_tables.json'
     valid_tables = json.load(open(training_tables_filename))
     # valid_tables = train_tables if train_or_test == 'training_set' else test_tables
     
@@ -296,9 +296,9 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             obj_mesh_filenames.append(obj_mesh_filename)
             # 
             
-            mesh_names = load_mesh_convex_parts(shapenet_decomp_filepath, obj_cat, obj_id, upright_mat)
+            # mesh_names = load_mesh_convex_parts(shapenet_decomp_filepath, obj_cat, obj_id, upright_mat)
             
-            add_objects(temp_scene_xml_file, f'object_{object_idx}_{thread_num}', mesh_names, object_xyz, object_size, object_color, [0,0,z_rot], thread_num, add_contacts=False)
+            # add_objects(temp_scene_xml_file, f'object_{object_idx}_{thread_num}', mesh_names, object_xyz, object_size, object_color, [0,0,z_rot], thread_num, add_contacts=False)
         
         # 
         scene_folder_path = os.path.join(top_dir, f'{train_or_test}/scene_{scene_num:06}')

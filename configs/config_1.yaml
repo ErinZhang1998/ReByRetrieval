@@ -1,19 +1,20 @@
 files:
-  shapenet_filepath: '/media/xiaoyuz1/hdd5/xiaoyuz1/ShapeNetCore.v2'
-  shape_categories_filepath: '/media/xiaoyuz1/hdd5/xiaoyuz1/data/taxonomy_tabletop_small_keys.txt'
-  training_model_filepath: '/media/xiaoyuz1/hdd5/xiaoyuz1/data/tabletop_small_training_instances.json'
-  testing_model_filepath: '/media/xiaoyuz1/hdd5/xiaoyuz1/data/tabletop_small_testing_instances.json'
-  training_scene_dir: '/media/xiaoyuz1/hdd5/xiaoyuz1/data/cluttered_datasets/training_set'
-  testing_scene_dir: '/media/xiaoyuz1/hdd5/xiaoyuz1/data/cluttered_datasets/testing_set'
+  shapenet_filepath: '/raid/xiaoyuz1/ShapeNetCore.v2'
+  shape_categories_filepath: '/raid/xiaoyuz1/taxonomy_tabletop_small_keys.txt'
+  training_model_filepath: '/raid/xiaoyuz1/tabletop_small_training_instances.json'
+  testing_model_filepath: '/raid/xiaoyuz1/tabletop_small_testing_instances.json'
+  training_scene_dir: '/raid/xiaoyuz1/cluttered_datasets/training_set'
+  testing_scene_dir: '/raid/xiaoyuz1/cluttered_datasets/testing_set'
 training_config:
   batch_size : 64
   epochs : 50
-  model_save_dir : '/media/xiaoyuz1/hdd5/xiaoyuz1'
-  tensorboard_save_dir: '/media/xiaoyuz1/hdd5/xiaoyuz1'
+  model_save_dir : '/raid/xiaoyuz1'
+  tensorboard_save_dir: '/raid/xiaoyuz1'
   log_every : 100
   val_every : 100
   save_at_end : True
   save_freq : 5
+  triplet_plot_num: 10
 testing_config:
   batch_size : 64
   plot_gt_image_every: 20
@@ -32,7 +33,7 @@ dataset_config:
   size : 227
 loss:
   margin : 1.0
-  lambda_cat: 3
-  lambda_obj: 5
-  lambda_scale: 2
-  lambda_pixel: 3
+  lambda_cat: 500
+  lambda_obj: 500
+  lambda_scale: 0
+  lambda_pixel: 0

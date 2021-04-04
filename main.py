@@ -7,6 +7,7 @@ import utils.utils as uu
 import torch
 import resnet_pretrain
 
+
 parser = OptionParser()
 parser.add_option("--config_file", dest="config_file", default='configs/config_1.yaml')
 (options, args) = parser.parse_args()
