@@ -6,14 +6,18 @@ from optparse import OptionParser
 import utils.utils as uu
 import torch
 import resnet_pretrain
-
+import wandb
 
 parser = OptionParser()
-parser.add_option("--config_file", dest="config_file", default='configs/config_1.yaml')
+parser.add_option("--config_file", dest="config_file")
 (options, args) = parser.parse_args()
 
 f =  open(options.config_file)
 args_dict = yaml.safe_load(f)
+
+wandb.login()
+wandb.init(project='erin_retrieval', config=args_dict)
+
 args = uu.Struct(args_dict)
 device = torch.device("cuda" if args.use_cuda else "cpu")
 model = resnet_pretrain.PretrainedResNet(emb_dim=args.model_config.emb_dim, pose_dim=args.model_config.pose_dim)
@@ -34,7 +38,7 @@ test_dataset = incat_dataset.InCategoryClutterDataset('test', args.dataset_confi
     shapenet_filepath=args.files.shapenet_filepath)
 test_loader = incat_dataloader.InCategoryClutterDataloader(test_dataset, args.testing_config.batch_size, shuffle = False)
 
-trainer = train.Trainer(args, model, args.model_config.model_name, train_loader, test_loader, optimizer, scheduler, device)
+trainer = train.Trainer(args, model, train_loader, test_loader, optimizer, scheduler, device)
 trainer.train()
 
 # model = resnet_pretrain.PretrainedResNet()

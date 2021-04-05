@@ -21,11 +21,6 @@ def save_this_epoch(args, epoch):
         return False 
     return epoch % args.save_freq == 0
 
-def get_timestamp():
-    ts = time.time()
-    timenow = datetime.datetime.fromtimestamp(ts).strftime('%Y_%m_%d_%H_%M_%S')
-    return timenow
-
 def save_model(model_save_dir, epoch, wandb_run_name, model):
     model_path_all = os.path.join(model_save_dir, 'models')
     if not os.path.exists(model_path_all):
@@ -60,13 +55,15 @@ class Trainer(object):
         self.device = device
         self.model.train()
 
-        self.criterion_scale = torch.nn.MSELoss()
-        self.criterion_pixel = torch.nn.MSELoss()
+        if self.args.loss_used == "l1":
+            self.criterion_scale = torch.nn.L1Loss()
+            self.criterion_pixel = torch.nn.L1Loss()
+        else:
+            self.criterion_scale = torch.nn.MSELoss()
+            self.criterion_pixel = torch.nn.MSELoss()
 
         self.cnt = 0 
 
-        wandb.login()
-        wandb.init(project='erin_retrieval', config=all_args.obj_dict)
         self.wandb_run_name = wandb.run.name
     
     def train(self):
@@ -77,7 +74,7 @@ class Trainer(object):
             save_model(self.args.model_save_dir, self.args.epochs, self.wandb_run_name, self.model, self.timenow)
 
         
-        l1,l2,l3,l4 = test.eval_dataset(self.cnt, self.model, self.device, self.test_loader, self.loss_args, self.test_args)
+        l1,l2,l3,l4 = test.eval_dataset(self.cnt, self.model, self.device, self.test_loader, self.loss_args, self.test_args, self.args.loss_used)
         # self.writer.close()
         return l1,l2,l3,l4,self.cnt
 
@@ -131,8 +128,8 @@ class Trainer(object):
 
             wandb.log(wandb_dict, step=self.cnt)
             
-            # Log info
-            if self.cnt % self.args.log_every == 0:
+            # Plot triplet pairs
+            if self.cnt % self.args.plot_triplet_every == 0:
                 for mask,mask_name in [(mask_cat, "mask_cat"), (mask_id, "mask_id")]:
                     loss_pairs = torch.stack(torch.where(mask), dim=1)
                     plt_pairs_idx = np.random.choice(len(loss_pairs), 10, replace=False)
@@ -140,7 +137,9 @@ class Trainer(object):
                     loss_pairs_idx_in_dataset = data[-1][loss_pairs].view((-1,3))
                     for idx_in_dataset in loss_pairs_idx_in_dataset:
                         uu.plot_image_with_mask(epoch, self.cnt, idx_in_dataset, self.train_loader.dataset, mask_name)
-
+            
+            # Log info
+            if self.cnt % self.args.log_every == 0:
                 print('Train Epoch: {} [{} ({:.0f}%)]\tLoss: {:.6f}, {:.6f}, {:.6f}, {:.6f}, {:.6f}'.format(
                     epoch, self.cnt, 100. * batch_idx / len(self.train_loader), loss.item(), \
                         loss_cat_w.item(), loss_obj_w.item(), loss_scale_w.item(), loss_pixel_w.item()))
@@ -150,7 +149,7 @@ class Trainer(object):
             # Validation iteration
             if self.cnt % self.args.val_every == 0:
                 self.model.eval()
-                l1,l2,l3,l4 = test.eval_dataset(self.cnt, self.model, self.device, self.test_loader, self.loss_args, self.test_args)
+                l1,l2,l3,l4 = test.eval_dataset(self.cnt, self.model, self.device, self.test_loader, self.loss_args, self.test_args, self.args.loss_used)
                 self.model.train()
                 
                 print('Validate Epoch: {} [{} ({:.0f}%)]\tLoss: {:.6f}, {:.6f}, {:.6f}, {:.6f}'.format(

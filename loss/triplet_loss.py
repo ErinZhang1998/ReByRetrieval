@@ -86,7 +86,7 @@ def batch_all_triplet_loss_old(labels, embeddings, margin, squared=False):
     # num_valid_triplets = torch.sum(mask)
     # fraction_positive_triplets = num_positive_triplets / (num_valid_triplets + 1e-16)
 
-    triplet_loss = torch.sum(triplet_loss) / torch.sum(mask) #(num_positive_triplets + 1e-16) 
+    triplet_loss = torch.sum(triplet_loss) / (torch.sum(mask) + + 1e-16) #(num_positive_triplets + 1e-16) 
     # triplet_loss = torch.sum(triplet_loss)
 
     return triplet_loss
