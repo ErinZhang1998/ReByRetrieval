@@ -2,18 +2,16 @@ from __future__ import print_function
 
 import torch
 import numpy as np
-
-import utils.utils as uu
-import test
-import loss.triplet_loss as triploss
-
 import os
 import datetime
 import time
-
 import torchvision.utils as vutils
 from tensorboardX import SummaryWriter
 import wandb
+
+import utils.plot_image as uplot 
+import test
+import loss.triplet_loss as triploss
 
 def save_this_epoch(args, epoch):
 
@@ -65,13 +63,22 @@ class Trainer(object):
         self.cnt = 0 
 
         self.wandb_run_name = wandb.run.name
+        self.load_model_from()
     
+    def load_model_from(self):
+        if self.all_args.model_config.model_path is not None:
+            print("=> Loading model file from: ", self.all_args.model_config.model_path)
+            model_path = os.path.join(self.all_args.model_config.model_path)
+            checkpoint = torch.load(model_path)
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+
     def train(self):
-        for epoch in range(self.args.epochs):
+        start_epoch = self.args.start_epoch
+        for epoch in range(start_epoch, self.args.epochs):
             self.train_epoch(epoch)
         
         if self.args.save_at_end:
-            save_model(self.args.model_save_dir, self.args.epochs, self.wandb_run_name, self.model, self.timenow)
+            save_model(self.args.model_save_dir, self.args.epochs, self.wandb_run_name, self.model)
 
         
         l1,l2,l3,l4 = test.eval_dataset(self.cnt, self.model, self.device, self.test_loader, self.loss_args, self.test_args, self.args.loss_used)
@@ -81,6 +88,7 @@ class Trainer(object):
 
     def train_epoch(self, epoch):
         # for batch_idx, (image, scale_info, pixel_info, cat_info, id_info) in enumerate(self.train_loader):
+        hist_loss_pixel = 0.0
         for batch_idx, data in enumerate(self.train_loader):
             self.optimizer.zero_grad()
 
@@ -88,7 +96,8 @@ class Trainer(object):
             scale_info = data[1]
             pixel_info = data[2]
             cat_info = data[3]
-            id_info = data[4]  
+            id_info = data[4]
+            dataset_indices = data[5]  
             
             self.model = self.model.to(self.device)
 
@@ -119,6 +128,18 @@ class Trainer(object):
             
             self.optimizer.step()
 
+            if epoch <= self.args.loss_anormaly_detech_epoch:
+                if batch_idx > 0 and loss_pixel_w.item() >= (self.args.loss_anormaly_scale - 1) * hist_loss_pixel:
+                    print("Spike in training batch: ", batch_idx, loss_pixel_w.item())
+                    dataset_indices_int = dataset_indices.cpu().numpy().astype(int)
+                    pixel_pred_cpu = pixel_pred.cpu().detach().numpy()
+                    
+                    for j_idx, dataset_idx in enumerate(dataset_indices_int):
+                        pixel_idx = pixel_pred_cpu[j_idx]
+                        uplot.plot_predicted_image(self.cnt, self.train_loader, dataset_idx, pixel_idx, 'train_loss_spike')
+            
+            hist_loss_pixel = loss_pixel_w.item()
+
             wandb_dict = {'train/train_loss':loss.item(), \
                 'train/train_loss_cat': loss_cat_w.item(), \
                 'train/train_loss_obj': loss_obj_w.item(), \
@@ -132,11 +153,13 @@ class Trainer(object):
             if self.cnt % self.args.plot_triplet_every == 0:
                 for mask,mask_name in [(mask_cat, "mask_cat"), (mask_id, "mask_id")]:
                     loss_pairs = torch.stack(torch.where(mask), dim=1)
-                    plt_pairs_idx = np.random.choice(len(loss_pairs), 10, replace=False)
+                    plt_pairs_idx = np.random.choice(len(loss_pairs), self.args.triplet_plot_num, replace=False)
                     loss_pairs = loss_pairs[list(plt_pairs_idx)]
-                    loss_pairs_idx_in_dataset = data[-1][loss_pairs].view((-1,3))
+                    loss_pairs_idx_in_dataset = dataset_indices[loss_pairs].view((-1,3))
                     for idx_in_dataset in loss_pairs_idx_in_dataset:
-                        uu.plot_image_with_mask(epoch, self.cnt, idx_in_dataset, self.train_loader.dataset, mask_name)
+                        idx_in_dataset = idx_in_dataset.cpu().numpy().astype(int)
+                        key_name = '{}_{}_{}'.format(idx_in_dataset[0],idx_in_dataset[1],idx_in_dataset[2])
+                        uplot.plot_image_with_mask(epoch, self.cnt, idx_in_dataset, self.train_loader.dataset, mask_name, key_name)
             
             # Log info
             if self.cnt % self.args.log_every == 0:

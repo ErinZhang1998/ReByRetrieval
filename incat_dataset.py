@@ -45,6 +45,10 @@ class InCategoryClutterDataset(Dataset):
             idx_to_data_dicti, idx = self.load_sample(dir_path, idx)
             self.idx_to_data_dict.update(idx_to_data_dicti)
         
+        self.idx_to_sample_id = {}
+        for k,v in self.idx_to_data_dict.items():
+            self.idx_to_sample_id[k] = v['sample_id']
+        
         self.keep_even()
 
         self.total = []
@@ -52,7 +56,8 @@ class InCategoryClutterDataset(Dataset):
             self.total.append(len(v))
         
         self.determine_imge_dim()
-    
+
+
     def determine_imge_dim(self):
         sample = self.idx_to_data_dict[0]
         rgb_all = mpimg.imread(sample['rgb_all_path'])
@@ -107,6 +112,7 @@ class InCategoryClutterDataset(Dataset):
         for i in range(len(object_ids)):
             object_id_to_label[object_ids[i]] =  i
 
+        self.taxonomy_dict = taxonomy_dict
         return object_ids, object_id_to_label, cat_ids, cat_id_to_label
 
     def keep_even(self):
@@ -165,6 +171,7 @@ class InCategoryClutterDataset(Dataset):
                 # 
 
                 samples[idx_i] = sample
+                # print(idx_i, sample_id)
                 Ai.append(idx_i)
                 idx_i += 1
 
@@ -184,8 +191,6 @@ class InCategoryClutterDataset(Dataset):
             ])
 
         rgb_all = mpimg.imread(sample['rgb_all_path'])
-        # mask = (mpimg.imread(sample['mask_path']) > 0).astype('int')
-        # mask = np.stack([mask,mask,mask],axis=2) #np.expand_dims(mpimg.imread(sample['mask_path']), axis=0)
         mask = mpimg.imread(sample['mask_path'])
         center = copy.deepcopy(sample['object_center'].reshape(-1,))
         center[0] = rgb_all.shape[1] - center[0]

@@ -502,7 +502,8 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                 world_to_camera_tf_mat = camera_tf.inverse().matrix
 
                 pixel_coord = project_2d(P, camera_tf, np.array(cur_position.reshape(-1,3)))
-                object_center = np.array([640 - pixel_coord[0], pixel_coord[:,1]])
+                pixel_coord = pixel_coord.reshape((-1,))
+                object_center = np.array([pixel_coord[0], pixel_coord[1]])
                 object_description["object_center_{}".format(cam_num)] = pixel_coord
                 object_description["intrinsics_{}".format(cam_num)] = P
                 object_description["world_to_camera_mat_{}".format(cam_num)] = world_to_camera_tf_mat

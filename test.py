@@ -1,16 +1,15 @@
 import torch
-from torch import linalg as LA
-import loss.triplet_loss as triploss
 import numpy as np
 import io
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 import PIL.Image
-from torchvision.transforms import ToTensor
 import copy
 import wandb
-import utils.utils as uu
 
+import utils.utils as uu
+import loss.triplet_loss as triploss
+import utils.plot_image as uplot
 
 def eval_dataset(cnt, model, device, test_loader, loss_args, test_args, loss_used):
     np.random.seed(129)
@@ -56,7 +55,14 @@ def eval_dataset(cnt, model, device, test_loader, loss_args, test_args, loss_use
             _,o_loss = triploss.batch_all_triplet_loss(labels=id_info, embeddings=img_embed, margin=loss_args.margin, squared=False) #.cpu()
 
             if batch_idx % test_args.plot_gt_image_every == 0 and batch_idx != len(test_loader)-1:
-                uu.plot_predicted_image(pixel_pred, batch_idx, test_loader, scale_pred, scale_info, cnt)
+                batch_row = test_loader.batch_indices[batch_idx]
+                j_idx = np.random.choice(len(batch_row),1)[0]
+                dataset_idx = batch_row[j_idx]
+                pixel_idx = pixel_pred[j_idx]
+                scale_idx = scale_pred[j_idx].item()
+                scale_info_idx = scale_info[j_idx].item()
+                
+                uplot.plot_predicted_image(cnt, test_loader, dataset_idx, pixel_idx, 'test_pixel_image', scale_idx, scale_info_idx)
 
             loss_cat.append(c_loss.item())
             loss_obj.append(o_loss.item())

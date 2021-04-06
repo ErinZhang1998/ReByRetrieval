@@ -1,12 +1,14 @@
+import yaml 
+from optparse import OptionParser
+import torch
+import wandb
+import os 
+
+import resnet_pretrain
+import utils.utils as uu
 import train
 import incat_dataset
 import incat_dataloader
-import yaml 
-from optparse import OptionParser
-import utils.utils as uu
-import torch
-import resnet_pretrain
-import wandb
 
 parser = OptionParser()
 parser.add_option("--config_file", dest="config_file")
@@ -14,11 +16,13 @@ parser.add_option("--config_file", dest="config_file")
 
 f =  open(options.config_file)
 args_dict = yaml.safe_load(f)
+default_args_dict = yaml.safe_load(open('configs/default.yaml'))
+args_dict_filled = uu.fill_in_args_from_default(args_dict, default_args_dict)
 
 wandb.login()
-wandb.init(project='erin_retrieval', config=args_dict)
+wandb.init(project='erin_retrieval', entity='erin_retrieval', config=args_dict_filled)
 
-args = uu.Struct(args_dict)
+args = uu.Struct(args_dict_filled)
 device = torch.device("cuda" if args.use_cuda else "cpu")
 model = resnet_pretrain.PretrainedResNet(emb_dim=args.model_config.emb_dim, pose_dim=args.model_config.pose_dim)
 optimizer = torch.optim.Adam(model.parameters(), lr=args.optimizer_config.lr)

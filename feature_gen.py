@@ -1,4 +1,3 @@
-import train
 import incat_dataset
 import incat_dataloader
 import yaml 
@@ -41,18 +40,30 @@ test_loader = incat_dataloader.InCategoryClutterDataloader(test_dataset, args.te
 
 embeds = []
 indices = []
+
+pose_pred_list = []
+pose_info_list = []
+
 with torch.no_grad():
     for batch_idx, data in enumerate(test_loader):
         # if batch_idx % 50 == 0:
         print("=> Extracting ", batch_idx)
         image = data[0]
-        index = data[4]  
+        scale_info = data[1]
+        pixel_info = data[2]
+        index = data[-1]  
 
         model = model.to(device)
         image = image.to(device)
 
-        img_embed, _ = model(image)
+        img_embed, pose_pred = model(image)
         img_embed = img_embed.cpu()
+        pose_pred = pose_pred.cpu()
+        pose_pred = pose_pred.float().detach()
+
+        pose_pred_list.append(pose_pred)
+        assert torch.cat([scale_info, pixel_info], dim=1).shape[1] == 3
+        pose_info_list.append(torch.cat([scale_info, pixel_info], dim=1))
         
         embeds.append(img_embed)
         indices.append(index)
@@ -61,6 +72,16 @@ with torch.no_grad():
 
 all_embedding = torch.cat(embeds, dim=0).numpy()
 all_indices = torch.cat(indices, dim=0).numpy()
+
+try:
+    pose_pred = torch.cat(pose_pred_list, dim=0)
+    pose_info = torch.cat(pose_info_list, dim=0)
+    all_pose = torch.cat([pose_pred, pose_info], dim=1)
+
+    pose_path = os.path.join(options.output_dir, '{}_{}_pose.npy'.format(options.experiment_name, options.epoch))
+    np.save(pose_path, all_pose)
+except:
+    print("Cannot output pose information!")
 
 feat_path = os.path.join(options.output_dir, '{}_{}.npy'.format(options.experiment_name, options.epoch))
 np.save(feat_path, all_embedding)
