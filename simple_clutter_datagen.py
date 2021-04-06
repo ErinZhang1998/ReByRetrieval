@@ -408,7 +408,7 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                 unocc_target_id = e.model.model.name2id(f'gen_geom_object_{added_object_ind}_{thread_num}_0', "geom")
                 unoccluded_camera = Camera(physics=e.model, height=cam_height, width=cam_width, camera_id=cam_num)
                 unoccluded_segs = unoccluded_camera.render(segmentation=True)
-                # Move other objects back onto table
+                # Move other objects back onto table 
                 e.set_env_state(state)
                 e.sim.physics.forward()
 

@@ -44,6 +44,8 @@ indices = []
 pose_pred_list = []
 pose_info_list = []
 
+images = []
+
 with torch.no_grad():
     for batch_idx, data in enumerate(test_loader):
         # if batch_idx % 50 == 0:
@@ -67,11 +69,13 @@ with torch.no_grad():
         
         embeds.append(img_embed)
         indices.append(index)
+        images.append(image.cpu().detach())
         
         torch.cuda.empty_cache()
 
 all_embedding = torch.cat(embeds, dim=0).numpy()
 all_indices = torch.cat(indices, dim=0).numpy()
+all_images = torch.cat(images, dim=0).numpy()
 
 try:
     pose_pred = torch.cat(pose_pred_list, dim=0)
@@ -82,6 +86,12 @@ try:
     np.save(pose_path, all_pose)
 except:
     print("Cannot output pose information!")
+
+try:
+    image_path = os.path.join(options.output_dir, '{}_{}_image.npy'.format(options.experiment_name, options.epoch))
+    np.save(image_path, all_images)
+except:
+    print("Cannot output image information!")
 
 feat_path = os.path.join(options.output_dir, '{}_{}.npy'.format(options.experiment_name, options.epoch))
 np.save(feat_path, all_embedding)

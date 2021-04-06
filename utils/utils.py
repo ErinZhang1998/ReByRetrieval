@@ -6,6 +6,8 @@ import io
 from PIL import Image
 import PIL
 import copy
+import time 
+import datetime
 
 class Struct:
     '''The recursive class for building and representing objects with.'''
@@ -28,7 +30,17 @@ def fill_in_args_from_default(my_dict, default_dict):
     for k,v in default_dict.items():
         try:
             myv = my_dict[k]
-            filled_dict[k] = myv
+            if isinstance(myv, dict):
+                assert isinstance(v, dict)
+                subdict = fill_in_args_from_default(myv, v)
+                filled_dict[k] = subdict
+            else:
+                filled_dict[k] = myv
         except:
             filled_dict[k] = v
     return filled_dict
+
+def get_timestamp():                                                                                          
+    ts = time.time()                                                                                            
+    timenow = datetime.datetime.fromtimestamp(ts).strftime('%Y_%m_%d_%H_%M_%S')                             
+    return timenow 

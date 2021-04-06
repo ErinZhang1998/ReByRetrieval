@@ -3,13 +3,12 @@ from __future__ import print_function
 import torch
 import numpy as np
 import os
-import datetime
-import time
 import torchvision.utils as vutils
 from tensorboardX import SummaryWriter
 import wandb
 
 import utils.plot_image as uplot 
+import utils.utils as uu
 import test
 import loss.triplet_loss as triploss
 
@@ -60,9 +59,12 @@ class Trainer(object):
             self.criterion_scale = torch.nn.MSELoss()
             self.criterion_pixel = torch.nn.MSELoss()
 
-        self.cnt = 0 
+        self.cnt = -1
 
-        self.wandb_run_name = wandb.run.name
+        if wandb.run is None:
+            self.wandb_run_name = uu.get_timestamp()
+        else:
+            self.wandb_run_name = wandb.run.name
         self.load_model_from()
     
     def load_model_from(self):
@@ -72,22 +74,23 @@ class Trainer(object):
             checkpoint = torch.load(model_path)
             self.model.load_state_dict(checkpoint['model_state_dict'])
 
-    def train(self):
+    def train(self, test_only = False):
         start_epoch = self.args.start_epoch
-        for epoch in range(start_epoch, self.args.epochs):
-            self.train_epoch(epoch)
         
-        if self.args.save_at_end:
-            save_model(self.args.model_save_dir, self.args.epochs, self.wandb_run_name, self.model)
+        if not test_only: 
+            for epoch in range(start_epoch, self.args.epochs):
+                self.train_epoch(epoch)
+        
+            if self.args.save_at_end:
+                save_model(self.args.model_save_dir, self.args.epochs, self.wandb_run_name, self.model)
+        
 
-        
-        l1,l2,l3,l4 = test.eval_dataset(self.cnt, self.model, self.device, self.test_loader, self.loss_args, self.test_args, self.args.loss_used)
-        # self.writer.close()
-        return l1,l2,l3,l4,self.cnt
+        l1,l2,l3,l4 = test.eval_dataset(self.args.epochs, self.cnt, self.model, self.device, self.test_loader, self.loss_args, self.test_args, self.args.loss_used, True)
+        print('Validate End: \tLoss: {:.6f}, {:.6f}, {:.6f}, {:.6f}'.format(l1,l2,l3,l4))
 
 
     def train_epoch(self, epoch):
-        # for batch_idx, (image, scale_info, pixel_info, cat_info, id_info) in enumerate(self.train_loader):
+
         hist_loss_pixel = 0.0
         for batch_idx, data in enumerate(self.train_loader):
             self.optimizer.zero_grad()
@@ -131,8 +134,8 @@ class Trainer(object):
             if epoch <= self.args.loss_anormaly_detech_epoch:
                 if batch_idx > 0 and loss_pixel_w.item() >= (self.args.loss_anormaly_scale - 1) * hist_loss_pixel:
                     print("Spike in training batch: ", batch_idx, loss_pixel_w.item())
-                    dataset_indices_int = dataset_indices.cpu().numpy().astype(int)
-                    pixel_pred_cpu = pixel_pred.cpu().detach().numpy()
+                    dataset_indices_int = dataset_indices.cpu().numpy().astype(int).reshape(-1,)
+                    pixel_pred_cpu = pixel_pred.cpu().detach().numpy().reshape((-1,2))
                     
                     for j_idx, dataset_idx in enumerate(dataset_indices_int):
                         pixel_idx = pixel_pred_cpu[j_idx]
@@ -172,7 +175,7 @@ class Trainer(object):
             # Validation iteration
             if self.cnt % self.args.val_every == 0:
                 self.model.eval()
-                l1,l2,l3,l4 = test.eval_dataset(self.cnt, self.model, self.device, self.test_loader, self.loss_args, self.test_args, self.args.loss_used)
+                l1,l2,l3,l4 = test.eval_dataset(epoch, self.cnt, self.model, self.device, self.test_loader, self.loss_args, self.test_args, self.args.loss_used)
                 self.model.train()
                 
                 print('Validate Epoch: {} [{} ({:.0f}%)]\tLoss: {:.6f}, {:.6f}, {:.6f}, {:.6f}'.format(

@@ -71,9 +71,7 @@ def plot_predicted_image(cnt, test_loader, dataset_idx, pixel_pred, panel_name, 
 
     final_img = plt_to_image(fig)
     
-    if cnt < 0:
-        wandb.log({'{}/{}'.format(panel_name, sample['sample_id']): wandb.Image(final_img)})
-    else:
+    if cnt >= 0:
         wandb.log({'{}/{}'.format(panel_name, sample['sample_id']): wandb.Image(final_img)}, step=cnt)
     plt.close()
 
