@@ -7,6 +7,11 @@ from PIL import Image
 import PIL
 import copy
 
+def denormalize_image(imgs, mean, std):
+    mean = np.asarray(mean).reshape((-1,3))
+    std = np.asarray(std).reshape((-1,3))
+    return (imgs + mean) * std
+
 def plt_to_image(fig_obj):
     buf = io.BytesIO()
     fig_obj.savefig(buf)

@@ -136,15 +136,16 @@ class Trainer(object):
                     print("Spike in training batch: ", batch_idx, loss_pixel_w.item())
                     dataset_indices_np = dataset_indices.cpu().numpy().astype(int).reshape(-1,)
                     image_np = image.cpu().detach().numpy()
+                    image_np = np.transpose(image_np[:,:3,:,:], (0,2,3,1))
+                    image_np = uplot.denormalize_image(image_np, train_loader.dataset.img_mean, train_loader.dataset.img_std)
                     pixel_pred_np = pixel_pred.cpu().detach().numpy()
                     pixel_gt_np = pixel_gt.cpu().detach().numpy()
                     
                     for j_idx, dataset_idx in enumerate(dataset_indices_np):                    
                         dataset_idx = dataset_indices_np[j_idx]
                         sample_id = self.train_loader.dataset.idx_to_sample_id[dataset_idx]
-                        img_plot = image_np[j_idx][:3,:,:]
-                        img_plot = np.transpose(img_plot, (1, 2, 0))
-                        
+                        img_plot = image_np[j_idx]
+
                         pixel_pred_idx = pixel_pred_np[j_idx] * self.train_loader.dataset.size
                         pixel_gt_idx = pixel_gt_np[j_idx] * self.train_loader.dataset.size
                         
@@ -164,10 +165,14 @@ class Trainer(object):
             # Plot triplet pairs
             if self.cnt % self.args.plot_triplet_every == 0:
                 
-                image_np = image.cpu().detach().numpy()
+                image_np = image.cpu().detach().numpy()[:,:3,:,:]
+                mask_np = image.cpu().detach().numpy()[:,3,:,:]
+                image_np = np.transpose(image_np, (0,2,3,1))
+                image_np = uplot.denormalize_image(image_np, train_loader.dataset.img_mean, train_loader.dataset.img_std)
+
                 pixel_pred_np = pixel_pred.cpu().detach().numpy()
                 pixel_gt_np = pixel_gt.cpu().detach().numpy()
-                
+
                 for mask,mask_name in [(mask_cat, "mask_cat"), (mask_id, "mask_id")]:
                     loss_pairs = torch.stack(torch.where(mask), dim=1)
                     plt_pairs_idx = np.random.choice(len(loss_pairs), self.args.triplet_plot_num, replace=False)
@@ -184,8 +189,8 @@ class Trainer(object):
                         for i in range(3):
                             sample = train_loader.dataset.idx_to_data_dict[idx_in_dataset[i]]
                             sample_ids.append(sample['sample_id'])
-                            img = np.transpose(image_np[j_idxs[i]][:3,:,:], (1, 2, 0))
-                            mask = image_np[j_idxs[i]][3,:,:]
+                            img = image_np[j_idxs[i]]
+                            mask = image_np[j_idxs[i]]
                             masked_img = uplot.masked_image(img, mask)
                             axs[i].imshow(masked_img)
                             axs[i].set_title('{}_{}'.format(sample['obj_cat'], sample['obj_id']))
