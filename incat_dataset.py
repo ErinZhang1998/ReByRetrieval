@@ -33,6 +33,8 @@ class InCategoryClutterDataset(Dataset):
         self.model_filepath = model_filepath
         self.shape_categories_filepath = shape_categories_filepath
         self.shapenet_filepath = shapenet_filepath
+        self.img_mean = [0.5,0.5,0.5]
+        self.img_std = [0.5,0.5,0.5]
 
         self.dir_list = self.data_dir_list(self.scene_dir)
         
@@ -184,11 +186,22 @@ class InCategoryClutterDataset(Dataset):
         # return len(self.idx_to_data_dict)
         return np.sum(self.total)
     
+    # def denormalize_image(self):
+    #     for i in range(3):
+    #         meani = mean[i]
+    #         stdi = std[i]
+    #         img[:,:,i] = (img[:,:,i] * stdi) + meani
+    #     return img
+
     def __getitem__(self, idx):
         sample = self.idx_to_data_dict[idx]
-        trans = utrans.Compose([utrans.Resized(width = self.size, height = self.size),
-                utrans.RandomHorizontalFlip(),
-            ])
+        if self.split == 'train':
+            trans = utrans.Compose([utrans.Resized(width = self.size, height = self.size),
+                    utrans.RandomHorizontalFlip(),
+                ])
+        else:
+            trans = utrans.Compose([utrans.Resized(width = self.size, height = self.size)
+                ])
 
         rgb_all = mpimg.imread(sample['rgb_all_path'])
         mask = mpimg.imread(sample['mask_path'])
@@ -200,7 +213,7 @@ class InCategoryClutterDataset(Dataset):
         img_mask, center_trans = trans(mask , center)
 
         img_mask = np.expand_dims(img_mask, axis=2)
-        img_rgb = utrans.normalize(utrans.to_tensor(img_rgb), [0.5,0.5,0.5], [0.5,0.5,0.5])
+        img_rgb = utrans.normalize(utrans.to_tensor(img_rgb), self.img_mean, self.img_std)
         img_mask = utrans.to_tensor(img_mask)
 
         img = torch.cat((img_rgb, img_mask), 0)

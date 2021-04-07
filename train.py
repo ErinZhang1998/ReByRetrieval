@@ -96,19 +96,19 @@ class Trainer(object):
             self.optimizer.zero_grad()
 
             image = data[0]
-            scale_info = data[1]
-            pixel_info = data[2]
-            cat_info = data[3]
-            id_info = data[4]
+            scale_gt = data[1]
+            pixel_gt = data[2]
+            cat_gt = data[3]
+            id_gt = data[4]
             dataset_indices = data[5]  
             
             self.model = self.model.to(self.device)
 
             image = image.to(self.device)
-            scale_info = scale_info.to(self.device)
-            pixel_info = pixel_info.to(self.device)
-            cat_info = cat_info.to(self.device)
-            id_info = id_info.to(self.device)
+            scale_gt = scale_gt.to(self.device)
+            pixel_gt = pixel_gt.to(self.device)
+            cat_gt = cat_gt.to(self.device)
+            id_gt = id_gt.to(self.device)
             
             img_embed, pose_pred = self.model(image)
             scale_pred = pose_pred[:,:1]
@@ -116,10 +116,10 @@ class Trainer(object):
             img_embed -= img_embed.min(1, keepdim=True)[0]
             img_embed /= img_embed.max(1, keepdim=True)[0]
 
-            mask_cat, loss_cat = triploss.batch_all_triplet_loss(labels=cat_info, embeddings=img_embed, margin=self.loss_args.margin, squared=False)
-            mask_id, loss_obj = triploss.batch_all_triplet_loss(labels=id_info, embeddings=img_embed, margin=self.loss_args.margin, squared=False)
-            loss_scale = self.criterion_scale(scale_pred, scale_info)
-            loss_pixel = self.criterion_pixel(pixel_pred, pixel_info)
+            mask_cat, loss_cat = triploss.batch_all_triplet_loss(labels=cat_gt, embeddings=img_embed, margin=self.loss_args.margin, squared=False)
+            mask_id, loss_obj = triploss.batch_all_triplet_loss(labels=id_gt, embeddings=img_embed, margin=self.loss_args.margin, squared=False)
+            loss_scale = self.criterion_scale(scale_pred, scale_gt)
+            loss_pixel = self.criterion_pixel(pixel_pred, pixel_gt)
 
             loss_cat_w = self.loss_args.lambda_cat * loss_cat
             loss_obj_w = self.loss_args.lambda_obj * loss_obj
@@ -134,12 +134,21 @@ class Trainer(object):
             if epoch <= self.args.loss_anormaly_detech_epoch:
                 if batch_idx > 0 and loss_pixel_w.item() >= (self.args.loss_anormaly_scale - 1) * hist_loss_pixel:
                     print("Spike in training batch: ", batch_idx, loss_pixel_w.item())
-                    dataset_indices_int = dataset_indices.cpu().numpy().astype(int).reshape(-1,)
-                    pixel_pred_cpu = pixel_pred.cpu().detach().numpy().reshape((-1,2))
+                    dataset_indices_np = dataset_indices.cpu().numpy().astype(int).reshape(-1,)
+                    image_np = image.cpu().detach().numpy()
+                    pixel_pred_np = pixel_pred.cpu().detach().numpy()
+                    pixel_gt_np = pixel_gt.cpu().detach().numpy()
                     
-                    for j_idx, dataset_idx in enumerate(dataset_indices_int):
-                        pixel_idx = pixel_pred_cpu[j_idx]
-                        uplot.plot_predicted_image(self.cnt, self.train_loader, dataset_idx, pixel_idx, 'train_loss_spike')
+                    for j_idx, dataset_idx in enumerate(dataset_indices_np):                    
+                        dataset_idx = dataset_indices_np[j_idx]
+                        sample_id = self.train_loader.dataset.idx_to_sample_id[dataset_idx]
+                        img_plot = image_np[j_idx][:3,:,:]
+                        img_plot = np.transpose(img_plot, (1, 2, 0))
+                        
+                        pixel_pred_idx = pixel_pred_np[j_idx] * self.train_loader.dataset.size
+                        pixel_gt_idx = pixel_gt_np[j_idx] * self.train_loader.dataset.size
+                        
+                        uplot.plot_predicted_image(self.cnt, img_plot, pixel_pred_idx, pixel_gt_idx, 'train_loss_spike', sample_id)
             
             hist_loss_pixel = loss_pixel_w.item()
 
@@ -154,15 +163,38 @@ class Trainer(object):
             
             # Plot triplet pairs
             if self.cnt % self.args.plot_triplet_every == 0:
+                
+                image_np = image.cpu().detach().numpy()
+                pixel_pred_np = pixel_pred.cpu().detach().numpy()
+                pixel_gt_np = pixel_gt.cpu().detach().numpy()
+                
                 for mask,mask_name in [(mask_cat, "mask_cat"), (mask_id, "mask_id")]:
                     loss_pairs = torch.stack(torch.where(mask), dim=1)
                     plt_pairs_idx = np.random.choice(len(loss_pairs), self.args.triplet_plot_num, replace=False)
                     loss_pairs = loss_pairs[list(plt_pairs_idx)]
                     loss_pairs_idx_in_dataset = dataset_indices[loss_pairs].view((-1,3))
+                    
+                    j = 0
                     for idx_in_dataset in loss_pairs_idx_in_dataset:
-                        idx_in_dataset = idx_in_dataset.cpu().numpy().astype(int)
-                        key_name = '{}_{}_{}'.format(idx_in_dataset[0],idx_in_dataset[1],idx_in_dataset[2])
-                        uplot.plot_image_with_mask(epoch, self.cnt, idx_in_dataset, self.train_loader.dataset, mask_name, key_name)
+                        j_idxs = loss_pairs[j] # index in batch {0,...,batch_size-1}
+                        idx_in_dataset = idx_in_dataset.cpu().numpy().astype(int)  # index in dataset {0,...,len(dataset)-1}
+
+                        fig, axs = plt.subplots(1, 3, figsize=(30,20))  
+                        sample_ids = []
+                        for i in range(3):
+                            sample = train_loader.dataset.idx_to_data_dict[idx_in_dataset[i]]
+                            sample_ids.append(sample['sample_id'])
+                            img = np.transpose(image_np[j_idxs[i]][:3,:,:], (1, 2, 0))
+                            mask = image_np[j_idxs[i]][3,:,:]
+                            masked_img = uplot.masked_image(img, mask)
+                            axs[i].imshow(masked_img)
+                            axs[i].set_title('{}_{}'.format(sample['obj_cat'], sample['obj_id']))
+                        
+                        final_img = uplot.plt_to_image(fig)
+                        log_key = '{}/{}_{}_{}'.format(mask_name, epoch, self.cnt, '_'.join(sample_ids))
+                        wandb.log({log_key: wandb.Image(final_img)}, step=self.cnt)
+                        plt.close()
+                        j += 1
             
             # Log info
             if self.cnt % self.args.log_every == 0:

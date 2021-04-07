@@ -34,6 +34,7 @@ def eval_dataset(epoch, cnt, model, device, test_loader, loss_args, test_args, l
             pixel_gt = data[2]
             cat_gt = data[3]
             id_gt = data[4]
+            dataset_indices = data[5]
 
             model = model.to(device)
             image = image.to(device)
@@ -42,8 +43,9 @@ def eval_dataset(epoch, cnt, model, device, test_loader, loss_args, test_args, l
             img_embed = img_embed.cpu()
 
             embeds.append(img_embed)
-            indices.append(data[5])
-            images.append(image.cpu().detach())
+            indices.append(dataset_indices)
+            image = image.cpu().detach()
+            images.append(image)
 
             pose_pred = pose_pred.cpu()
             pose_pred = pose_pred.float().detach()
@@ -65,14 +67,18 @@ def eval_dataset(epoch, cnt, model, device, test_loader, loss_args, test_args, l
             _,o_loss = triploss.batch_all_triplet_loss(labels=id_gt, embeddings=img_embed, margin=loss_args.margin, squared=False) #.cpu()
 
             if batch_idx % test_args.plot_gt_image_every == 0 and batch_idx != len(test_loader)-1:
-                batch_row = test_loader.batch_indices[batch_idx]
                 j_idx = np.random.choice(len(batch_row),1)[0]
-                dataset_idx = batch_row[j_idx]
-                pixel_idx = pixel_pred[j_idx]
-                scale_idx = scale_pred[j_idx].item()
+                dataset_idx = dataset_indices.reshape(-1,)[j_idx]
+                sample_id = test_loader.dataset.idx_to_sample_id[dataset_idx]
+                img_plot = image[j_idx].numpy()[:3,:,:]
+                img_plot = np.transpose(img_plot, (1, 2, 0))
+                
+                pixel_pred_idx = pixel_pred.numpy()[j_idx] * test_loader.dataset.size
+                pixel_gt_idx = pixel_gt.numpy()[j_idx] * test_loader.dataset.size
+                scale_pred_idx = scale_pred[j_idx].item()
                 scale_gt_idx = scale_gt[j_idx].item()
                 
-                uplot.plot_predicted_image(cnt, test_loader, dataset_idx, pixel_idx, 'test_pixel_image', scale_idx, scale_gt_idx)
+                uplot.plot_predicted_image(cnt, img_plot, pixel_pred_idx, pixel_gt_idx, 'test_pixel_image', sample_id, scale_pred_idx, scale_gt_idx)
 
             loss_cat.append(c_loss.item())
             loss_obj.append(o_loss.item())
@@ -92,11 +98,11 @@ def eval_dataset(epoch, cnt, model, device, test_loader, loss_args, test_args, l
         all_embedding = torch.cat(embeds, dim=0).numpy()
         all_indices = torch.cat(indices, dim=0).numpy()
         all_images = torch.cat(images, dim=0).numpy()
-        feat_path = os.path.join(options.output_dir, '{}_{}.npy'.format(wandb.run.name, epoch))
+        feat_path = os.path.join(test_args.save_prediction_dir, '{}_{}.npy'.format(wandb.run.name, epoch))
         np.save(feat_path, all_embedding)
-        ind_path = os.path.join(options.output_dir, '{}_{}_index.npy'.format(wandb.run.name, epoch))
+        ind_path = os.path.join(test_args.save_prediction_dir, '{}_{}_index.npy'.format(wandb.run.name, epoch))
         np.save(ind_path, all_indices)
-        image_path = os.path.join(options.output_dir, '{}_{}_image.npy'.format(wandb.run.name, epoch))
+        image_path = os.path.join(test_args.save_prediction_dir, '{}_{}_image.npy'.format(wandb.run.name, epoch))
         np.save(image_path, all_images)
 
     final_loss_cat = np.mean(loss_cat) * loss_args.lambda_cat
