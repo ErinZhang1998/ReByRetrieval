@@ -50,6 +50,15 @@ class InCategoryClutterDataset(Dataset):
         self.idx_to_sample_id = {}
         for k,v in self.idx_to_data_dict.items():
             self.idx_to_sample_id[k] = v['sample_id']
+
+        self.idx_to_sample_id = {}
+        acc = 0
+        for k,v in self.idx_to_data_dict.items():
+            if acc == k
+        
+        self.sample_id_to_idx = {}
+        for k,v in self.idx_to_data_dict.items():
+            self.sample_id_to_idx[v['sample_id']] = k
         
         self.keep_even()
 

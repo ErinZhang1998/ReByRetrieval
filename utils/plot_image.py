@@ -8,9 +8,12 @@ import PIL
 import copy
 
 def denormalize_image(imgs, mean, std):
-    mean = np.asarray(mean).reshape((-1,3))
-    std = np.asarray(std).reshape((-1,3))
-    return (imgs + mean) * std
+    for i in range(3):
+        meani = mean[i]
+        stdi = std[i]
+        imgs[:,:,:,i] = (imgs[:,:,:,i] * stdi) + meani
+    return imgs
+
 
 def plt_to_image(fig_obj):
     buf = io.BytesIO()
@@ -33,9 +36,7 @@ def return_image_and_masked(dataset, idx):
     return img_all, masked_img
 
 
-def plot_predicted_image(cnt, img_plot, pixel_pred_idx, pixel_gt_idx, panel_name, sample_id, scale_pred_idx = None, scale_gt_idx = None)
-    sample = test_loader.dataset.idx_to_data_dict[dataset_idx]
-    
+def plot_predicted_image(cnt, img_plot, pixel_pred_idx, pixel_gt_idx, panel_name='unknown', sample_id='unknown', scale_pred_idx = None, scale_gt_idx = None):    
     fig = plt.figure(figsize=(10, 10))
     plt.imshow(img_plot)
     plt.scatter(pixel_gt_idx[0], pixel_gt_idx[1],   marker=".", c='b', s=30)
@@ -43,9 +44,8 @@ def plot_predicted_image(cnt, img_plot, pixel_pred_idx, pixel_gt_idx, panel_name
     if (scale_pred_idx is not None) and (scale_gt_idx is not None):
         plt.title('gt: {}, pred: {}'.format(scale_gt_idx, scale_pred_idx))
 
-    final_img = plt_to_image(fig)
-    
     if cnt >= 0:
+        final_img = plt_to_image(fig)
         wandb.log({'{}/{}'.format(panel_name, sample_id): wandb.Image(final_img)}, step=cnt)
     plt.close()
 

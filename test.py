@@ -13,7 +13,7 @@ import loss.triplet_loss as triploss
 import utils.plot_image as uplot
 
 def eval_dataset(epoch, cnt, model, device, test_loader, loss_args, test_args, loss_used, last_epoch=False):
-    np.random.seed(129)
+    # np.random.seed(129)
     loss_cat = []
     loss_obj = []
 
@@ -24,7 +24,10 @@ def eval_dataset(epoch, cnt, model, device, test_loader, loss_args, test_args, l
 
     embeds = []
     indices = []
-    images = []
+    sample_ids = []
+    # images = []
+
+    test_dataset = test_loader.dataset
     
     with torch.no_grad():
         
@@ -45,7 +48,7 @@ def eval_dataset(epoch, cnt, model, device, test_loader, loss_args, test_args, l
             embeds.append(img_embed)
             indices.append(dataset_indices)
             image = image.cpu().detach()
-            images.append(image)
+            # images.append(image)
 
             pose_pred = pose_pred.cpu()
             pose_pred = pose_pred.float().detach()
@@ -62,19 +65,21 @@ def eval_dataset(epoch, cnt, model, device, test_loader, loss_args, test_args, l
             img_embed /= img_embed.max(1, keepdim=True)[0]
 
             _,c_loss = triploss.batch_all_triplet_loss(labels=cat_gt, embeddings=img_embed, margin=loss_args.margin, squared=False) #.cpu()
-            if batch_idx % 100 == 0:
-                print("====> Evaluate: ", batch_idx)
             _,o_loss = triploss.batch_all_triplet_loss(labels=id_gt, embeddings=img_embed, margin=loss_args.margin, squared=False) #.cpu()
 
             if batch_idx % test_args.plot_gt_image_every == 0 and batch_idx != len(test_loader)-1:
-                j_idx = np.random.choice(len(batch_row),1)[0]
-                dataset_idx = dataset_indices.reshape(-1,)[j_idx]
-                sample_id = test_loader.dataset.idx_to_sample_id[dataset_idx]
-                img_plot = image[j_idx].numpy()[:3,:,:]
-                img_plot = np.transpose(img_plot, (1, 2, 0))
+                print("===> Plotting Test: ", batch_idx)
+                j_idx = np.random.choice(len(dataset_indices),1)[0]
+                dataset_idx = dataset_indices.reshape(-1,)[j_idx].item()
+                sample = test_dataset.idx_to_data_dict[dataset_idx]
+                sample_id = sample['sample_id']
+                img_plot = mpimg.imread(sample['rgb_all_path'])
                 
-                pixel_pred_idx = pixel_pred.numpy()[j_idx] * test_loader.dataset.size
-                pixel_gt_idx = pixel_gt.numpy()[j_idx] * test_loader.dataset.size
+                pixel_pred_idx = pixel_pred.numpy()[j_idx].reshape(-1,)
+                pixel_pred_idx[0] *= test_dataset.img_w
+                pixel_pred_idx[1] *= test_dataset.img_h
+                pixel_gt_idx = copy.deepcopy(sample['object_center'].reshape(-1,))
+                pixel_gt_idx[0] = test_dataset.img_w - pixel_gt_idx[0]
                 scale_pred_idx = scale_pred[j_idx].item()
                 scale_gt_idx = scale_gt[j_idx].item()
                 
@@ -97,19 +102,16 @@ def eval_dataset(epoch, cnt, model, device, test_loader, loss_args, test_args, l
 
         all_embedding = torch.cat(embeds, dim=0).numpy()
         all_indices = torch.cat(indices, dim=0).numpy()
-        all_images = torch.cat(images, dim=0).numpy()
+        # all_images = torch.cat(images, dim=0).numpy()
         feat_path = os.path.join(test_args.save_prediction_dir, '{}_{}.npy'.format(wandb.run.name, epoch))
         np.save(feat_path, all_embedding)
         ind_path = os.path.join(test_args.save_prediction_dir, '{}_{}_index.npy'.format(wandb.run.name, epoch))
         np.save(ind_path, all_indices)
-        image_path = os.path.join(test_args.save_prediction_dir, '{}_{}_image.npy'.format(wandb.run.name, epoch))
-        np.save(image_path, all_images)
+        # image_path = os.path.join(test_args.save_prediction_dir, '{}_{}_image.npy'.format(wandb.run.name, epoch))
+        # np.save(image_path, all_images)
 
     final_loss_cat = np.mean(loss_cat) * loss_args.lambda_cat
     final_loss_obj = np.mean(loss_obj) * loss_args.lambda_obj
-
-    # final_loss_s = torch.nn.MSELoss(reduction='mean')(scale_pred, scale_gt).item() * loss_args.lambda_scale
-    # final_loss_p = (torch.nn.MSELoss(reduction='sum')(pixel_pred, pixel_gt).item() / len(pixel_pred)) * loss_args.lambda_pixel
 
     if loss_used == 'l1':
         final_loss_s = torch.nn.L1Loss()(scale_pred, scale_gt).item() * loss_args.lambda_scale

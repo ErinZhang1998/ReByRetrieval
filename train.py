@@ -6,6 +6,8 @@ import os
 import torchvision.utils as vutils
 from tensorboardX import SummaryWriter
 import wandb
+import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
 
 import utils.plot_image as uplot 
 import utils.utils as uu
@@ -78,6 +80,7 @@ class Trainer(object):
         start_epoch = self.args.start_epoch
         
         if not test_only: 
+            self.cnt = 0
             for epoch in range(start_epoch, self.args.epochs):
                 self.train_epoch(epoch)
         
@@ -137,7 +140,7 @@ class Trainer(object):
                     dataset_indices_np = dataset_indices.cpu().numpy().astype(int).reshape(-1,)
                     image_np = image.cpu().detach().numpy()
                     image_np = np.transpose(image_np[:,:3,:,:], (0,2,3,1))
-                    image_np = uplot.denormalize_image(image_np, train_loader.dataset.img_mean, train_loader.dataset.img_std)
+                    image_np = uplot.denormalize_image(image_np, self.train_loader.dataset.img_mean, self.train_loader.dataset.img_std)
                     pixel_pred_np = pixel_pred.cpu().detach().numpy()
                     pixel_gt_np = pixel_gt.cpu().detach().numpy()
                     
@@ -168,8 +171,7 @@ class Trainer(object):
                 image_np = image.cpu().detach().numpy()[:,:3,:,:]
                 mask_np = image.cpu().detach().numpy()[:,3,:,:]
                 image_np = np.transpose(image_np, (0,2,3,1))
-                image_np = uplot.denormalize_image(image_np, train_loader.dataset.img_mean, train_loader.dataset.img_std)
-
+                image_np = uplot.denormalize_image(image_np, self.train_loader.dataset.img_mean, self.train_loader.dataset.img_std)
                 pixel_pred_np = pixel_pred.cpu().detach().numpy()
                 pixel_gt_np = pixel_gt.cpu().detach().numpy()
 
@@ -187,11 +189,11 @@ class Trainer(object):
                         fig, axs = plt.subplots(1, 3, figsize=(30,20))  
                         sample_ids = []
                         for i in range(3):
-                            sample = train_loader.dataset.idx_to_data_dict[idx_in_dataset[i]]
+                            sample = self.train_loader.dataset.idx_to_data_dict[idx_in_dataset[i]]
                             sample_ids.append(sample['sample_id'])
                             img = image_np[j_idxs[i]]
-                            mask = image_np[j_idxs[i]]
-                            masked_img = uplot.masked_image(img, mask)
+                            maski = mask_np[j_idxs[i]]
+                            masked_img = uplot.masked_image(img, maski)
                             axs[i].imshow(masked_img)
                             axs[i].set_title('{}_{}'.format(sample['obj_cat'], sample['obj_id']))
                         
