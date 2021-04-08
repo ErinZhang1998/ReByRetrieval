@@ -139,38 +139,21 @@ class InCategoryClutterDataset(Dataset):
         cam_num = int(cam_num)
         return scene_name, cam_num, scene_obj_idx
     
-    def load_sample_object(self, sample_id):
+    def load_sample_img_mask(self, sample_id):
         # scene_000953_00022_0
         scene_name, cam_num, scene_obj_idx = self.parse_sample_id(sample_id)
         dir_path = os.path.join(self.scene_dir, scene_name)
-        scene_description_dir = os.path.join(dir_path, 'scene_description.p')
-        scene_description = pickle.load(open(scene_description_dir, 'rb'))
-
-        object_description = scene_description['object_descriptions'][scene_obj_idx]
-        object_cat_id = object_description['obj_cat']
-        object_obj_id = object_description['obj_id']
 
         root_name = f'_{(cam_num):05}'
         obj_name = f'_{(cam_num):05}_{scene_obj_idx}'
+
+        rgb_all_path = os.path.join(dir_path, 'rgb{}.png'.format(root_name))
         segmentation_filename = os.path.join(dir_path, 'segmentation{}.png'.format(obj_name))
-        if not os.path.exists(segmentation_filename):
-            return None
-        # sample_id = scene_name + obj_name
-        sample = {}
-        sample['sample_id'] = sample_id
-        sample['depth_all_path'] = os.path.join(dir_path, 'depth{}.png'.format(root_name))
-        sample['rgb_all_path'] = os.path.join(dir_path, 'rgb{}.png'.format(root_name))
-        sample['mask_path'] = segmentation_filename
-
-        sample['position'] = object_description['position']
-        sample['scale'] = object_description['scale']
-        sample['orientation'] = object_description['orientation']
-        sample['mesh_filename'] = object_description['mesh_filename']
-        sample['object_center'] = object_description["object_center_{}".format(cam_num)]
-        sample['obj_cat'] = self.cat_id_to_label[object_cat_id]
-        sample['obj_id'] = self.object_id_to_label[object_obj_id]
-
-        return sample
+        
+        rgb_all = mpimg.imread(rgb_all_path)
+        mask = mpimg.imread(segmentation_filename)
+    
+        return rgb_all, mask
     
     
     def load_sample(self, dir_path, idx):
