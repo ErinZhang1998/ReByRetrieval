@@ -39,7 +39,7 @@ test_dataset = incat_dataset.InCategoryClutterDataset('test', args.dataset_confi
 test_loader = incat_dataloader.InCategoryClutterDataloader(test_dataset, args.testing_config.batch_size, shuffle = False)
 
 embeds = []
-indices = []
+scene_names_list = []
 
 pose_pred_list = []
 pose_info_list = []
@@ -54,6 +54,11 @@ with torch.no_grad():
         pixel_info = data[2]
         index = data[-1]  
 
+        dataset_indices = data[5]
+        # ind = list(dataset_indices.numpy().astype(int).reshape(-1,))
+        scene_names = test_dataset.idx_to_sample_id[dataset_indices.numpy().astype(int)].reshape(-1,)
+        scene_names_list.append(scene_names)
+
         model = model.to(device)
         image = image.to(device)
 
@@ -67,12 +72,10 @@ with torch.no_grad():
         pose_info_list.append(torch.cat([scale_info, pixel_info], dim=1))
         
         embeds.append(img_embed)
-        indices.append(index)
         
         torch.cuda.empty_cache()
 
 all_embedding = torch.cat(embeds, dim=0).numpy()
-all_indices = torch.cat(indices, dim=0).numpy()
 
 try:
     pose_pred = torch.cat(pose_pred_list, dim=0)
@@ -87,6 +90,7 @@ except:
 feat_path = os.path.join(options.output_dir, '{}_{}.npy'.format(options.experiment_name, options.epoch))
 np.save(feat_path, all_embedding)
 
-ind_path = os.path.join(options.output_dir, '{}_{}_index.npy'.format(options.experiment_name, options.epoch))
-np.save(ind_path, all_indices)
-# python feature_gen.py --experiment_name volcanic-eon-17 --epoch 5 --config_file configs/config_only_cat_obj.yaml --output_dir /raid/xiaoyuz1/retrieve_features
+all_scene_names = np.hstack(scene_names_list)
+scane_name_path = os.path.join(options.output_dir, '{}_{}_scenes.npy'.format(options.experiment_name, options.epoch))
+np.save(scane_name_path, all_scene_names)
+# python feature_gen.py --experiment_name absurd-waterfall-22 --epoch 25 --config_file configs/config_all_1.yaml --output_dir /raid/xiaoyuz1/retrieve_features

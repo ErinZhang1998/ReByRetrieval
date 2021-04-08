@@ -42,6 +42,7 @@ class InCategoryClutterDataset(Dataset):
         self.object_ids, self.object_id_to_label, self.cat_ids, self.cat_id_to_label = self.object_cat()
 
         self.idx_to_data_dict = dict()
+        # self.idx_to_sample_id = dict()
         idx = 0
         for dir_path in self.dir_list:
             idx_to_data_dicti, idx = self.load_sample(dir_path, idx)
@@ -152,8 +153,14 @@ class InCategoryClutterDataset(Dataset):
         
         rgb_all = mpimg.imread(rgb_all_path)
         mask = mpimg.imread(segmentation_filename)
+
+        scene_description = pickle.load(open(os.path.join(dir_path, 'scene_description.p'), 'rb'))
+        object_description = scene_description['object_descriptions'][scene_obj_idx]
+        center = object_description["object_center_{}".format(cam_num)]
+        center_rev = copy.deepcopy(center.reshape(-1,))
+        center_rev[0] = rgb_all.shape[1] - center_rev[0]
     
-        return rgb_all, mask
+        return rgb_all, mask, center_rev
     
     
     def load_sample(self, dir_path, idx):
@@ -200,6 +207,7 @@ class InCategoryClutterDataset(Dataset):
                 # 
 
                 samples[idx_i] = sample
+                # self.idx_to_sample_id[idx_i] = sample_id
                 # print(idx_i, sample_id)
                 Ai.append(idx_i)
                 idx_i += 1
