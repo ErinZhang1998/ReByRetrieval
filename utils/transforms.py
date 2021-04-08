@@ -13,15 +13,52 @@ img.shape
 '''
 
 def normalize(tensor, mean, std):
+    res = copy.deepcopy(tensor)
+    for i, (m, s) in enumerate(zip(mean, std)):
+        if len(res.shape) == 4:
+            res[:,i,:,:].sub_(m).div_(s)
+        else:
+            res[i,:,:].sub_(m).div_(s)
+    return res
 
-    for t, m, s in zip(tensor, mean, std):
-        t.sub_(m).div_(s)
-    return tensor
+def denormalize(tensor, mean, std):
+    res = copy.deepcopy(tensor)
+    for i, (m, s) in enumerate(zip(mean, std)):
+        if len(res.shape) == 4:
+            res[:,i,:,:].mul_(s).add_(s)
+        else:
+            res[i,:,:].mul_(s).add_(s)
+    return res
 
 def to_tensor(pic):
-    img = torch.from_numpy(pic.transpose((2, 0, 1)))
+    '''
+    pic: numpy array of images
+    (N,size,size,channel) or (size,size,channel) or any 2d array
+    '''
+    if len(pic.shape) == 4:
+        img = torch.from_numpy(pic.transpose((0, 3, 1, 2)).copy())
+    else:
+        if len(pic.shape) < 3:
+            img = torch.from_numpy(pic.copy())
+        else:
+            img = torch.from_numpy(pic.transpose((2, 0, 1)).copy())
 
     return img.float()
+
+def from_tensor(pic):
+    '''
+    pic: torch tensor
+    (N,channel, size,size) or (channel, size,size) or any 2d tensor
+    '''
+    if len(pic.shape) == 4:
+        img = pic.permute((0,2,3,1)).numpy()
+    else:
+        if len(pic.shape) < 3:
+            img = pic.numpy()
+        else:
+            img = pic.permute((1,2,0)).numpy()
+
+    return img
 
 class Resized(object):
     def __init__(self, width = 227, height = 227):
@@ -63,10 +100,10 @@ class RandomHorizontalFlip(object):
         h, w= img.shape[0], img.shape[1]
 
         if np.random.random() < self.prob:
-            img = horizontal_flip(img, True)
-            mask = horizontal_flip(mask, True)
+            img = np.flip(img, axis=1)
+            mask = np.flip(mask, axis=1)
             center_copy[0] = w - center_copy[0]
-            return np.ascontiguousarray(img),  mask, center_copy
+            return img,  mask, center_copy
         
         return img, mask, center_copy
 

@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 
 import utils.plot_image as uplot 
+import utils.transforms as utrans
 import utils.utils as uu
 import test
 import loss.triplet_loss as triploss
@@ -138,9 +139,11 @@ class Trainer(object):
                 if batch_idx > 0 and loss_pixel_w.item() >= (self.args.loss_anormaly_scale - 1) * hist_loss_pixel:
                     print("Spike in training batch: ", batch_idx, loss_pixel_w.item())
                     dataset_indices_np = dataset_indices.cpu().numpy().astype(int).reshape(-1,)
-                    image_np = image.cpu().detach().numpy()
-                    image_np = np.transpose(image_np[:,:3,:,:], (0,2,3,1))
-                    image_np = uplot.denormalize_image(image_np, self.train_loader.dataset.img_mean, self.train_loader.dataset.img_std)
+                    
+                    image_np = image.cpu().detach()[:,:3,:,:]
+                    image_np = utrans.denormalize(image_np, self.train_loader.dataset.img_mean, self.train_loader.dataset.img_std)
+                    image_np = utrans.from_tensor(image_np)
+                    
                     pixel_pred_np = pixel_pred.cpu().detach().numpy()
                     pixel_gt_np = pixel_gt.cpu().detach().numpy()
                     
@@ -168,10 +171,14 @@ class Trainer(object):
             # Plot triplet pairs
             if self.cnt % self.args.plot_triplet_every == 0:
                 
-                image_np = image.cpu().detach().numpy()[:,:3,:,:]
-                mask_np = image.cpu().detach().numpy()[:,3,:,:]
-                image_np = np.transpose(image_np, (0,2,3,1))
-                image_np = uplot.denormalize_image(image_np, self.train_loader.dataset.img_mean, self.train_loader.dataset.img_std)
+                
+                image_np = image.cpu().detach()[:,:3,:,:]
+                image_np = utrans.denormalize(image_np, self.train_loader.dataset.img_mean, self.train_loader.dataset.img_std)
+                image_np = utrans.from_tensor(image_np)
+
+                mask_np = image.cpu().detach()[:,3:,:,:]
+                mask_np = utrans.from_tensor(mask_np)[:,:,:,0]
+
                 pixel_pred_np = pixel_pred.cpu().detach().numpy()
                 pixel_gt_np = pixel_gt.cpu().detach().numpy()
 

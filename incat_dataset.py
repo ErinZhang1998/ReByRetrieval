@@ -224,13 +224,6 @@ class InCategoryClutterDataset(Dataset):
     def __len__(self):
         # return len(self.idx_to_data_dict)
         return np.sum(self.total)
-    
-    # def denormalize_image(self):
-    #     for i in range(3):
-    #         meani = mean[i]
-    #         stdi = std[i]
-    #         img[:,:,i] = (img[:,:,i] * stdi) + meani
-    #     return img
 
     def __getitem__(self, idx):
         sample = self.idx_to_data_dict[idx]
@@ -248,12 +241,13 @@ class InCategoryClutterDataset(Dataset):
         center[0] = rgb_all.shape[1] - center[0]
 
 
-        img_rgb, center_trans = trans(rgb_all, center)
-        img_mask, center_trans = trans(mask , center)
+        img_rgb, img_mask, center_trans = trans(rgb_all, mask, center)
+        # img_mask, center_trans = trans(mask , center)
 
         img_mask = np.expand_dims(img_mask, axis=2)
         img_rgb = utrans.normalize(utrans.to_tensor(img_rgb), self.img_mean, self.img_std)
         img_mask = utrans.to_tensor(img_mask)
+
 
         img = torch.cat((img_rgb, img_mask), 0)
         image = torch.FloatTensor(img)

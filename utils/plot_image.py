@@ -11,9 +11,11 @@ def denormalize_image(imgs, mean, std):
     for i in range(3):
         meani = mean[i]
         stdi = std[i]
-        imgs[:,:,:,i] = (imgs[:,:,:,i] * stdi) + meani
+        if imgs.shape > 3:
+            imgs[:,:,:,i] = (imgs[:,:,:,i] * stdi) + meani
+        else:
+            imgs[:,:,i] = (imgs[:,:,i] * stdi) + meani
     return imgs
-
 
 def plt_to_image(fig_obj):
     buf = io.BytesIO()
