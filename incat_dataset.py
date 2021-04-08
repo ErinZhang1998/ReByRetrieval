@@ -135,13 +135,16 @@ class InCategoryClutterDataset(Dataset):
 
     def parse_sample_id(self,sample_id):
         scene_name, cam_num, scene_obj_idx = sample_id.rsplit('_',2)
+        scene_obj_idx = int(scene_obj_idx)
+        cam_num = int(cam_num)
         return scene_name, cam_num, scene_obj_idx
     
-    def load_sample_object(self, scene_name, scene_obj_idx, cam_num):
+    def load_sample_object(self, sample_id):
+        # scene_000953_00022_0
+        scene_name, cam_num, scene_obj_idx = self.parse_sample_id(sample_id)
         dir_path = os.path.join(self.scene_dir, scene_name)
         scene_description_dir = os.path.join(dir_path, 'scene_description.p')
         scene_description = pickle.load(open(scene_description_dir, 'rb'))
-        sample = {}
 
         object_description = scene_description['object_descriptions'][scene_obj_idx]
         object_cat_id = object_description['obj_cat']
@@ -152,7 +155,8 @@ class InCategoryClutterDataset(Dataset):
         segmentation_filename = os.path.join(dir_path, 'segmentation{}.png'.format(obj_name))
         if not os.path.exists(segmentation_filename):
             return None
-        sample_id = scene_name + obj_name
+        # sample_id = scene_name + obj_name
+        sample = {}
         sample['sample_id'] = sample_id
         sample['depth_all_path'] = os.path.join(dir_path, 'depth{}.png'.format(root_name))
         sample['rgb_all_path'] = os.path.join(dir_path, 'rgb{}.png'.format(root_name))
@@ -197,7 +201,7 @@ class InCategoryClutterDataset(Dataset):
                 segmentation_filename = os.path.join(dir_path, 'segmentation'+obj_name+'.png')
                 if not os.path.exists(segmentation_filename):
                     continue
-                sample_id = scene_name + obj_name
+                sample_id = scene_name + f'_{cam_num}_{i}'
                 sample = {'sample_id': sample_id}
                 sample['depth_all_path'] = os.path.join(dir_path, 'depth'+root_name+'.png')
                 sample['rgb_all_path'] = os.path.join(dir_path, 'rgb'+root_name+'.png')
