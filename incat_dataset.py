@@ -47,14 +47,10 @@ class InCategoryClutterDataset(Dataset):
             idx_to_data_dicti, idx = self.load_sample(dir_path, idx)
             self.idx_to_data_dict.update(idx_to_data_dicti)
         
-        self.idx_to_sample_id = {}
+        self.idx_to_sample_id = [[]]*len(self.idx_to_data_dict)
         for k,v in self.idx_to_data_dict.items():
-            self.idx_to_sample_id[k] = v['sample_id']
-
-        self.idx_to_sample_id = {}
-        acc = 0
-        for k,v in self.idx_to_data_dict.items():
-            if acc == k
+            self.idx_to_sample_id[k] = [v['sample_id']]
+        self.idx_to_sample_id = np.asarray(self.idx_to_sample_id).reshape(-1,)
         
         self.sample_id_to_idx = {}
         for k,v in self.idx_to_data_dict.items():
@@ -137,6 +133,41 @@ class InCategoryClutterDataset(Dataset):
             self.object_id_to_dict_idx[k] = v
             assert len(v)%2 == 0 
 
+    def parse_sample_id(self,sample_id):
+        scene_name, cam_num, scene_obj_idx = sample_id.rsplit('_',2)
+        return scene_name, cam_num, scene_obj_idx
+    
+    def load_sample_object(self, scene_name, scene_obj_idx, cam_num):
+        dir_path = os.path.join(self.scene_dir, scene_name)
+        scene_description_dir = os.path.join(dir_path, 'scene_description.p')
+        scene_description = pickle.load(open(scene_description_dir, 'rb'))
+        sample = {}
+
+        object_description = scene_description['object_descriptions'][scene_obj_idx]
+        object_cat_id = object_description['obj_cat']
+        object_obj_id = object_description['obj_id']
+
+        root_name = f'_{(cam_num):05}'
+        obj_name = f'_{(cam_num):05}_{scene_obj_idx}'
+        segmentation_filename = os.path.join(dir_path, 'segmentation{}.png'.format(obj_name))
+        if not os.path.exists(segmentation_filename):
+            return None
+        sample_id = scene_name + obj_name
+        sample['sample_id'] = sample_id
+        sample['depth_all_path'] = os.path.join(dir_path, 'depth{}.png'.format(root_name))
+        sample['rgb_all_path'] = os.path.join(dir_path, 'rgb{}.png'.format(root_name))
+        sample['mask_path'] = segmentation_filename
+
+        sample['position'] = object_description['position']
+        sample['scale'] = object_description['scale']
+        sample['orientation'] = object_description['orientation']
+        sample['mesh_filename'] = object_description['mesh_filename']
+        sample['object_center'] = object_description["object_center_{}".format(cam_num)]
+        sample['obj_cat'] = self.cat_id_to_label[object_cat_id]
+        sample['obj_id'] = self.object_id_to_label[object_obj_id]
+
+        return sample
+    
     
     def load_sample(self, dir_path, idx):
         scene_name = dir_path.split("/")[-1]
@@ -187,7 +218,6 @@ class InCategoryClutterDataset(Dataset):
                 idx_i += 1
 
             self.object_id_to_dict_idx[object_obj_id] = Ai
-
 
         return samples, idx_i
     

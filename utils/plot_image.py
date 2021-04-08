@@ -22,18 +22,19 @@ def plt_to_image(fig_obj):
     return PIL.Image.open(buf)
 
 def masked_image(img, mask):
+    img_all = copy.deepcopy(img)
     mask = mask > 0
     for i in range(3):
-        img[:,:,i] = img[:,:,i] * mask
-    return img
+        img_all[:,:,i] = img_all[:,:,i] * mask
+    return img_all
 
-def return_image_and_masked(dataset, idx):
-    sample = dataset.idx_to_data_dict[idx]
-    img = mpimg.imread(sample['rgb_all_path'])
-    img_all = copy.deepcopy(img)
-    mask = mpimg.imread(sample['mask_path'])
-    masked_img = masked_image(img, mask)
-    return img_all, masked_img
+# def return_image_and_masked(dataset, idx):
+#     sample = dataset.idx_to_data_dict[idx]
+#     img = mpimg.imread(sample['rgb_all_path'])
+#     img_all = copy.deepcopy(img)
+#     mask = mpimg.imread(sample['mask_path'])
+#     masked_img = masked_image(img, mask)
+#     return img_all, masked_img
 
 
 def plot_predicted_image(cnt, img_plot, pixel_pred_idx, pixel_gt_idx, panel_name='unknown', sample_id='unknown', scale_pred_idx = None, scale_gt_idx = None):    
