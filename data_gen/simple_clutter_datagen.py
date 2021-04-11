@@ -426,44 +426,6 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                 if pix_left_ratio > 0.3:
                     cv2.imwrite(os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}_{present_in_view_ind}.png'), segmentation.astype(np.uint8))
                 present_in_view_ind += 1 
-        
-        # # 
-        # # fig = plt.figure()
-        # # ax = fig.add_subplot(111, projection='3d')
-        
-        # # for object_idx, obj_mesh_filename in enumerate(obj_mesh_filenames):
-        # #     cur_position = e.data.qpos.ravel()[7+7*object_idx:7+7*object_idx+3].copy()
-        # #     corners8 = get_bound_corners(obj_trans[object_idx], all_obj_bounds[object_idx])
-        # #     ax.scatter(corners8[:,0], corners8[:,1], corners8[:,2], marker='o')
-
-        # # plt.show()
-
-        # #Draw bounding boxes:
-        # for cam_num in range(num_camera):
-        #     fig = plt.figure(figsize=(16, 8))
-        #     ax1 = fig.add_subplot(111)
-
-        #     camera = Camera(physics=e.model, height=cam_height, width=cam_width, camera_id=cam_num)
-        #     P,camera_tf = get_camera_matrix(camera)
-        #     vertical_img = Image.open(os.path.join(scene_folder_path, f'rgb_{(cam_num):05}.png'))
-            
-            
-        #     ax1.imshow(vertical_img)
-
-        #     for object_idx in range(num_objects):
-
-        #         cur_position = e.data.qpos.ravel()[7+7*object_idx:7+7*object_idx+3].copy()
-        #         # corners8 = get_bound_corners(obj_trans[object_idx], all_obj_bounds[object_idx])
-        #         pixel_coord = project_2d(P,camera_tf, np.array(cur_position.reshape(-1,3)))
-        #         # bbox_pixel_coord = project_2d(P,camera_tf, corners8.reshape(-1,3))
-        #         ax1.scatter(640 - pixel_coord[:,0], pixel_coord[:,1],   marker=".", c='b', s=30)
-        #         # ax1.scatter(640 - bbox_pixel_coord[:,0], bbox_pixel_coord[:,1],   marker=".", c='r', s=30)
-
-            
-        #     plt.savefig(os.path.join(scene_folder_path, f'rgb_{(cam_num):05}_center.png'), bbox_inches='tight')
-            
-        #     plt.close()
-        # # 
 
         scene_description['camera_pos'] = camera_poss
         scene_description['cam_targets'] = cam_targets
@@ -538,8 +500,6 @@ if __name__ == '__main__':
     all_colors = []
     for name, color in all_colors_dict.items():
         all_colors.append(np.asarray(mcolors.to_rgb(color)))
-    
-    # 
 
     # Dictionary from object category names to object ids in the category
     shapenet_models = json.load(open(options.json_file_path))
@@ -593,19 +553,6 @@ if __name__ == '__main__':
     for scene_num in range(options.num_scenes):
         acc_scene_num = scene_num + options.start_scene_idx
         gen_data(acc_scene_num, selected_objects[scene_num], options.shapenet_filepath, options.shapenet_decomp_filepath, options.top_dir, options.train_or_test)
-
-
-    # num_processes=options.num_threads
-    # pool = mp.Pool(processes=num_processes, maxtasksperchild=1)
-    # num_objects = 1
-    # selected_object_indices = np.arange(len(objects_cat_id)).reshape(-1,1)
-    
-    # for scene_num in range(options.num_scenes):
-    #     abortable_func = partial(abortable_worker, gen_data, timeout=600)
-    #     pool.apply_async(abortable_func, args=(scene_num, selected_object_indices[scene_num], options.shapenet_filepath, options.shapenet_decomp_filepath, options.json_file_path, options.shape_categories_file_path, options.top_dir, 0.1, options.train_or_test))
-    
-    # pool.close()
-    # pool.join()
     
         
         
