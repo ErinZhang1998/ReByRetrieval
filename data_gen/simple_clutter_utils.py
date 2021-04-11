@@ -15,42 +15,6 @@ import matplotlib
 import matplotlib.patches as patches
 from matplotlib.collections import PatchCollection
 
-# XMIN, XMAX, YMIN, YMAX = -REGION_LIMIT,REGION_LIMIT,-REGION_LIMIT,REGION_LIMIT
-# REGION = {
-#     0: [[0.5,XMAX],[-0.5, 0.5]],
-#     1: [[-0.5, 0.5],[0.5,YMAX]],
-#     2: [[XMIN, -0.5],[-0.5, 0.5]],
-#     3: [[-0.5, 0.5],[YMIN, -0.5]],
-#     4: [[0.5,XMAX],[YMIN, -0.5]],
-#     5: [[0.5,XMAX],[0.5,YMAX]],
-#     6: [[XMIN, -0.5],[0.5,YMAX]],
-#     7: [[XMIN, -0.5],[YMIN, -0.5]],
-# }
-
-# def return_boundary_points(x,y,bound):
-#     upper_left = (x+bound[0,0], y+bound[1,1])
-#     lower_left = (x+bound[0,0], y+bound[0,1])
-#     upper_right = (x+bound[1,0], y+bound[1,1])
-#     lower_right = (x+bound[1,0], y+bound[0,1])
-#     return upper_left, lower_left, upper_right, lower_right
-
-# def check_criteria(pt, bound, xmins, xmaxs, ymins, ymaxs):
-#     x,y = pt
-#     left, right, bottom, top = x+bound[0,0],x+bound[1,0], y+bound[0,1], y+bound[1,1]
-    
-#     for xmin, xmax, ymin, ymax in zip(xmins, xmaxs, ymins, ymaxs):
-#         if (xmins < left and left < xmaxs) or (xmins < right and right < xmaxs):
-#             if (bottom < ymin or bottom > ymax) and (top < ymin or top > ymax)
-    
-#     p1 = xmins < left and left < xmaxs
-#     p2 = xmins < right and right < xmaxs
-    
-
-#     p1 = x-xmins < 0
-#     p2 = x-xmaxs > 0
-#     p3 = y-ymins < 0
-#     p4 = y-ymaxs > 0
-#     return np.all((p1.astype('int') + p2.astype('int') + p3.astype('int') + p4.astype('int')) > 0)
 
 
 def draw_boundary_points_rect(corners4s, layout_filename=None):
@@ -70,7 +34,6 @@ def draw_boundary_points_rect(corners4s, layout_filename=None):
     plt.close()
 
  
-
 def from_object_to_world(trans, pt):
     
     pt_p = autolab_core.Point(pt.reshape(-1,1), trans.from_frame)
@@ -183,7 +146,7 @@ def get_2d_diagonal_corners(obj_xyzs, all_obj_bounds):
     return corners
         
 
-def generate_object_xy_rect(bound, prev_bbox, object_position_region, probs, obj_xyzs, all_obj_bounds):
+def generate_object_xy_rect(bound, prev_bbox, object_position_region, probs):
     avoid_all_squares = False 
     x,y = None, None
     selected_region = None 
@@ -207,53 +170,12 @@ def generate_object_xy_rect(bound, prev_bbox, object_position_region, probs, obj
         for prev_corner in prev_bbox:
             prev_ll = prev_corner[0]
             prev_ur = prev_corner[2]
-            # draw_boundary_points_rect([corner] + prev_bbox)
             if doOverlap(ll, ur, prev_ll, prev_ur, 0):
                 all_outside = False 
                 break
         avoid_all_squares = all_outside
     new_probs = update_object_position_region(object_position_region, probs, selected_region)
-    # import pdb; pdb.set_trace()
     return x,y, new_probs
-
-# def generate_object_xy_rect(prev_bbox, bound, object_position_region, probs, obj_xyzs, all_obj_bounds, z):
-#     avoid_all_squares = False 
-#     x,y = None, None
-#     acc = 0
-#     while not avoid_all_squares:
-#         region = np.random.choice(8, 1, p=[0.15,0.15,0.15,0.15,0.1,0.1,0.1,0.1])[0]
-#         acc += 1
-#         region_range = object_position_region[region]
-#         x = np.random.uniform(region_range[0][0], region_range[0][1], 1)[0]
-#         y = np.random.uniform(region_range[1][0], region_range[1][1], 1)[0]
-        
-#         if len(prev_bbox) == 0:
-#             avoid_all_squares = True
-#             continue 
-        
-
-#         trans = autolab_core.RigidTransform(translation = np.array([x, y, zz]), from_frame='object')
-#         ll_pt = autolab_core.Point(bound[0].reshape(-1,1), "object")
-#         ur_pt = autolab_core.Point(bound[1].reshape(-1,1), "object")
-#         ll = trans.apply(ll_pt).vector[:-1]
-#         ur = trans.apply(ur_pt).vector[:-1]
-
-#         xbuf = (bound[1,0] - bound[0,0]) / 15
-#         ybuf = (bound[1,1] - bound[0,1]) / 15
-        
-
-#         # 
-
-#         all_outside = True
-#         for prev_ll, prev_ur in prev_bbox:
-
-#             # draw_boundary_points(draw1+[[x,y,zz]], draw2+[bound])
-#             if doOverlap(ll, ur, prev_ll, prev_ur, 0.05):
-#                 all_outside = False 
-#                 break
-#         avoid_all_squares = all_outside
-#     return x,y
-
 
 
 def doOverlap(l1, r1, l2, r2, buf): 
@@ -273,10 +195,46 @@ def doOverlap(l1, r1, l2, r2, buf):
   
     return True
 
+def get_angles_occluded(xy0, xys):
+    x0,y0 = xy0
+    xys[:,0] -= x0
+    xys[:,1] -= y0
+    angles = np.arctan(xys[:,1]/xys[:,0])
+    angles = np.tile(angles, 2)
+    angles[len(xys):] = angles[len(xys):]+np.pi
+    return angles
+
+def get_camera_position_occluded(camera_distance, table_height, max_object_height, xyz0, obj_xyzs):
+    num_angles = 12
+    theta_occluded = get_angles_occluded(xyz0[:2], obj_xyzs[:,:2])
+    theta_random = np.random.uniform(0, 2*np.pi ,num_angles - len(theta_occluded))
+    angles = [np.rad2deg(deg) for deg in theta_occluded] 
+    angles2 = [np.rad2deg(deg) for deg in theta_random]
+    print(angles, angles2)
+    normal_thetas = np.hstack([theta_occluded, theta_random])
+    normal_x=np.cos(normal_thetas).flatten() 
+    normal_y=np.sin(normal_thetas).flatten() 
+
+    cam_xyzs = []
+    cam_targets = []
+
+    camera_pos_z = [max_object_height, max_object_height*1.3]
+    cam_targs = [xyz0, xyz0]
+    cam_distances = [camera_distance*1.7, camera_distance*0.7]
+    for z,targ, cam_d in zip(camera_pos_z, cam_targs, cam_distances):
+        camera_pos_x = normal_x * cam_d
+        camera_pos_y = normal_y * cam_d
+        num_camera_x = len(camera_pos_x)
+        zs = np.repeat(z, num_camera_x)
+        
+        cam_xyzs.append(np.vstack([camera_pos_x, camera_pos_y, zs]).T)
+
+        cam_targets.append(np.repeat(targ.reshape(-1,3), num_camera_x, axis=0))
+
+    return np.vstack(cam_xyzs), np.vstack(cam_targets)
+
 def get_camera_position(camera_distance, table_height, max_object_height, obj_xyzs):
     num_angles = 12
-    # normal_thetas = [((2.0*math.pi)/num_angles)*i for i in range(num_angles)]
-    # normal_thetas += [(2.0*math.pi)*(1/8), (2.0*math.pi)*(7/8)]
     quad = (2.0*math.pi) / num_angles
     normal_thetas = [np.random.uniform(i*quad, (i+1.0)*quad,1)[0] for i in range(num_angles)]
     normal_thetas = np.array(normal_thetas)
@@ -301,27 +259,6 @@ def get_camera_position(camera_distance, table_height, max_object_height, obj_xy
         cam_targets.append(np.repeat(targ.reshape(-1,3), num_camera_x, axis=0))
 
     return np.vstack(cam_xyzs), np.vstack(cam_targets)
-    
-    # camera_pos_x = normal_x * camera_distance *0.8
-    # camera_pos_y = normal_y * camera_distance *0.8
-    # num_camera_x = len(camera_pos_x)
-    # # Generate camera heights
-    # camera_pos_z = [table_height*1.1, max_object_height*1.2, max_object_height*1.5]
-    # num_camera_z = len(camera_pos_z)
-    # # [z1,z1,...,z1,z2,z2....z2,....,zn,...,zn]
-    # camera_pos_z = np.repeat(camera_pos_z, num_camera_x)
-    # # [x1,x2,...,xn,x1,x2,...xn,....,x1,...,xn]
-    # # [y1,y2,...,yn,y1,y2,...yn,....,y1,...,yn]
-    # camera_pos_x = np.tile(camera_pos_x, num_camera_z)
-    # camera_pos_y = np.tile(camera_pos_y, num_camera_z)
-    
-    # # Where the camera is looking at (num_camera, 3)
-    # # Each zi has one camera target
-    # mean_object_pos = np.mean(obj_xyzs, axis=0)
-    # cam_targets = np.array([mean_object_pos, mean_object_pos, mean_object_pos])
-    # cam_targets = np.repeat(cam_targets.reshape(-1,3), num_camera_x, axis=0)
-
-    # return np.vstack([camera_pos_x, camera_pos_y,camera_pos_z]).T, cam_targets
 
 def get_fixed_camera_position(camera_distance, max_object_height, table_xyz):
     num_angles = 8
@@ -497,6 +434,7 @@ def determine_object_rotation(object_mesh):
     # Rotate object so that it appears upright in Mujoco
     rot_vec = [(1/2)*np.pi, 0, 0]
     r = R.from_euler('xyz', rot_vec, degrees=False) 
+    upright_mat = np.eye(4)
     upright_mat[0:3,0:3] = r.as_matrix()
     
     return rot_vec, upright_mat 

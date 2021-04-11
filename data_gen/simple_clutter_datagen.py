@@ -1,5 +1,6 @@
 import json
 import os
+import json
 import numpy as np
 import multiprocessing as mp
 import multiprocessing
@@ -24,11 +25,11 @@ from scipy.spatial.transform import Rotation as R
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
-from simple_clutter_utils import *
 from PIL import Image 
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 unused import
 
 from data_gen_args import *
+from simple_clutter_utils import *
 import pandas as pd
 
 np.set_printoptions(precision=4, suppress=True)
@@ -43,6 +44,7 @@ for name, color in all_colors_dict.items():
 
 
 def move_object(e, ind, pos, rot):
+    # ASSUME THERE IS TABLE so 7+ and 6+
     all_poses=e.data.qpos.ravel().copy()
     all_vels=e.data.qvel.ravel().copy()
     
@@ -53,8 +55,7 @@ def move_object(e, ind, pos, rot):
     e.set_state(all_poses, all_vels)
 
 REGION_LIMIT = 2*np.sqrt(0.5)
-
-
+    
 #@profile
 def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_filepath, top_dir, train_or_test):
 
@@ -62,94 +63,66 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
     selected_colors = [ALL_COLORS[i] for i in np.random.choice(len(ALL_COLORS), num_objects+1, replace=False)]
 
     try:
-        # Make temporary scene xml file
-        scene_xml_file=os.path.join(top_dir, f'base_scene.xml')
-
-        
-
-        temp_scene_xml_file=os.path.join(top_dir, f'{train_or_test}_xml/temp_data_gen_scene_{scene_num}.xml')
-        shutil.copyfile(scene_xml_file, temp_scene_xml_file)
-
         scene_description={}
 
         '''
         Add table
         '''
+        # MAGIC NUMBER 
         if num_objects < 10:
             camera_distance = 1.5 * 2.5
         else:
             camera_distance = 1.5 * 5 
-        table_generated = False
-        table_bounds = None
-        table_xyz = None
-        table_trans = None
-        while not table_generated:
-            # Choose table and table scale and add to sim
-            table_id = '97b3dfb3af4487b2b7d2794d2db4b0e7'
-            table_mesh_filename = os.path.join(shapenet_filepath, f'04379243/{table_id}/models/model_normalized.obj')
-            table_mesh=trimesh.load(table_mesh_filename, force='mesh')
-            # Rotate table so that it appears upright in Mujoco
-            scale_mat=np.eye(4)
-            r = R.from_euler('x', 90, degrees=True)
-            scale_mat[0:3,0:3] = r.as_matrix()
-            table_mesh.apply_transform(scale_mat)
-            table_bounds = table_mesh.bounds
-            
-            table_xyz_range = np.min(table_bounds[1,:] - table_bounds[0,:])
-            table_size = (camera_distance*2)/table_xyz_range
-            # Export table mesh as .stl file
-            stl_table_mesh_filename=os.path.join(top_dir, f'assets/table_{scene_num}.stl')
-            f = open(stl_table_mesh_filename, "w+")
-            f.close()
-            table_mesh.export(stl_table_mesh_filename)
 
-            table_color = selected_colors[0] #np.random.uniform(size=3)
-            # Move table above floor
-            table_bounds = table_bounds*table_size
-            table_width = table_bounds[1,0] - table_bounds[0,0]
-            table_length = table_bounds[1,1] - table_bounds[0,1]
-            # 
-            if min(table_width, table_length)/max(table_width, table_length) < 0.7:
-                # We want roughly square-shaped table to ensure that objects like knife
-                # will not fall off table
-                continue
-            table_bottom = -table_bounds[0][2]
-            table_height = table_bounds[1][2] - table_bounds[0][2]
-            table_xyz = [0, 0, table_bottom]
-            table_orientation = [0,0,0]
-
-            # Add table to the scene
-            add_objects(temp_scene_xml_file, 'table', [stl_table_mesh_filename], table_xyz, table_size, table_color, table_orientation, scene_num, add_contacts=False)
-            table_generated = True
-
-            r = R.from_euler('xyz', table_orientation, degrees=False) 
-            table_trans = autolab_core.RigidTransform(rotation = r.as_matrix(), translation = np.asarray(table_xyz), from_frame='table')    
+        # Choose table and table scale and add to sim
+        table_id = '97b3dfb3af4487b2b7d2794d2db4b0e7'
+        table_mesh_filename = os.path.join(shapenet_filepath, f'04379243/{table_id}/models/model_normalized.obj')
+        table_mesh=trimesh.load(table_mesh_filename, force='mesh')
+        # Rotate table so that it appears upright in Mujoco
+        scale_mat=np.eye(4)
+        r = R.from_euler('x', 90, degrees=True)
+        scale_mat[0:3,0:3] = r.as_matrix()
+        table_mesh.apply_transform(scale_mat)
+        table_bounds = table_mesh.bounds
         
+        table_xyz_range = np.min(table_bounds[1,:] - table_bounds[0,:])
+        table_size = (camera_distance*2)/table_xyz_range
+        # Export table mesh as .stl file
+        stl_table_mesh_filename=os.path.join(top_dir, f'assets/table_{scene_num}.stl')
+        f = open(stl_table_mesh_filename, "w+")
+        f.close()
+        table_mesh.export(stl_table_mesh_filename)
+
+        table_color = selected_colors[0] #np.random.uniform(size=3)
+        table_bounds = table_bounds*table_size
+        table_bottom = -table_bounds[0][2]
+        table_height = table_bounds[1][2] - table_bounds[0][2]
+        # Move table above floor
+        table_xyz = [0, 0, table_bottom]
+        table_orientation = [0,0,0]
         
         '''
         Add objects
         '''
-        obj_xyzs=[]
-        obj_rotations=[]
-        obj_scales=[]
+        
         object_max_height = -10
-        obj_mesh_filenames = []
-
-        prev_polys = []
+        object_position_region = None
         probs = [0.15,0.15,0.15,0.15,0.1,0.1,0.1,0.1]
         prev_bbox = []
-        all_obj_bounds = []
         
-        object_position_region = None
+        object_idx_to_obj_info = {}
         for object_idx in range(num_objects):
-            obj_cat, obj_id = selected_objects[object_idx]
-            obj_mesh_filename = os.path.join(shapenet_filepath,'{}/{}/models/model_normalized.obj'.format(obj_cat, obj_id))
+            obj_cat, obj_id, _ = selected_objects[object_idx]
+            obj_info = {}
+            obj_info['obj_cat'] = obj_cat
+            obj_info['obj_id'] = obj_id
+            
+            obj_mesh_filename = os.path.join(shapenet_filepath,'0{}/{}/models/model_normalized.obj'.format(obj_cat, obj_id))
             object_mesh = trimesh.load(obj_mesh_filename, force='mesh')
             old_bound = object_mesh.bounds 
             '''
             Determine object rotation
             '''
-            # 
             rot_vec, upright_mat  = determine_object_rotation(object_mesh)
             object_mesh.apply_transform(upright_mat)
             z_rot = np.random.uniform(0,2*np.pi,1)[0]
@@ -160,7 +133,8 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             f.close()
             object_mesh.export(stl_obj_mesh_filename)
             # Rotate object to face different directions
-            object_rot = rot_vec 
+            z_rot = np.random.uniform(0,2*np.pi,1)[0]
+            object_rot = [0,0,z_rot]
             
             '''
             Determine object color
@@ -206,23 +180,22 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                     7: [[XMIN, x_bottom],[YMIN, y_bottom]],
                 }
             else:
-                object_x, object_y, probs = generate_object_xy_rect(object_bounds, prev_bbox, object_position_region, probs, obj_xyzs, all_obj_bounds)
+                object_x, object_y, probs = generate_object_xy_rect(object_bounds, prev_bbox, object_position_region, probs)
             
             object_xyz = [object_x, object_y, object_z]
-            corner = get_2d_diagonal_corners([object_xyz], [object_bounds])[0]
-            prev_bbox.append(corner)
+            prev_bbox.append(get_2d_diagonal_corners([object_xyz], [object_bounds])[0])
             
             object_height = object_bounds[1][2] - object_bounds[0][2]            
             object_max_height = max(object_max_height, object_height)
 
-            obj_xyzs.append(object_xyz)
-            obj_rotations.append([0,0,object_rot[-1]])
-            obj_scales.append(object_size)
-            all_obj_bounds.append(object_bounds)
-            obj_mesh_filenames.append(obj_mesh_filename)
+            obj_info['xyz'] = np.asarray(object_xyz)
+            obj_info['scale'] = object_size
+            obj_info['color'] = selected_colors[object_idx+1]
+            obj_info['rotation'] = object_rot
+            obj_info['obj_mesh_filename'] = obj_mesh_filename
+            object_idx_to_obj_info[object_idx] = obj_info
 
         
-        # 
         scene_folder_path = os.path.join(top_dir, f'{train_or_test}/scene_{scene_num:06}')
 
         if os.path.exists(scene_folder_path):
@@ -239,10 +212,18 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
         add_objects(cam_temp_scene_xml_file, 'table', [stl_table_mesh_filename], table_xyz, table_size, table_color, table_orientation, scene_num, add_contacts=False)
         
         # scene_name, object_name, mesh_names, pos, size, color, rot, run_id, contact_geom_list=None, add_ind=-1, add_contacts=True
-        for object_idx in range(num_objects):
+        for object_idx in object_idx_to_obj_info.keys():
+            obj_info = object_idx_to_obj_info[object_idx]
             mesh_names = [os.path.join(top_dir, f'assets/model_normalized_{scene_num}_{object_idx}.stl')]
-            add_objects(cam_temp_scene_xml_file, f'object_{object_idx}_{scene_num}', mesh_names, obj_xyzs[object_idx], obj_scales[
-                        object_idx], selected_colors[object_idx+1], [0,0,z_rot], scene_num, add_contacts=False)
+            add_objects(cam_temp_scene_xml_file, \
+                        f'object_{object_idx}_{scene_num}', \
+                        mesh_names, \
+                        obj_info['xyz'], \
+                        obj_info['scale'], \
+                        obj_info['color'], \
+                        obj_info['rotation'], \
+                        scene_num, \
+                        add_contacts=False)
         
         
         '''
@@ -250,8 +231,9 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
         ''' 
         # Generate camera heights
         max_object_height = table_height + object_max_height
-        camera_poss, cam_targets = get_camera_position(camera_distance, table_height, max_object_height, obj_xyzs)
-        # camera_poss, cam_targets = get_fixed_camera_position(camera_distance, table_height+1, table_xyz)
+        xyz0 = np.asarray(object_idx_to_obj_info[0]['xyz'])
+        obj_xyzs = np.asarray([object_idx_to_obj_info[object_idx]['xyz'] for object_idx in range(1, num_objects)])
+        camera_poss, cam_targets = get_camera_position_occluded(camera_distance, table_height, max_object_height, xyz0, obj_xyzs)
         num_camera = len(camera_poss)
 
         for cam_num in range(num_camera):
@@ -262,25 +244,25 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
         e = MujocoEnv(cam_temp_scene_xml_file, 1, has_robot=False)
         e.sim.physics.forward()
         
-        
-        
-        for added_object_ind in range(num_objects):
-            # cam_num = 0
-            '''
-            # Render before any steps are taken in the scene. For example, an object before it fall down 
-            # on the table, not necessary.
-            for _ in range(num_camera):
-                rgb=e.model.render(height=480, width=640, camera_id=cam_num, depth=False, segmentation=False)
-                cv2.imwrite(os.path.join(scene_folder_path, f'before_rgb_{(cam_num):05}.png'), rgb)
-                cam_num += 1
-            '''
+        for _ in range(num_objects):
             for _ in range(4000):
                 e.model.step()
+        
         state = e.get_env_state().copy()
+
+        all_poses=e.data.qpos.ravel().copy()
+        for object_idx in range(num_objects):
+            current_xyz = all_poses[7+7*object_idx : 7+7*object_idx+3]
+            original_xyz = object_idx_to_obj_info[object_idx]['xyz']
+
+            if np.linalg.norm(current_xyz - original_xyz) > 0.05:
+                del object_idx_to_obj_info[object_idx]  
+                
 
         cam_width = 640
         cam_height = 480
-    
+
+        pix_left_ratio_d = {}
         for cam_num in range(num_camera):
             # 
             rgb=e.model.render(height=cam_height, width=cam_width, camera_id=cam_num, depth=False, segmentation=False)
@@ -296,77 +278,64 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             occluded_geom_id_to_seg_id = {camera.scene.geoms[geom_ind][3]: camera.scene.geoms[geom_ind][8] for geom_ind in range(camera.scene.geoms.shape[0])}
             cv2.imwrite(os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}.png'), segs)
 
-            
 
-            present_in_view_ind = 0
-            for added_object_ind in range(num_objects):
-                '''
-                # Assume no object has fall off table, see code from old ARM repo if needed
-                if added_object_ind in off_table_inds: 
-                    continue
-                '''
-
-                target_id = e.model.model.name2id(f'gen_geom_object_{added_object_ind}_{scene_num}_0', "geom")
-                segmentation = segs==occluded_geom_id_to_seg_id[target_id]
+            # for added_object_ind in range(num_objects):
+            for object_idx in object_idx_to_obj_info.keys():
+                target_id = e.model.model.name2id(f'gen_geom_object_{object_idx}_{scene_num}_0', "geom")
+                segmentation = segs == occluded_geom_id_to_seg_id[target_id]
                 
-                target_obj_pix = np.argwhere(segmentation).shape[0] #(num_equal_target_id, 2)
-                if target_obj_pix < 50:
-                    continue
                 # Move all other objects far away, except the table, so that we can capture
                 # only one object in a scene.
-                for move_obj_ind in range(num_objects):
-                    if move_obj_ind != added_object_ind:
+                for move_obj_ind in object_idx_to_obj_info.keys():
+                    if move_obj_ind != object_idx:
                         move_object(e, move_obj_ind, [20, 20, move_obj_ind], [0,0,0,0])
+
                 e.sim.physics.forward()
-                '''
-                # Test code: only one object on table; other objects are far away
-                rgb=e.model.render(height=480, width=640, camera_id=cam_num, depth=False, segmentation=False)
-                cv2.imwrite(os.path.join(scene_folder_path, f'before_moving_things_back_{present_in_view_ind}_rgb_{(cam_num):05}.jpeg'), rgb)
-                '''
-                unocc_target_id = e.model.model.name2id(f'gen_geom_object_{added_object_ind}_{scene_num}_0', "geom")
+
+                unocc_target_id = e.model.model.name2id(f'gen_geom_object_{object_idx}_{scene_num}_0', "geom")
                 unoccluded_camera = Camera(physics=e.model, height=cam_height, width=cam_width, camera_id=cam_num)
                 unoccluded_segs = unoccluded_camera.render(segmentation=True)
+                
                 # Move other objects back onto table 
                 e.set_env_state(state)
                 e.sim.physics.forward()
 
                 unoccluded_geom_id_to_seg_id = {unoccluded_camera.scene.geoms[geom_ind][3]: unoccluded_camera.scene.geoms[geom_ind][8] for geom_ind in range(unoccluded_camera.scene.geoms.shape[0])}
-                unoccluded_segs = np.concatenate((unoccluded_segs[:,:,0:1],unoccluded_segs[:,:,0:1],unoccluded_segs[:,:,0:1]), axis=2).astype(np.uint8)
-                unoccluded_segmentation = unoccluded_segs[:,:,0]==unoccluded_geom_id_to_seg_id[unocc_target_id]
-                # num_unoccluded_pix = np.argwhere(unoccluded_segmentation).shape[0]
                 
+                unoccluded_segmentation = unoccluded_segs[:,:,0] == unoccluded_geom_id_to_seg_id[unocc_target_id]
                 segmentation = np.logical_and(segmentation, unoccluded_segmentation)
-                try:
-                    pix_left_ratio = np.argwhere(segmentation).shape[0] / np.argwhere(unoccluded_segmentation).shape[0]
-                except:
-                    continue
+                pix_left_ratio = np.argwhere(segmentation).shape[0] / np.argwhere(unoccluded_segmentation).shape[0]
+                pix_left_ratio_d[object_idx] = pix_left_ratio
+                #if pix_left_ratio > 0.3:
+                cv2.imwrite(os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}_{object_idx}.png'), segmentation.astype(np.uint8))
 
-                if pix_left_ratio > 0.3:
-                    cv2.imwrite(os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}_{present_in_view_ind}.png'), segmentation.astype(np.uint8))
-                present_in_view_ind += 1 
 
-        scene_description['camera_pos'] = camera_poss
-        scene_description['cam_targets'] = cam_targets
+        scene_description = dict()
+        
+        scene_description['camera_pos'] = camera_poss.tolist()
+        scene_description['cam_targets'] = cam_targets.tolist()
         scene_description['object_descriptions']=[]
 
         scene_description['table']={'mesh_filename':table_mesh_filename, \
-                'position': e.data.qpos.ravel()[0:3].copy(), \
-                'orientation': e.data.qpos.ravel()[3:7].copy(), \
+                'position': e.data.qpos.ravel()[0:3].copy().tolist(), \
+                'orientation': e.data.qpos.ravel()[3:7].copy().tolist(), \
                 'scale': table_size}
         
         scene_description['cam_height'] = cam_height
         scene_description['cam_width'] = cam_width
 
         object_descriptions = []
-        for object_idx in range(num_objects):
-            obj_mesh_filename = obj_mesh_filenames[object_idx]
-        
+        for object_idx in object_idx_to_obj_info.keys():
+            obj_info = object_idx_to_obj_info[object_idx]
+            
             object_description={}
-            object_description['mesh_filename'] = obj_mesh_filename
-            object_description['position'] = e.data.qpos.ravel()[7+7*object_idx:7+7*object_idx+3].copy()
-            object_description['orientation'] = e.data.qpos.ravel()[7+7*object_idx+3:7+7*object_idx+7].copy()
-            object_description['scale'] = obj_scales[object_idx]
-            object_description['obj_cat'], object_description['obj_id'] = selected_objects[object_idx]
+            object_description['mesh_filename'] = obj_info['obj_mesh_filename']
+            object_description['position'] = e.data.qpos.ravel()[7+7*object_idx:7+7*object_idx+3].copy().tolist()
+            object_description['orientation'] = e.data.qpos.ravel()[7+7*object_idx+3:7+7*object_idx+7].copy().tolist()
+            object_description['scale'] = obj_info['scale']
+            object_description['color'] = obj_info['color']
+            object_description['pix_left_ratio'] = pix_left_ratio_d[object_idx]
+            object_description['obj_cat'], object_description['obj_shapenet_id'], object_description['obj_id'] = selected_objects[object_idx]
 
             cur_position = object_description['position']
             # q = np.zeros(4)
@@ -381,18 +350,21 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                 P,camera_tf = get_camera_matrix(camera)
                 world_to_camera_tf_mat = camera_tf.inverse().matrix
 
-                pixel_coord = project_2d(P, camera_tf, np.array(cur_position.reshape(-1,3)))
+                pixel_coord = project_2d(P, camera_tf, np.array(cur_position).reshape(-1,3))
                 pixel_coord = pixel_coord.reshape((-1,))
-                object_center = np.array([pixel_coord[0], pixel_coord[1]])
-                object_description["object_center_{}".format(cam_num)] = pixel_coord
+                object_description["object_center_{}".format(cam_num)] = [pixel_coord[0], pixel_coord[1]]
                 object_description["intrinsics_{}".format(cam_num)] = P
                 object_description["world_to_camera_mat_{}".format(cam_num)] = world_to_camera_tf_mat
             
             object_descriptions.append(object_description)
         
         scene_description['object_descriptions'] = object_descriptions
+        
+        # with open(os.path.join(scene_folder_path, 'scene_description.json'), 'w+') as fp:
+        #     json.dump(scene_description, fp)
         with open(os.path.join(scene_folder_path, 'scene_description.p'), 'wb+') as save_file:
                 pickle.dump(scene_description, save_file)  
+
         
     except:
         print('##################################### GEN Error!')
@@ -423,7 +395,7 @@ if __name__ == '__main__':
         selected_objects_i = []
         for idx in selected_indices:
             sample = df.iloc[idx]
-            selected_objects_i.append((sample['synsetId'], sample['ShapeNetModelId']))
+            selected_objects_i.append((sample['synsetId'], sample['ShapeNetModelId'], sample['objId']))
         selected_objects.append(selected_objects_i)
 
     for scene_num in range(args.num_scenes):
