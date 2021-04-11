@@ -1,9 +1,10 @@
 import json
 import os
-# os.environ["OMP_NUM_THREADS"]="1"
-# os.environ["MUJOCO_GL"]="osmesa"
 import numpy as np
 import multiprocessing as mp
+import multiprocessing
+from multiprocessing.dummy import Pool as ThreadPool
+
 
 from trajopt.envs.mujoco_env import MujocoEnv
 import trimesh
@@ -12,12 +13,11 @@ import random
 import cv2
 from pyquaternion import Quaternion
 import pickle
-from optparse import OptionParser
+
 import traceback
 import pybullet as p
 from dm_control.mujoco.engine import Camera
-import multiprocessing
-from multiprocessing.dummy import Pool as ThreadPool
+
 from functools import partial
 from trajopt.mujoco_utils import add_camera, add_objects
 from scipy.spatial.transform import Rotation as R
@@ -25,29 +25,19 @@ import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from simple_clutter_utils import *
-
 from PIL import Image 
-
 from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 unused import
 
-parser = OptionParser()
-#path to shapenet dataset
-parser.add_option("--shapenet_filepath", dest="shapenet_filepath", default='/raid/xiaoyuz1/ShapeNetCore.v2')
-#filepath to convex decompositions of shapenet objects. I posted this in the slack channel
-parser.add_option("--shapenet_decomp_filepath", dest="shapenet_decomp_filepath", default='/raid/xiaoyuz1/data/shapenet_conv_decmops')
-#root project dir
-parser.add_option("--top_dir", dest="top_dir", default='/raid/xiaoyuz1/cluttered_datasets/')
-#roo project dir+/inhand_datagen
-parser.add_option("--json_file_path", dest="json_file_path", default='/raid/xiaoyuz1/tabletop_small_training_instances.json')
-parser.add_option("--shape_categories_file_path", dest="shape_categories_file_path", default='/raid/xiaoyuz1/taxonomy_tabletop_small_keys.txt')
-
-parser.add_option("--train_or_test", dest="train_or_test", default='training_set')
-parser.add_option("--num_scenes", dest="num_scenes", type="int", default=1000)
-parser.add_option("--num_threads", dest="num_threads", type="int", default=6)
-parser.add_option("--start_scene_idx", dest="start_scene_idx", type="int", default=0)
-(options, args) = parser.parse_args()
+from data_gen_args import *
+import pandas as pd
 
 np.set_printoptions(precision=4, suppress=True)
+
+#Color of objects:
+all_colors_dict = mcolors.CSS4_COLORS #TABLEAU_COLORS #
+ALL_COLORS = []
+for name, color in all_colors_dict.items():
+    ALL_COLORS.append(np.asarray(mcolors.to_rgb(color)))
 
 
 
@@ -68,40 +58,16 @@ REGION_LIMIT = 2*np.sqrt(0.5)
 #@profile
 def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_filepath, top_dir, train_or_test):
 
-    # np.random.seed(scene_num)
-    thread_num=scene_num
     num_objects = len(selected_objects) 
-    # Color of objects:
-    all_colors_dict = mcolors.CSS4_COLORS #TABLEAU_COLORS #
-    all_colors = [] # a list of rgb colors
-    for name, color in all_colors_dict.items():
-        all_colors.append(np.asarray(mcolors.to_rgb(color)))
-    selected_colors = [all_colors[i] for i in np.random.choice(len(all_colors), num_objects+1, replace=False)]
-    
-    '''
-    '''
-    objects_xy = np.array([[0,0],[1,0],[1,1],[0,1],[-1,1],[-1,0],[-1,-1],[0,-1],[1,-1]])
-    objects_xy = objects_xy*1.3
+    selected_colors = [ALL_COLORS[i] for i in np.random.choice(len(ALL_COLORS), num_objects+1, replace=False)]
 
-    temp = json.load(open(os.path.join(shapenet_filepath, 'taxonomy.json'))) 
-    taxonomy_dict = {x['name'] : x['synsetId'] for x in temp}
-    synset_ids_in_dir = os.listdir(shapenet_filepath)
-    synset_ids_in_dir.remove('taxonomy.json')
-    # Dictionary mapping category name --> category synset id
-    taxonomy_dict = {k:v for (k,v) in taxonomy_dict.items() if v in synset_ids_in_dir}
-
-    training_tables_filename = '/raid/xiaoyuz1/data/training_shapenet_tables.json'
-    valid_tables = json.load(open(training_tables_filename))
-    # valid_tables = train_tables if train_or_test == 'training_set' else test_tables
-    
-    
     try:
         # Make temporary scene xml file
         scene_xml_file=os.path.join(top_dir, f'base_scene.xml')
 
         
 
-        temp_scene_xml_file=os.path.join(top_dir, f'{train_or_test}_xml/temp_data_gen_scene_{thread_num}.xml')
+        temp_scene_xml_file=os.path.join(top_dir, f'{train_or_test}_xml/temp_data_gen_scene_{scene_num}.xml')
         shutil.copyfile(scene_xml_file, temp_scene_xml_file)
 
         scene_description={}
@@ -112,14 +78,14 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
         if num_objects < 10:
             camera_distance = 1.5 * 2.5
         else:
-            camera_distance = 1.5 * 5 #num_objects*1.5
+            camera_distance = 1.5 * 5 
         table_generated = False
         table_bounds = None
         table_xyz = None
         table_trans = None
         while not table_generated:
             # Choose table and table scale and add to sim
-            table_id = valid_tables[1027] #valid_tables[np.random.randint(0, len(valid_tables))]
+            table_id = '97b3dfb3af4487b2b7d2794d2db4b0e7'
             table_mesh_filename = os.path.join(shapenet_filepath, f'04379243/{table_id}/models/model_normalized.obj')
             table_mesh=trimesh.load(table_mesh_filename, force='mesh')
             # Rotate table so that it appears upright in Mujoco
@@ -132,7 +98,7 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             table_xyz_range = np.min(table_bounds[1,:] - table_bounds[0,:])
             table_size = (camera_distance*2)/table_xyz_range
             # Export table mesh as .stl file
-            stl_table_mesh_filename=os.path.join(top_dir, f'assets/table_{thread_num}.stl')
+            stl_table_mesh_filename=os.path.join(top_dir, f'assets/table_{scene_num}.stl')
             f = open(stl_table_mesh_filename, "w+")
             f.close()
             table_mesh.export(stl_table_mesh_filename)
@@ -153,7 +119,7 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             table_orientation = [0,0,0]
 
             # Add table to the scene
-            add_objects(temp_scene_xml_file, 'table', [stl_table_mesh_filename], table_xyz, table_size, table_color, table_orientation, thread_num, add_contacts=False)
+            add_objects(temp_scene_xml_file, 'table', [stl_table_mesh_filename], table_xyz, table_size, table_color, table_orientation, scene_num, add_contacts=False)
             table_generated = True
 
             r = R.from_euler('xyz', table_orientation, degrees=False) 
@@ -168,12 +134,11 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
         obj_scales=[]
         object_max_height = -10
         obj_mesh_filenames = []
-        all_obj_bounds = []
-        obj_trans = []
 
         prev_polys = []
         probs = [0.15,0.15,0.15,0.15,0.1,0.1,0.1,0.1]
         prev_bbox = []
+        all_obj_bounds = []
         
         object_position_region = None
         for object_idx in range(num_objects):
@@ -190,12 +155,11 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             z_rot = np.random.uniform(0,2*np.pi,1)[0]
             
             # Store the upright object in .stl file in assets
-            stl_obj_mesh_filename = os.path.join(top_dir, f'assets/model_normalized_{thread_num}_{object_idx}.stl')
+            stl_obj_mesh_filename = os.path.join(top_dir, f'assets/model_normalized_{scene_num}_{object_idx}.stl')
             f = open(stl_obj_mesh_filename, "w+")
             f.close()
             object_mesh.export(stl_obj_mesh_filename)
             # Rotate object to face different directions
-            
             object_rot = rot_vec 
             
             '''
@@ -209,13 +173,9 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             range_max = np.max(object_bounds[1, :2] - object_bounds[0, :2])
             random_scale = np.random.uniform(0.6,1,1)[0]
             object_size = random_scale / range_max
-            # 
             object_bounds = object_bounds*object_size
             object_bottom = -object_bounds[0][2]
 
-
-            
-            
             '''
             Determine object position
             '''
@@ -230,8 +190,6 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                 object_x = (table_bounds[1,0] + table_bounds[0,0]) / 2
                 object_y = (table_bounds[1,1] + table_bounds[0,1]) / 2
                 
-                
-
                 x_top, XMAX =  object_x+right_x, object_x+right_x+REGION_LIMIT
                 x_bottom, XMIN = object_x+left_x, object_x+left_x-REGION_LIMIT
                 y_top, YMAX = object_y+up_y, object_y+up_y+REGION_LIMIT
@@ -247,58 +205,22 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                     6: [[XMIN, x_bottom],[y_top,YMAX]],
                     7: [[XMIN, x_bottom],[YMIN, y_bottom]],
                 }
-                
-
             else:
                 object_x, object_y, probs = generate_object_xy_rect(object_bounds, prev_bbox, object_position_region, probs, obj_xyzs, all_obj_bounds)
-                # object_x, object_y, probs = generate_object_xy(object_position_region, probs, 
-                #     prev_polys, 
-                #     obj_trans, 
-                #     obj_rotations, 
-                #     object_rot, 
-                #     object_bounds, 
-                #     obj_xyzs, 
-                #     all_obj_bounds, 
-                #     object_z)
             
             object_xyz = [object_x, object_y, object_z]
             corner = get_2d_diagonal_corners([object_xyz], [object_bounds])[0]
-            
-
-            
             prev_bbox.append(corner)
-            # # lower_left = [object_x+object_bounds[0,0], object_y+object_bounds[0,1]]
-            # # upper_right = [object_x+object_bounds[1,0], object_y+object_bounds[1,1]]
             
-            # r = R.from_euler('xyz', object_rot, degrees=False) 
-            # r = R.from_euler('xyz', [0,0,0], degrees=False)
-            # r = R.from_euler('xyz', [0,0,object_rot[-1]], degrees=False)
-            # trans = autolab_core.RigidTransform(rotation = r.as_matrix(), translation = np.asarray(object_xyz), from_frame='object_{}'.format(object_idx))
-            
-            # corners4 = get_bound_2d_4corners(trans, object_bounds)
-            # prev_polys.append(Polygon(corners4))
-            
-            # Determine the maximum object height
             object_height = object_bounds[1][2] - object_bounds[0][2]            
             object_max_height = max(object_max_height, object_height)
-            
-            # Load objects from .stl file
-            object_mesh=trimesh.load(stl_obj_mesh_filename)
-            # if object_mesh.faces.shape[0]>200000:
-            #     print('Too many mesh faces!')
-            #     continue
 
-            # obj_trans.append(trans)
             obj_xyzs.append(object_xyz)
             obj_rotations.append([0,0,object_rot[-1]])
             obj_scales.append(object_size)
             all_obj_bounds.append(object_bounds)
             obj_mesh_filenames.append(obj_mesh_filename)
-            # 
-            
-            # mesh_names = load_mesh_convex_parts(shapenet_decomp_filepath, obj_cat, obj_id, upright_mat)
-            
-            # add_objects(temp_scene_xml_file, f'object_{object_idx}_{thread_num}', mesh_names, object_xyz, object_size, object_color, [0,0,z_rot], thread_num, add_contacts=False)
+
         
         # 
         scene_folder_path = os.path.join(top_dir, f'{train_or_test}/scene_{scene_num:06}')
@@ -308,23 +230,19 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
         os.mkdir(scene_folder_path)
 
         layout_filename = os.path.join(scene_folder_path, 'layout.png')
-        # draw_boundary_points(obj_trans, obj_xyzs, all_obj_bounds, layout_filename)
         draw_boundary_points_rect(prev_bbox, layout_filename)
-        
-        # cam_temp_scene_xml_file=os.path.join(top_dir, f'cam_temp_data_gen_scene_{thread_num}.xml')
-        # shutil.copyfile(scene_xml_file, cam_temp_scene_xml_file)
 
         scene_xml_file=os.path.join(top_dir, f'base_scene.xml')
-        cam_temp_scene_xml_file=os.path.join(top_dir, f'{train_or_test}_xml/cam_temp_data_gen_scene_{thread_num}.xml')
+        cam_temp_scene_xml_file=os.path.join(top_dir, f'{train_or_test}_xml/cam_temp_data_gen_scene_{scene_num}.xml')
         shutil.copyfile(scene_xml_file, cam_temp_scene_xml_file)
 
-        add_objects(cam_temp_scene_xml_file, 'table', [stl_table_mesh_filename], table_xyz, table_size, table_color, table_orientation, thread_num, add_contacts=False)
+        add_objects(cam_temp_scene_xml_file, 'table', [stl_table_mesh_filename], table_xyz, table_size, table_color, table_orientation, scene_num, add_contacts=False)
         
         # scene_name, object_name, mesh_names, pos, size, color, rot, run_id, contact_geom_list=None, add_ind=-1, add_contacts=True
         for object_idx in range(num_objects):
-            mesh_names = [os.path.join(top_dir, f'assets/model_normalized_{thread_num}_{object_idx}.stl')]
-            add_objects(cam_temp_scene_xml_file, f'object_{object_idx}_{thread_num}', mesh_names, obj_xyzs[object_idx], obj_scales[
-                        object_idx], selected_colors[object_idx+1], [0,0,z_rot], thread_num, add_contacts=False)
+            mesh_names = [os.path.join(top_dir, f'assets/model_normalized_{scene_num}_{object_idx}.stl')]
+            add_objects(cam_temp_scene_xml_file, f'object_{object_idx}_{scene_num}', mesh_names, obj_xyzs[object_idx], obj_scales[
+                        object_idx], selected_colors[object_idx+1], [0,0,z_rot], scene_num, add_contacts=False)
         
         
         '''
@@ -388,7 +306,7 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                     continue
                 '''
 
-                target_id = e.model.model.name2id(f'gen_geom_object_{added_object_ind}_{thread_num}_0', "geom")
+                target_id = e.model.model.name2id(f'gen_geom_object_{added_object_ind}_{scene_num}_0', "geom")
                 segmentation = segs==occluded_geom_id_to_seg_id[target_id]
                 
                 target_obj_pix = np.argwhere(segmentation).shape[0] #(num_equal_target_id, 2)
@@ -405,7 +323,7 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                 rgb=e.model.render(height=480, width=640, camera_id=cam_num, depth=False, segmentation=False)
                 cv2.imwrite(os.path.join(scene_folder_path, f'before_moving_things_back_{present_in_view_ind}_rgb_{(cam_num):05}.jpeg'), rgb)
                 '''
-                unocc_target_id = e.model.model.name2id(f'gen_geom_object_{added_object_ind}_{thread_num}_0', "geom")
+                unocc_target_id = e.model.model.name2id(f'gen_geom_object_{added_object_ind}_{scene_num}_0', "geom")
                 unoccluded_camera = Camera(physics=e.model, height=cam_height, width=cam_width, camera_id=cam_num)
                 unoccluded_segs = unoccluded_camera.render(segmentation=True)
                 # Move other objects back onto table 
@@ -493,66 +411,24 @@ def abortable_worker(func, *args, **kwargs):
         raise    
 
 if __name__ == '__main__':
-    
-    
-    #Color of objects:
-    all_colors_dict = mcolors.CSS4_COLORS #TABLEAU_COLORS #
-    all_colors = []
-    for name, color in all_colors_dict.items():
-        all_colors.append(np.asarray(mcolors.to_rgb(color)))
+    df = pd.read_csv(args.csv_file_path)
 
-    # Dictionary from object category names to object ids in the category
-    shapenet_models = json.load(open(options.json_file_path))
-    
-    temp = json.load(open(os.path.join(options.shapenet_filepath, 'taxonomy.json'))) 
-    taxonomy_dict = {x['name'] : x['synsetId'] for x in temp}
-    synset_ids_in_dir = os.listdir(options.shapenet_filepath)
-    synset_ids_in_dir.remove('taxonomy.json')
-    taxonomy_dict = {k:v for (k,v) in taxonomy_dict.items() if v in synset_ids_in_dir}
-    
-    table_top_categories = []
-    with open(options.shape_categories_file_path) as shape_categories_file:
-        for line in shape_categories_file:
-            if line.strip() == '':
-                continue
-            table_top_categories.append(line.strip())
-    
-    # List of (category_name, object_id) tuples in the training set
-    objects_cat_id = []
-    objects_cat_start_id = []
-    start_idx = 0
-    for cat_name in shapenet_models:
-        if not cat_name in table_top_categories:
-            continue
-        print(cat_name, start_idx)
-        objects_cat_start_id.append((start_idx, len(shapenet_models[cat_name])))
-        start_idx += len(shapenet_models[cat_name])
-        
-        for obj_id in shapenet_models[cat_name]:
-            objects_cat_id.append((cat_name, obj_id))
-
-    # 
-    # 
-    '''
-    '''
-    # test_selected_indices = [i+1 for i,_ in objects_cat_start_id]
-    # num_objects = 5
-    # selected_object_indices = np.random.randint(0, len(objects_cat_id), (options.num_scenes, num_objects))
     selected_object_indices = []
-    for scene_idx in range(options.num_scenes):
-        num_object = np.random.randint(2,6,1)[0]
-        selected_object_indices.append(np.random.randint(0, len(objects_cat_id), num_object))
+    for scene_idx in range(args.num_scenes):
+        num_object = np.random.randint(args.min_num_objects, args.max_num_objects, 1)[0]
+        selected_object_indices.append(np.random.randint(0, len(df), num_object))
 
     selected_objects = []
     for selected_indices in selected_object_indices:
         selected_objects_i = []
         for idx in selected_indices:
-            selected_objects_i.append((taxonomy_dict[objects_cat_id[idx][0]] , objects_cat_id[idx][1]))
+            sample = df.iloc[idx]
+            selected_objects_i.append((sample['synsetId'], sample['ShapeNetModelId']))
         selected_objects.append(selected_objects_i)
 
-    for scene_num in range(options.num_scenes):
-        acc_scene_num = scene_num + options.start_scene_idx
-        gen_data(acc_scene_num, selected_objects[scene_num], options.shapenet_filepath, options.shapenet_decomp_filepath, options.top_dir, options.train_or_test)
+    for scene_num in range(args.num_scenes):
+        acc_scene_num = scene_num + args.start_scene_idx
+        gen_data(acc_scene_num, selected_objects[scene_num], args.shapenet_filepath, args.shapenet_decomp_filepath, args.top_dir, args.train_or_test)
     
         
         
