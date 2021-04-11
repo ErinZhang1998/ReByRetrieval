@@ -77,23 +77,6 @@ def from_object_to_world(trans, pt):
     return trans.apply(pt_p).vector
 
 
-def get_bound_corners(trans, bound):
-    pts = np.array(np.meshgrid(bound[:,0], bound[:,1], bound[:,2])).T.reshape(-1,3) 
-    pts[[2,3]] = pts[[3,2]]
-    pts[[6,7]] = pts[[7,6]]
-    
-    pts = [from_object_to_world(trans, pt)  for pt in pts]
-    # 
-    cent=(sum([p[0] for p in pts])/len(pts),sum([p[1] for p in pts])/len(pts))
-    # sort by polar angle
-    pts.sort(key=lambda p: math.atan2(p[1]-cent[1],p[0]-cent[0]))
-    # 
-    return np.vstack(pts)
-
-def get_bound_2d_4corners(trans, bound):
-    return get_bound_corners(trans, bound)[[1,3,5,7]][:, :-1]
-
-
 def draw_boundary_points(obj_trans, obj_xyzs,  all_obj_bounds, layout_filename=None):
     obj_xyzs = np.asarray(obj_xyzs)
     all_obj_bounds = np.asarray(all_obj_bounds)
@@ -512,25 +495,9 @@ def load_mesh_convex_parts(shapenet_decomp_filepath, obj_cat, obj_id, scale_mat)
 
 def determine_object_rotation(object_mesh):
     # Rotate object so that it appears upright in Mujoco
-    obj_range = object_mesh.bounds[1,:] - object_mesh.bounds[0,:]
-    long_side = np.max(obj_range[:2])
-    short_side = np.min(obj_range[:2])
-    upright_mat = np.eye(4)
-    z_rot = 0 
-    rot_vec = None
-    r = None
-    
-    if long_side / short_side > 7:
-        rot_vec = [0, (1/2)*np.pi, z_rot]
-    elif (long_side / obj_range[2]) < (2/9) or ((long_side / obj_range[2]) > (4.5)):
-        rot_vec = [0,0,z_rot]
-    else:
-        rot_vec = [(1/2)*np.pi, 0, z_rot]
-        
-    
+    rot_vec = [(1/2)*np.pi, 0, 0]
     r = R.from_euler('xyz', rot_vec, degrees=False) 
     upright_mat[0:3,0:3] = r.as_matrix()
-    
     
     return rot_vec, upright_mat 
 
