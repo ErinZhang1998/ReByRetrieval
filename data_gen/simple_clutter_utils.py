@@ -204,34 +204,80 @@ def get_angles_occluded(xy0, xys):
     angles[len(xys):] = angles[len(xys):]+np.pi
     return angles
 
-def get_camera_position_occluded(camera_distance, table_height, max_object_height, xyz0, obj_xyzs):
-    num_angles = 12
-    theta_occluded = get_angles_occluded(xyz0[:2], obj_xyzs[:,:2])
-    theta_random = np.random.uniform(0, 2*np.pi ,num_angles - len(theta_occluded))
-    angles = [np.rad2deg(deg) for deg in theta_occluded] 
-    angles2 = [np.rad2deg(deg) for deg in theta_random]
-    print(angles, angles2)
-    normal_thetas = np.hstack([theta_occluded, theta_random])
-    normal_x=np.cos(normal_thetas).flatten() 
-    normal_y=np.sin(normal_thetas).flatten() 
+def get_camera_position_occluded(camera_distance, table_height, max_object_height, xyzs, heights):
+    num_angles = 6
+    shifted_degree = 10
 
-    cam_xyzs = []
-    cam_targets = []
+    N = len(xyzs)
+    # xys = xyzs[:,:2]
+    # pairwise_diff = np.repeat(xys[None,:,:], N, axis=0) - xys.reshape((-1,1,2)) #(N,N,2)
+    # pairwise_dist = np.linalg.norm(pairwise_diff, axis=2) #(N,N)
+    # pairwise_dist = np.max(pairwise_dist, axis=1) #(N,1)
 
-    camera_pos_z = [max_object_height, max_object_height*1.3]
-    cam_targs = [xyz0, xyz0]
-    cam_distances = [camera_distance*1.7, camera_distance*0.7]
-    for z,targ, cam_d in zip(camera_pos_z, cam_targs, cam_distances):
-        camera_pos_x = normal_x * cam_d
-        camera_pos_y = normal_y * cam_d
-        num_camera_x = len(camera_pos_x)
-        zs = np.repeat(z, num_camera_x)
+    xys = []
+    for object_idx,v in xyzs.items():
+        xys.append([v[0],v[1]])
+    xys = np.asarray(xys)
+
+    cam_xyzs = dict()
+    cam_targets = dict()
+    cam_num = 0
+    cam_num_to_occlusion_target = dict()
+    for i,(x,y,z) in xyzs.items():
         
-        cam_xyzs.append(np.vstack([camera_pos_x, camera_pos_y, zs]).T)
+        pairwise_diff = xys - np.array([x,y]).reshape((1,2))
+        dist = np.linalg.norm(pairwise_diff, axis=1)
+        max_dist = np.max(dist)
+        
+        for j,(a,b,c) in xyzs.items():
+            if i == j:
+                continue 
+            # dist = max_dist #np.linalg.norm([a-x,b-y]) 
+                
+            xdiff = a-x
+            ydiff = b-y
+            rad = np.arctan(ydiff / xdiff) if xdiff > 0 else np.arctan(ydiff / xdiff)+np.pi
+            # shifted_degrees = np.random.choice([5,9,13,],10)
+            
+            for shifted_degree in [5,10,15]:
+                for sign in [1,-1]:
+                    rad += np.deg2rad(sign * shifted_degree)
+                    
+                    cam_x = np.cos(rad) * (max_dist+4) + x 
+                    cam_y = np.sin(rad) * (max_dist+4) + y
+                    
+                    if heights[j] > heights[i]:
+                        cam_z = table_height + heights[j]
+                    else:
+                        cam_z = table_height + heights[j] / 2
+                    
+                    cam_xyzs[cam_num] = [cam_x, cam_y, cam_z]
+                    cam_targets[cam_num] = [x,y,z]
 
-        cam_targets.append(np.repeat(targ.reshape(-1,3), num_camera_x, axis=0))
+                    cam_num_to_occlusion_target[cam_num] = i
+                    cam_num += 1
+    
+    #bird eye view
+    num_angles = 8
+    quad = (2.0*math.pi) / num_angles
+    normal_thetas = [np.random.uniform(i*quad, (i+1.0)*quad,1)[0] for i in range(num_angles)]
+    
+    center = np.mean(xys, axis=0)
+    pairwise_diff = xys - center.reshape((1,2))
+    dist = np.linalg.norm(pairwise_diff, axis=1)
+    max_dist = np.max(dist)
+    
+    for theta in normal_thetas:
+        cam_x = np.cos(theta) * (max_dist+4) + center[0]
+        cam_y = np.sin(theta) * (max_dist+4) + center[1]
+        cam_z = max_object_height * 1.2
+        cam_xyzs[cam_num] = [cam_x, cam_y, cam_z]
+        cam_targets[cam_num] = [center[0],center[1],table_height]
 
-    return np.vstack(cam_xyzs), np.vstack(cam_targets)
+        cam_num_to_occlusion_target[cam_num] = -1
+        cam_num += 1
+    
+    return cam_xyzs, cam_targets, cam_num_to_occlusion_target
 
 def get_camera_position(camera_distance, table_height, max_object_height, obj_xyzs):
     num_angles = 12

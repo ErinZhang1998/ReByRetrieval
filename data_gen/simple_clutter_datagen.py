@@ -145,8 +145,17 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             '''
             object_bounds = object_mesh.bounds
             range_max = np.max(object_bounds[1, :2] - object_bounds[0, :2])
-            random_scale = np.random.uniform(0.6,1,1)[0]
-            object_size = random_scale / range_max
+            if obj_cat == 2876657 or obj_cat == 3593526 or obj_cat == 2946921:
+                random_scale = np.random.uniform(0.6,0.8,1)[0]
+                object_size = random_scale / range_max
+                print(obj_cat, random_scale, range_max)
+            elif obj_cat == 2773838 or obj_cat == 2880940:
+                random_scale = np.random.uniform(0.8,1,1)[0]
+                object_size = random_scale / range_max
+                print(obj_cat, random_scale, range_max)
+            else:
+                random_scale = np.random.uniform(0.6,1,1)[0]
+                object_size = random_scale / range_max
             object_bounds = object_bounds*object_size
             object_bottom = -object_bounds[0][2]
 
@@ -193,6 +202,7 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             obj_info['color'] = selected_colors[object_idx+1]
             obj_info['rotation'] = object_rot
             obj_info['obj_mesh_filename'] = obj_mesh_filename
+            obj_info['object_height'] = object_height
             object_idx_to_obj_info[object_idx] = obj_info
 
         
@@ -226,21 +236,6 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                         add_contacts=False)
         
         
-        '''
-        Generate camera position and target
-        ''' 
-        # Generate camera heights
-        max_object_height = table_height + object_max_height
-        xyz0 = np.asarray(object_idx_to_obj_info[0]['xyz'])
-        obj_xyzs = np.asarray([object_idx_to_obj_info[object_idx]['xyz'] for object_idx in range(1, num_objects)])
-        camera_poss, cam_targets = get_camera_position_occluded(camera_distance, table_height, max_object_height, xyz0, obj_xyzs)
-        num_camera = len(camera_poss)
-
-        for cam_num in range(num_camera):
-            camera_pos = camera_poss[cam_num] #[camera_pos_x[cam_num], camera_pos_y[cam_num], camera_pos_z[cam_num]]
-            cam_target = cam_targets[cam_num]
-            add_camera(cam_temp_scene_xml_file, f'gen_cam_{cam_num}', camera_pos, cam_target, cam_num)
-        
         e = MujocoEnv(cam_temp_scene_xml_file, 1, has_robot=False)
         e.sim.physics.forward()
         
@@ -257,30 +252,52 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
 
             if np.linalg.norm(current_xyz - original_xyz) > 0.05:
                 del object_idx_to_obj_info[object_idx]  
-                
+        
+        '''
+        Generate camera position and target
+        ''' 
+        # Generate camera heights
+        max_object_height = table_height + object_max_height
+        xyzs = dict()
+        heights = dict()
+        for object_idx in object_idx_to_obj_info.keys(): 
+            xyzs[object_idx] = object_idx_to_obj_info[object_idx]['xyz']
+            heights[object_idx] = object_idx_to_obj_info[object_idx]['object_height']
+        
+        camera_poss, cam_targets, cam_num_to_occlusion_target = get_camera_position_occluded(camera_distance, table_height, max_object_height, xyzs, heights)
+        num_camera = len(camera_poss)
+        
+        
+        for cam_num in camera_poss.keys():
+            camera_pos = camera_poss[cam_num] #[camera_pos_x[cam_num], camera_pos_y[cam_num], camera_pos_z[cam_num]]
+            cam_target = cam_targets[cam_num]
+            add_camera(cam_temp_scene_xml_file, f'gen_cam_{cam_num}', camera_pos, cam_target, cam_num)
 
+        e = MujocoEnv(cam_temp_scene_xml_file, 1, has_robot=False)
+        e.sim.physics.forward()
+        
+        for _ in range(num_objects):
+            for _ in range(4000):
+                e.model.step()
+        
+        state = e.get_env_state().copy()
+        
         cam_width = 640
         cam_height = 480
 
+        valid_cameras = []
         pix_left_ratio_d = {}
-        for cam_num in range(num_camera):
-            # 
-            rgb=e.model.render(height=cam_height, width=cam_width, camera_id=cam_num, depth=False, segmentation=False)
-            cv2.imwrite(os.path.join(scene_folder_path, f'rgb_{(cam_num):05}.png'), rgb)
-            
-            # Depth image
-            depth = e.model.render(height=cam_height, width=cam_width, camera_id=cam_num, depth=True, segmentation=False)
-            depth = (depth*1000).astype(np.uint16)
-            cv2.imwrite(os.path.join(scene_folder_path, f'depth_{(cam_num):05}.png'), depth)
+        for cam_num in camera_poss.keys():
+            cam_pix_left_ratio_d = {}
+            discard_cam = False
             
             camera = Camera(physics=e.model, height=cam_height, width=cam_width, camera_id=cam_num)
             segs = camera.render(segmentation=True)[:,:,0] #(480, 640, 2)
             occluded_geom_id_to_seg_id = {camera.scene.geoms[geom_ind][3]: camera.scene.geoms[geom_ind][8] for geom_ind in range(camera.scene.geoms.shape[0])}
-            cv2.imwrite(os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}.png'), segs)
-
-
-            # for added_object_ind in range(num_objects):
+        
             for object_idx in object_idx_to_obj_info.keys():
+                if discard_cam:
+                    break
                 target_id = e.model.model.name2id(f'gen_geom_object_{object_idx}_{scene_num}_0', "geom")
                 segmentation = segs == occluded_geom_id_to_seg_id[target_id]
                 
@@ -301,19 +318,54 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                 e.sim.physics.forward()
 
                 unoccluded_geom_id_to_seg_id = {unoccluded_camera.scene.geoms[geom_ind][3]: unoccluded_camera.scene.geoms[geom_ind][8] for geom_ind in range(unoccluded_camera.scene.geoms.shape[0])}
-                
                 unoccluded_segmentation = unoccluded_segs[:,:,0] == unoccluded_geom_id_to_seg_id[unocc_target_id]
+                
+                if np.argwhere(unoccluded_segmentation).shape[0] == 0:
+                    print(object_idx, cam_num)
+                    continue
+                
                 segmentation = np.logical_and(segmentation, unoccluded_segmentation)
                 pix_left_ratio = np.argwhere(segmentation).shape[0] / np.argwhere(unoccluded_segmentation).shape[0]
-                pix_left_ratio_d[object_idx] = pix_left_ratio
-                #if pix_left_ratio > 0.3:
+                
+                if object_idx == cam_num_to_occlusion_target[cam_num]:
+                    if pix_left_ratio < 0.4: #or pix_left_ratio > 0.9
+                        discard_cam = True
+                        print("Discard: ", cam_num, pix_left_ratio)
+                        continue
+
+                if pix_left_ratio < 0.4:
+                    continue
+                
+                cam_pix_left_ratio_d[object_idx] = pix_left_ratio
+                #
                 cv2.imwrite(os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}_{object_idx}.png'), segmentation.astype(np.uint8))
 
+            if discard_cam:
+                continue
+            
+            rgb=e.model.render(height=cam_height, width=cam_width, camera_id=cam_num, depth=False, segmentation=False)
+            cv2.imwrite(os.path.join(scene_folder_path, f'rgb_{(cam_num):05}.png'), rgb)
 
+            # Depth image
+            depth = e.model.render(height=cam_height, width=cam_width, camera_id=cam_num, depth=True, segmentation=False)
+            depth = (depth*1000).astype(np.uint16)
+            cv2.imwrite(os.path.join(scene_folder_path, f'depth_{(cam_num):05}.png'), depth)
+
+            cv2.imwrite(os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}.png'), segs)
+            valid_cameras.append(cam_num)
+            pix_left_ratio_d[cam_num] = cam_pix_left_ratio_d
+
+        original_keys = list(camera_poss.keys())
+        for cam_num in original_keys:
+            if not cam_num in valid_cameras:
+                del camera_poss[cam_num]
+                del cam_targets[cam_num]
+        
         scene_description = dict()
         
-        scene_description['camera_pos'] = camera_poss.tolist()
-        scene_description['cam_targets'] = cam_targets.tolist()
+        scene_description['camera_pos'] = camera_poss
+        scene_description['cam_targets'] = cam_targets
+        
         scene_description['object_descriptions']=[]
 
         scene_description['table']={'mesh_filename':table_mesh_filename, \
@@ -334,7 +386,7 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             object_description['orientation'] = e.data.qpos.ravel()[7+7*object_idx+3:7+7*object_idx+7].copy().tolist()
             object_description['scale'] = obj_info['scale']
             object_description['color'] = obj_info['color']
-            object_description['pix_left_ratio'] = pix_left_ratio_d[object_idx]
+            # object_description['pix_left_ratio'] = pix_left_ratio_d[object_idx]
             object_description['obj_cat'], object_description['obj_shapenet_id'], object_description['obj_id'] = selected_objects[object_idx]
 
             cur_position = object_description['position']
@@ -345,7 +397,7 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             # q[3] = object_description['orientation'][0]
             # r = R.from_quat(q)
 
-            for cam_num in range(num_camera):
+            for cam_num in camera_poss.keys():
                 camera = Camera(physics=e.model, height=480, width=640, camera_id=cam_num)
                 P,camera_tf = get_camera_matrix(camera)
                 world_to_camera_tf_mat = camera_tf.inverse().matrix
