@@ -144,18 +144,19 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             Determine object size
             '''
             object_bounds = object_mesh.bounds
-            range_max = np.max(object_bounds[1, :2] - object_bounds[0, :2])
-            if obj_cat == 2876657 or obj_cat == 3593526 or obj_cat == 2946921:
-                random_scale = np.random.uniform(0.6,0.8,1)[0]
-                object_size = random_scale / range_max
-                print(obj_cat, random_scale, range_max)
-            elif obj_cat == 2773838 or obj_cat == 2880940:
-                random_scale = np.random.uniform(0.8,1,1)[0]
-                object_size = random_scale / range_max
-                print(obj_cat, random_scale, range_max)
-            else:
-                random_scale = np.random.uniform(0.6,1,1)[0]
-                object_size = random_scale / range_max
+            range_max = np.max(object_bounds[1] - object_bounds[0])
+            print(obj_cat)
+            # if obj_cat == 2876657 or obj_cat == 3593526 or obj_cat == 2946921:
+            #     random_scale = np.random.uniform(0.6,0.8,1)[0]
+            #     object_size = random_scale / range_max
+            #     print(obj_cat, random_scale, range_max)
+            # elif obj_cat == 2773838 or obj_cat == 2880940:
+            #     random_scale = np.random.uniform(0.8,1,1)[0]
+            #     object_size = random_scale / range_max
+            #     print(obj_cat, random_scale, range_max)
+            # else:
+            random_scale = np.random.uniform(0.6,1,1)[0]
+            object_size = random_scale / range_max
             object_bounds = object_bounds*object_size
             object_bottom = -object_bounds[0][2]
 
@@ -453,6 +454,12 @@ if __name__ == '__main__':
     for scene_num in range(args.num_scenes):
         acc_scene_num = scene_num + args.start_scene_idx
         gen_data(acc_scene_num, selected_objects[scene_num], args.shapenet_filepath, args.shapenet_decomp_filepath, args.top_dir, args.train_or_test)
+
+    # for scene_num in range(len(df)):
+    #     acc_scene_num = scene_num + args.start_scene_idx
+    #     sample = df.iloc[scene_num]
+    #     sample_input = [(sample['synsetId'], sample['ShapeNetModelId'], sample['objId'])]
+    #     gen_data(acc_scene_num, sample_input, args.shapenet_filepath, args.shapenet_decomp_filepath, args.top_dir, args.train_or_test)
     
         
         
