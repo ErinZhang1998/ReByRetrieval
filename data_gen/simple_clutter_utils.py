@@ -173,6 +173,7 @@ def generate_object_xy_rect(bound, prev_bbox, object_position_region, probs):
             if doOverlap(ll, ur, prev_ll, prev_ur, 0):
                 all_outside = False 
                 break
+
         avoid_all_squares = all_outside
     new_probs = update_object_position_region(object_position_region, probs, selected_region)
     return x,y, new_probs
@@ -194,15 +195,6 @@ def doOverlap(l1, r1, l2, r2, buf):
         return False
   
     return True
-
-def get_angles_occluded(xy0, xys):
-    x0,y0 = xy0
-    xys[:,0] -= x0
-    xys[:,1] -= y0
-    angles = np.arctan(xys[:,1]/xys[:,0])
-    angles = np.tile(angles, 2)
-    angles[len(xys):] = angles[len(xys):]+np.pi
-    return angles
 
 def get_camera_position_occluded(camera_distance, table_height, max_object_height, xyzs, heights):
     num_angles = 6
@@ -240,7 +232,12 @@ def get_camera_position_occluded(camera_distance, table_height, max_object_heigh
             rad = np.arctan(ydiff / xdiff) if xdiff > 0 else np.arctan(ydiff / xdiff)+np.pi
             # shifted_degrees = np.random.choice([5,9,13,],10)
             
-            for shifted_degree in [3,5,7,10,12,15]:
+            deg_candidate = np.asarray([3,5,10,15,20,25])
+            shifted_degrees = []
+            for degi,degj in zip(deg_candidate[:-1], deg_candidate[1:]):
+                shifted_degrees.append(np.random.uniform(degi,degj,1)[0])
+            
+            for shifted_degree in shifted_degrees:#
                 sign = np.random.choice([1,-1])
                 rad += np.deg2rad(sign * shifted_degree)
                 
@@ -253,8 +250,8 @@ def get_camera_position_occluded(camera_distance, table_height, max_object_heigh
                     cam_z = table_height + heights[j] / 2
                 
                 cam_xyzs[cam_num] = [cam_x, cam_y, cam_z]
-                jitter = np.random.uniform(0,0.5,2)
-                cam_targets[cam_num] = [x+jitter[0],y+jitter[1],z]
+                jitter = np.random.uniform(0.2,0.5,2)
+                cam_targets[cam_num] = [x+jitter[0],y+jitter[1],z+np.random.uniform(0.1,0.2,1)[0]]
 
                 cam_num_to_occlusion_target[cam_num] = i
                 cam_num += 1
@@ -265,7 +262,6 @@ def get_camera_position_occluded(camera_distance, table_height, max_object_heigh
     normal_thetas = [np.random.uniform(i*quad, (i+1.0)*quad,1)[0] for i in range(num_angles)]
     
     center = np.mean(xys, axis=0)
-    print(xys, center)
     pairwise_diff = xys - center.reshape((1,2))
     dist = np.linalg.norm(pairwise_diff, axis=1)
     max_dist = np.max(dist)
@@ -371,13 +367,11 @@ def get_camera_matrix(camera):
     # image[1, 2] = (camera.height - 1) / 2.0
     import math
     f = 0.5 * camera.height / math.tan(fov * np.pi / 360)
-
     assert np.abs(f - focal_scaling) < 1e-3
 
     P = np.array(((focal_scaling, 0, camera.width / 2), (0, focal_scaling, camera.height / 2), (0, 0, 1)))
-
     camera_tf = autolab_core.RigidTransform(rotation = rot, translation = np.asarray(pos), from_frame='camera_{}'.format(camera_id), to_frame='world')
-    # 
+
     assert np.all(np.abs(camera_tf.matrix @ np.array([0, 0, 0, 1]).reshape(4,-1) - np.array([[pos[0],pos[1],pos[2],1]]).reshape(4,-1)) < 1e-5)
 
     return P,camera_tf

@@ -5,7 +5,7 @@ import numpy as np
 import multiprocessing as mp
 import multiprocessing
 from multiprocessing.dummy import Pool as ThreadPool
-
+import matplotlib.image as mpimg
 
 from trajopt.envs.mujoco_env import MujocoEnv
 import trimesh
@@ -145,7 +145,6 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             '''
             object_bounds = object_mesh.bounds
             range_max = np.max(object_bounds[1] - object_bounds[0])
-            print(obj_cat)
             # if obj_cat == 2876657 or obj_cat == 3593526 or obj_cat == 2946921:
             #     random_scale = np.random.uniform(0.6,0.8,1)[0]
             #     object_size = random_scale / range_max
@@ -197,6 +196,9 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             
             object_height = object_bounds[1][2] - object_bounds[0][2]            
             object_max_height = max(object_max_height, object_height)
+            
+            r2 = R.from_rotvec(object_rot)
+            object_tf = autolab_core.RigidTransform(rotation = r2.as_matrix(), translation = np.asarray(object_xyz), from_frame='object_{}'.format(object_idx), to_frame='world')
 
             obj_info['xyz'] = np.asarray(object_xyz)
             obj_info['scale'] = object_size
@@ -204,6 +206,8 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             obj_info['rotation'] = object_rot
             obj_info['obj_mesh_filename'] = obj_mesh_filename
             obj_info['object_height'] = object_height
+            obj_info['object_tf'] = object_tf
+            obj_info['object_bounds'] = object_bounds
             object_idx_to_obj_info[object_idx] = obj_info
 
         
@@ -216,43 +220,50 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
         layout_filename = os.path.join(scene_folder_path, 'layout.png')
         draw_boundary_points_rect(prev_bbox, layout_filename)
 
-        scene_xml_file=os.path.join(top_dir, f'base_scene.xml')
-        cam_temp_scene_xml_file=os.path.join(top_dir, f'{train_or_test}_xml/cam_temp_data_gen_scene_{scene_num}.xml')
-        shutil.copyfile(scene_xml_file, cam_temp_scene_xml_file)
+        stable = False 
 
-        add_objects(cam_temp_scene_xml_file, 'table', [stl_table_mesh_filename], table_xyz, table_size, table_color, table_orientation, scene_num, add_contacts=False)
-        
-        # scene_name, object_name, mesh_names, pos, size, color, rot, run_id, contact_geom_list=None, add_ind=-1, add_contacts=True
-        for object_idx in object_idx_to_obj_info.keys():
-            obj_info = object_idx_to_obj_info[object_idx]
-            mesh_names = [os.path.join(top_dir, f'assets/model_normalized_{scene_num}_{object_idx}.stl')]
-            add_objects(cam_temp_scene_xml_file, \
-                        f'object_{object_idx}_{scene_num}', \
-                        mesh_names, \
-                        obj_info['xyz'], \
-                        obj_info['scale'], \
-                        obj_info['color'], \
-                        obj_info['rotation'], \
-                        scene_num, \
-                        add_contacts=False)
-        
-        
-        e = MujocoEnv(cam_temp_scene_xml_file, 1, has_robot=False)
-        e.sim.physics.forward()
-        
-        for _ in range(num_objects):
-            for _ in range(4000):
-                e.model.step()
-        
-        state = e.get_env_state().copy()
+        while not stable:
+            scene_xml_file=os.path.join(top_dir, f'base_scene.xml')
+            cam_temp_scene_xml_file=os.path.join(top_dir, f'{train_or_test}_xml/cam_temp_data_gen_scene_{scene_num}.xml')
+            shutil.copyfile(scene_xml_file, cam_temp_scene_xml_file)
 
-        all_poses=e.data.qpos.ravel().copy()
-        for object_idx in range(num_objects):
-            current_xyz = all_poses[7+7*object_idx : 7+7*object_idx+3]
-            original_xyz = object_idx_to_obj_info[object_idx]['xyz']
+            add_objects(cam_temp_scene_xml_file, 'table', [stl_table_mesh_filename], table_xyz, table_size, table_color, table_orientation, scene_num, add_contacts=False)
+            
+            # scene_name, object_name, mesh_names, pos, size, color, rot, run_id, contact_geom_list=None, add_ind=-1, add_contacts=True
+            for object_idx in object_idx_to_obj_info.keys():
+                obj_info = object_idx_to_obj_info[object_idx]
+                mesh_names = [os.path.join(top_dir, f'assets/model_normalized_{scene_num}_{object_idx}.stl')]
+                add_objects(cam_temp_scene_xml_file, \
+                            f'object_{object_idx}_{scene_num}', \
+                            mesh_names, \
+                            obj_info['xyz'], \
+                            obj_info['scale'], \
+                            obj_info['color'], \
+                            obj_info['rotation'], \
+                            scene_num, \
+                            add_contacts=False)
+            
+            
+            e = MujocoEnv(cam_temp_scene_xml_file, 1, has_robot=False)
+            e.sim.physics.forward()
+            
+            for _ in range(num_objects):
+                for _ in range(4000):
+                    e.model.step()
+            
+            state = e.get_env_state().copy()
 
-            if np.linalg.norm(current_xyz - original_xyz) > 0.05:
-                del object_idx_to_obj_info[object_idx]  
+            stable = True
+            all_poses=e.data.qpos.ravel().copy()
+            for object_idx in range(num_objects):
+                current_xyz = all_poses[7+7*object_idx : 7+7*object_idx+3]
+                original_xyz = object_idx_to_obj_info[object_idx]['xyz']
+
+                if np.linalg.norm(current_xyz - original_xyz) > 0.05:
+                    del object_idx_to_obj_info[object_idx]  
+                    stable = False
+        
+        
         
         '''
         Generate camera position and target
@@ -267,6 +278,7 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
         
         camera_poss, cam_targets, cam_num_to_occlusion_target = get_camera_position_occluded(camera_distance, table_height, max_object_height, xyzs, heights)
         num_camera = len(camera_poss)
+        print("num_camera: ", num_camera)
         
         
         for cam_num in camera_poss.keys():
@@ -287,9 +299,11 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
         cam_height = 480
 
         valid_cameras = []
-        pix_left_ratio_d = {}
+        camera_stats = dict()
+        
         for cam_num in camera_poss.keys():
-            cam_pix_left_ratio_d = {}
+            cam_pix_left_ratio_d = dict()
+            this_cam_stats = dict()
             discard_cam = False
             
             camera = Camera(physics=e.model, height=cam_height, width=cam_width, camera_id=cam_num)
@@ -321,24 +335,22 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                 unoccluded_geom_id_to_seg_id = {unoccluded_camera.scene.geoms[geom_ind][3]: unoccluded_camera.scene.geoms[geom_ind][8] for geom_ind in range(unoccluded_camera.scene.geoms.shape[0])}
                 unoccluded_segmentation = unoccluded_segs[:,:,0] == unoccluded_geom_id_to_seg_id[unocc_target_id]
                 
+                # If the object is not in the scene of this object 
                 if np.argwhere(unoccluded_segmentation).shape[0] == 0:
-                    print(object_idx, cam_num)
+                    this_cam_stats[object_idx] = [-1, 0]
                     continue
                 
                 segmentation = np.logical_and(segmentation, unoccluded_segmentation)
                 pix_left_ratio = np.argwhere(segmentation).shape[0] / np.argwhere(unoccluded_segmentation).shape[0]
                 
                 if object_idx == cam_num_to_occlusion_target[cam_num]:
-                    if pix_left_ratio < 0.4: #or pix_left_ratio > 0.9
+                    if pix_left_ratio < 0.4:
                         discard_cam = True
-                        print("Discard: ", cam_num, pix_left_ratio)
                         continue
-
-                if pix_left_ratio < 0.4:
-                    continue
                 
-                cam_pix_left_ratio_d[object_idx] = pix_left_ratio
-                #
+                this_cam_stats[object_idx] = [pix_left_ratio, np.argwhere(unoccluded_segmentation).shape[0]]
+                # if pix_left_ratio < 0.4:
+                #     continue
                 cv2.imwrite(os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}_{object_idx}.png'), segmentation.astype(np.uint8))
 
             if discard_cam:
@@ -354,16 +366,74 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
 
             cv2.imwrite(os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}.png'), segs)
             valid_cameras.append(cam_num)
-            pix_left_ratio_d[cam_num] = cam_pix_left_ratio_d
+            camera_stats[cam_num] = this_cam_stats
 
+        
+        for k,v in camera_stats.items():
+            print("cam_num: ", k)
+            print("cam_num_to_occlusion_target: ", cam_num_to_occlusion_target[k])
+            print(v)
+        
         original_keys = list(camera_poss.keys())
         for cam_num in original_keys:
             if not cam_num in valid_cameras:
                 del camera_poss[cam_num]
                 del cam_targets[cam_num]
         
-        scene_description = dict()
+        # object_descriptions = dict()
+        # for object_idx in object_idx_to_obj_info.keys():
+        #     object_description = dict()
+        #     obj_info = object_idx_to_obj_info[object_idx]
+
+        #     object_description['mesh_filename'] = obj_info['obj_mesh_filename']
+        #     object_description['position'] = e.data.qpos.ravel()[7+7*object_idx:7+7*object_idx+3].copy().tolist()
+        #     object_description['orientation'] = e.data.qpos.ravel()[7+7*object_idx+3:7+7*object_idx+7].copy().tolist()
+        #     object_description['scale'] = obj_info['scale']
+        #     object_description['color'] = obj_info['color']
+        #     object_description['obj_cat'], object_description['obj_shapenet_id'], object_description['obj_id'] = selected_objects[object_idx]
+        #     object_description['camera_pos'] = camera_poss
+        #     object_description['cam_targets'] = cam_targets
+            
+        #     scene_description['object_descriptions']=[]
+
+        #     scene_description['table']={'mesh_filename':table_mesh_filename, \
+        #             'position': e.data.qpos.ravel()[0:3].copy().tolist(), \
+        #             'orientation': e.data.qpos.ravel()[3:7].copy().tolist(), \
+        #             'scale': table_size}
+
+        #     object_descriptions[object_idx] = object_description
         
+        # for cam_num in camera_poss.keys():
+        #     if camera_stats[cam_num][object_idx][-1] == 0:
+        #         continue
+            
+        #     object_description['pix_left_ratio'] = camera_stats[cam_num][object_idx][0]
+        #     object_description['total_pixel_in_scene'] = camera_stats[cam_num][object_idx][0] * camera_stats[cam_num][object_idx][1]
+        #     camera = Camera(physics=e.model, height=480, width=640, camera_id=cam_num)
+        #     P,camera_tf = get_camera_matrix(camera)
+        #     world_to_camera_tf_mat = camera_tf.inverse().matrix
+
+        #     pixel_coord = project_2d(P, camera_tf, np.array(cur_position).reshape(-1,3))
+        #     pixel_coord = pixel_coord.reshape((-1,))
+
+        #     pt_3d_homo = np.append(obj_info['object_bounds'].T, np.ones(2).astype('int').reshape(1,-1), axis=0) #(4,2)
+        #     bounding_coord = obj_info['object_tf'].matrix @ pt_3d_homo #(4,2)
+        #     bounding_coord = bounding_coord / bounding_coord[-1, :]
+        #     bounding_coord = bounding_coord[:-1, :].T #(2,3)
+        #     bounding_pixel_coord = project_2d(P, camera_tf, np.array(bounding_coord).reshape(-1,3))
+
+        #     l1,l2 = plt_dict.get(cam_num, ([],[]))
+        #     l1.append(pixel_coord)
+        #     l2.append(bounding_pixel_coord)
+        #     plt_dict[cam_num] = (l1,l2)
+
+        #     object_description["object_center_{}".format(cam_num)] = [pixel_coord[0], pixel_coord[1]]
+        #     object_description["intrinsics_{}".format(cam_num)] = P
+        #     object_description["world_to_camera_mat_{}".format(cam_num)] = world_to_camera_tf_mat
+        
+        
+        
+        scene_description = dict()
         scene_description['camera_pos'] = camera_poss
         scene_description['cam_targets'] = cam_targets
         
@@ -378,6 +448,7 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
         scene_description['cam_width'] = cam_width
 
         object_descriptions = []
+        plt_dict = dict()
         for object_idx in object_idx_to_obj_info.keys():
             obj_info = object_idx_to_obj_info[object_idx]
             
@@ -387,7 +458,6 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             object_description['orientation'] = e.data.qpos.ravel()[7+7*object_idx+3:7+7*object_idx+7].copy().tolist()
             object_description['scale'] = obj_info['scale']
             object_description['color'] = obj_info['color']
-            # object_description['pix_left_ratio'] = pix_left_ratio_d[object_idx]
             object_description['obj_cat'], object_description['obj_shapenet_id'], object_description['obj_id'] = selected_objects[object_idx]
 
             cur_position = object_description['position']
@@ -399,12 +469,29 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             # r = R.from_quat(q)
 
             for cam_num in camera_poss.keys():
+                if camera_stats[cam_num][object_idx][-1] == 0:
+                    continue
+                
+                object_description['pix_left_ratio'] = camera_stats[cam_num][object_idx][0]
+                object_description['total_pixel_in_scene'] = camera_stats[cam_num][object_idx][0] * camera_stats[cam_num][object_idx][1]
                 camera = Camera(physics=e.model, height=480, width=640, camera_id=cam_num)
                 P,camera_tf = get_camera_matrix(camera)
                 world_to_camera_tf_mat = camera_tf.inverse().matrix
 
                 pixel_coord = project_2d(P, camera_tf, np.array(cur_position).reshape(-1,3))
                 pixel_coord = pixel_coord.reshape((-1,))
+
+                pt_3d_homo = np.append(obj_info['object_bounds'].T, np.ones(2).astype('int').reshape(1,-1), axis=0) #(4,2)
+                bounding_coord = obj_info['object_tf'].matrix @ pt_3d_homo #(4,2)
+                bounding_coord = bounding_coord / bounding_coord[-1, :]
+                bounding_coord = bounding_coord[:-1, :].T #(2,3)
+                bounding_pixel_coord = project_2d(P, camera_tf, np.array(bounding_coord).reshape(-1,3))
+
+                l1,l2 = plt_dict.get(cam_num, ([],[]))
+                l1.append(pixel_coord)
+                l2.append(bounding_pixel_coord)
+                plt_dict[cam_num] = (l1,l2)
+
                 object_description["object_center_{}".format(cam_num)] = [pixel_coord[0], pixel_coord[1]]
                 object_description["intrinsics_{}".format(cam_num)] = P
                 object_description["world_to_camera_mat_{}".format(cam_num)] = world_to_camera_tf_mat
@@ -412,6 +499,38 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             object_descriptions.append(object_description)
         
         scene_description['object_descriptions'] = object_descriptions
+
+        for cam_num in camera_poss.keys():
+            l1,l2 = plt_dict[cam_num]
+            # fig = plt.figure(figsize=(10, 10))
+            img_path = os.path.join(scene_folder_path, f'rgb_{(cam_num):05}.png')
+            img_plot = mpimg.imread(img_path)
+            # plt.imshow(img_plot)
+            # for pixel_coord in l1:
+            #     plt.scatter(cam_width - pixel_coord[0], pixel_coord[1],   marker=".", c='b', s=30)
+            
+            # for bounding_pixel_coord in l2:
+            #     for pixel_x, pixel_y in bounding_pixel_coord:
+            #         plt.scatter(cam_width - pixel_x, pixel_y,   marker=".", c='r', s=30)
+            fig, ax = plt.subplots(figsize=(10, 10))
+            all_pixels = np.vstack(l1+l2)
+            upper_x, upper_y = np.max(all_pixels, axis=0)
+            lower_x, lower_y = np.min(all_pixels, axis=0)
+            add_x = (upper_x - lower_x) * 0.15
+            add_y = (upper_y - lower_y) * 0.15
+            upper_x, upper_y = upper_x+add_x, upper_y+add_y
+            lower_x, lower_y = lower_x-add_x, lower_y-add_y
+            upper_x, lower_x = np.clip(upper_x, 0, cam_width), np.clip(lower_x, 0, cam_width)
+            upper_y, lower_y = np.clip(upper_y, 0, cam_height), np.clip(lower_y, 0, cam_height)
+            corners4 = np.array([[cam_width-lower_x, lower_y], \
+                [cam_width-upper_x, lower_y], \
+                [cam_width-upper_x, upper_y], \
+                [cam_width-lower_x, upper_y]])
+            ax.imshow(img_plot)
+            poly = patches.Polygon(corners4, linewidth=1, edgecolor='r', facecolor='none')
+            ax.add_artist(poly)
+            fig.savefig(img_path, dpi=fig.dpi)
+            plt.close()
         
         # with open(os.path.join(scene_folder_path, 'scene_description.json'), 'w+') as fp:
         #     json.dump(scene_description, fp)
