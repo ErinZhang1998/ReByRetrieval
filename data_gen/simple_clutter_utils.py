@@ -155,8 +155,10 @@ def generate_object_xy_rect(bound, prev_bbox, object_position_region, probs):
         region_range = object_position_region[region]
         region_width = region_range[0][1] - region_range[0][0]
         region_height = region_range[1][1] - region_range[1][0]
-        x = np.random.uniform(region_range[0][0] + region_width/4, region_range[0][1] - region_width/4, 1)[0]
-        y = np.random.uniform(region_range[1][0] + region_height/4, region_range[1][1] - region_height/4, 1)[0]
+        # x = np.random.uniform(region_range[0][0] + region_width/5, region_range[0][0] + region_width/5 + region_width/2, 1)[0]
+        # y = np.random.uniform(region_range[1][0] + region_height/5, region_range[1][0] + region_height/5 + region_height/2, 1)[0]
+        x = np.random.uniform(region_range[0][0], region_range[0][1], 1)[0]
+        y = np.random.uniform(region_range[1][0], region_range[1][1], 1)[0]
 
         if len(prev_bbox) == 0:
             avoid_all_squares = True
@@ -173,6 +175,29 @@ def generate_object_xy_rect(bound, prev_bbox, object_position_region, probs):
             if doOverlap(ll, ur, prev_ll, prev_ur, 0):
                 all_outside = False 
                 break
+
+            new_lower_x, new_lower_y = ll[0],ll[1]
+            new_upper_x, new_upper_y = ur[0],ur[1]
+            old_lower_x, old_lower_y = prev_ll[0], prev_ll[1]
+            old_upper_x, old_upper_y = prev_ur[0], prev_ur[1]
+            dists = []
+            new_corners = np.asarray([[new_lower_x, new_lower_y], \
+                [new_upper_x, new_lower_y], \
+                [new_upper_x, new_upper_y], \
+                [new_lower_x, new_upper_y]])
+            old_corners = np.asarray([[old_lower_x, old_lower_y], \
+                [old_upper_x, old_lower_y], \
+                [old_upper_x, old_upper_y], \
+                [old_lower_x, old_upper_y]])
+            
+            for corner in new_corners:
+                dists.append(np.linalg.norm(old_corners - corner, axis=1))
+            min_corner_dist = np.min(np.stack(dists))
+            if min_corner_dist > 0.4:
+                all_outside = False
+                break
+            # print(np.stack(dists), min_corner_dist)
+            # print("x,y: ", x,y)
 
         avoid_all_squares = all_outside
     new_probs = update_object_position_region(object_position_region, probs, selected_region)

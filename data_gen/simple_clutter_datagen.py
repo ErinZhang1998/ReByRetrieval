@@ -110,10 +110,11 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
         probs = [0.15,0.15,0.15,0.15,0.1,0.1,0.1,0.1]
         prev_bbox = []
         
-        object_idx_to_obj_info = {}
+        object_idx_to_obj_info = dict()
         for object_idx in range(num_objects):
+            print("=> OBJECT {}".format(object_idx), selected_objects[object_idx])
             obj_cat, obj_id, _ = selected_objects[object_idx]
-            obj_info = {}
+            obj_info = dict()
             obj_info['obj_cat'] = obj_cat
             obj_info['obj_id'] = obj_id
             
@@ -135,7 +136,6 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             # Rotate object to face different directions
             z_rot = np.random.uniform(0,2*np.pi,1)[0]
             object_rot = [0,0,z_rot]
-            
             '''
             Determine object color
             '''
@@ -188,7 +188,19 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                     6: [[XMIN, x_bottom],[y_top,YMAX]],
                     7: [[XMIN, x_bottom],[YMIN, y_bottom]],
                 }
+                # print("REGION INFO:")
+                # for region in range(8):
+                #     print("----------------------------------------------------")
+                #     region_range = object_position_region[region]
+                #     print("\tregion_range: ", region_range)
+                #     region_width = region_range[0][1] - region_range[0][0]
+                #     region_height = region_range[1][1] - region_range[1][0]
+                #     print("\tegion_width, region_height: ", region_width, region_height)
+                #     print("\tsample range x: ", region_range[0][0] + region_width/4, region_range[0][1] - region_width/4)
+                #     print("\tsample_range y: ", region_range[1][0] + region_height/4, region_range[1][1] - region_height/4)
+
             else:
+                
                 object_x, object_y, probs = generate_object_xy_rect(object_bounds, prev_bbox, object_position_region, probs)
             
             object_xyz = [object_x, object_y, object_z]
@@ -261,7 +273,7 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             if np.linalg.norm(current_xyz - original_xyz) > 0.1:
                 print("????????????????????????", current_xyz, original_xyz, np.linalg.norm(current_xyz - original_xyz))
                 print("????????????????????????",  object_idx_to_obj_info[object_idx]['obj_mesh_filename'])
-                #del object_idx_to_obj_info[object_idx]  
+                del object_idx_to_obj_info[object_idx]  
         
         '''
         Generate camera position and target
