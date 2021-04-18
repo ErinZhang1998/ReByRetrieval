@@ -349,8 +349,6 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                         continue
                 
                 this_cam_stats[object_idx] = [pix_left_ratio, np.argwhere(unoccluded_segmentation).shape[0]]
-                # if pix_left_ratio < 0.4:
-                #     continue
                 cv2.imwrite(os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}_{object_idx}.png'), segmentation.astype(np.uint8))
 
             if discard_cam:
@@ -387,27 +385,29 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
 
             object_description = dict()
             object_description['mesh_filename'] = obj_info['obj_mesh_filename']
-            object_description['position'] = e.data.qpos.ravel()[7+7*object_idx:7+7*object_idx+3].copy().tolist()
-            object_description['orientation'] = e.data.qpos.ravel()[7+7*object_idx+3:7+7*object_idx+7].copy().tolist()
+            object_description['position'] = e.data.qpos.ravel()[7+7*object_idx:7+7*object_idx+3].copy()
+            object_description['orientation'] = e.data.qpos.ravel()[7+7*object_idx+3:7+7*object_idx+7].copy()
             object_description['scale'] = obj_info['scale']
             object_description['color'] = obj_info['color']
             object_description['obj_cat'], object_description['obj_shapenet_id'], object_description['obj_id'] = selected_objects[object_idx]
             object_description['camera_pos'] = camera_poss
             object_description['cam_targets'] = cam_targets
             object_description['table']={'mesh_filename':table_mesh_filename, \
-                    'position': e.data.qpos.ravel()[0:3].copy().tolist(), \
-                    'orientation': e.data.qpos.ravel()[3:7].copy().tolist(), \
+                    'position': e.data.qpos.ravel()[0:3].copy(), \
+                    'orientation': e.data.qpos.ravel()[3:7].copy(), \
                     'scale': table_size}
             object_description['cam_height'] = cam_height
             object_description['cam_width'] = cam_width
 
             cur_position = object_description['position']
+            object_cam_d = dict()
             for cam_num in camera_poss.keys():
                 if camera_stats[cam_num][object_idx][-1] == 0:
                     continue
                 
-                object_description['pix_left_ratio'] = camera_stats[cam_num][object_idx][0]
-                object_description['total_pixel_in_scene'] = camera_stats[cam_num][object_idx][0] * camera_stats[cam_num][object_idx][1]
+                object_camera_info_i = dict()
+                object_camera_info_i['pix_left_ratio'] = camera_stats[cam_num][object_idx][0]
+                object_camera_info_i['total_pixel_in_scene'] = camera_stats[cam_num][object_idx][0] * camera_stats[cam_num][object_idx][1]
                 camera = Camera(physics=e.model, height=480, width=640, camera_id=cam_num)
                 P,camera_tf = get_camera_matrix(camera)
                 world_to_camera_tf_mat = camera_tf.inverse().matrix
@@ -426,11 +426,20 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                 l2.append(bounding_pixel_coord)
                 plt_dict[cam_num] = (l1,l2)
 
-                object_description["object_center_{}".format(cam_num)] = pixel_coord
-                object_description["object_bounds_{}".format(cam_num)] = bounding_pixel_coord
-                object_description["intrinsics_{}".format(cam_num)] = P
-                object_description["world_to_camera_mat_{}".format(cam_num)] = world_to_camera_tf_mat
-            
+                object_camera_info_i["object_center"] = pixel_coord
+                object_camera_info_i["object_bounds"] = bounding_pixel_coord
+                object_camera_info_i["intrinsics"] = P
+                object_camera_info_i["world_to_camera_mat"] = world_to_camera_tf_mat
+
+                root_name = f'_{(cam_num):05}'
+                object_camera_info_i['rgb_all_path'] = os.path.join(scene_folder_path, 'rgb'+root_name+'.png')
+                object_camera_info_i['depth_all_path'] = os.path.join(scene_folder_path, 'depth'+root_name+'.png')
+                
+                obj_name = f'_{(cam_num):05}_{object_idx}'
+                segmentation_filename = os.path.join(scene_folder_path, 'segmentation'+obj_name+'.png')
+                object_camera_info_i['mask_path'] = segmentation_filename
+                object_cam_d[cam_num] = object_camera_info_i
+            object_description['object_cam_d'] = object_cam_d
             object_descriptions[object_idx] = object_description
 
         for cam_num in camera_poss.keys():
@@ -467,10 +476,8 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             # fig.savefig(img_path, dpi=fig.dpi)
             # plt.close()
         
-        for object_idx in object_idx_to_obj_info.keys():
-            object_description = object_descriptions[object_idx]
-            with open(os.path.join(scene_folder_path, 'object_description_{}.p'.format(object_idx)), 'wb+') as save_file:
-                    pickle.dump(object_description, save_file)  
+        with open(os.path.join(scene_folder_path, 'scene_description.p'), 'wb+') as save_file:
+            pickle.dump(object_descriptions, save_file)  
 
         
     except:

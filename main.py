@@ -34,15 +34,13 @@ scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.scheduler_
 
 train_dataset = incat_dataset.InCategoryClutterDataset('train', args.dataset_config.size, \
     scene_dir=args.files.training_scene_dir, \
-    model_filepath=args.files.training_model_filepath, \
-    shape_categories_filepath=args.files.shape_categories_filepath, \
+    csv_file_path=args.files.train_csv_file_path, \
     shapenet_filepath=args.files.shapenet_filepath)
 train_loader = incat_dataloader.InCategoryClutterDataloader(train_dataset, args.training_config.batch_size, shuffle = True)
 
 test_dataset = incat_dataset.InCategoryClutterDataset('test', args.dataset_config.size, \
     scene_dir=args.files.testing_scene_dir, \
-    model_filepath=args.files.testing_model_filepath, \
-    shape_categories_filepath=args.files.shape_categories_filepath, \
+    csv_file_path=args.files.test_csv_file_path, \
     shapenet_filepath=args.files.shapenet_filepath)
 test_loader = incat_dataloader.InCategoryClutterDataloader(test_dataset, args.testing_config.batch_size, shuffle = False)
 

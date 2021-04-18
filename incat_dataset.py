@@ -25,13 +25,12 @@ from torch.utils.data.sampler import Sampler
 
 class InCategoryClutterDataset(Dataset):
     
-    def __init__(self, split, size, scene_dir, model_filepath, shape_categories_filepath, shapenet_filepath):
+    def __init__(self, split, size, scene_dir, csv_file_path, shapenet_filepath):
 
         self.split = split 
         self.size = size 
         self.scene_dir = scene_dir
-        self.model_filepath = model_filepath
-        self.shape_categories_filepath = shape_categories_filepath
+        self.csv_file_path = csv_file_path
         self.shapenet_filepath = shapenet_filepath
         self.img_mean = [0.5,0.5,0.5]
         self.img_std = [0.5,0.5,0.5]
@@ -39,10 +38,9 @@ class InCategoryClutterDataset(Dataset):
         self.dir_list = self.data_dir_list(self.scene_dir)
         
         self.object_id_to_dict_idx = {}
-        self.object_ids, self.object_id_to_label, self.cat_ids, self.cat_id_to_label = self.object_cat()
+        self.generate_object_category_information()
 
         self.idx_to_data_dict = dict()
-        # self.idx_to_sample_id = dict()
         idx = 0
         for dir_path in self.dir_list:
             idx_to_data_dicti, idx = self.load_sample(dir_path, idx)
@@ -63,7 +61,7 @@ class InCategoryClutterDataset(Dataset):
         for k,v in self.object_id_to_dict_idx.items():
             self.total.append(len(v))
         
-        self.determine_imge_dim()
+        # self.determine_imge_dim()
 
 
     def determine_imge_dim(self):
@@ -86,42 +84,29 @@ class InCategoryClutterDataset(Dataset):
 
         return l 
     
-    def object_cat(self):
-        # Automatically containing only object ids for the split
-        shapenet_models = json.load(open(self.model_filepath))
+    def generate_object_category_information(self):
+        df = pd.read_csv(self.csv_file_path)
 
-        temp = json.load(open(os.path.join(self.shapenet_filepath, 'taxonomy.json'))) 
-        taxonomy_dict = {x['name'] : x['synsetId'] for x in temp}
-        synset_ids_in_dir = os.listdir(self.shapenet_filepath)
-        synset_ids_in_dir.remove('taxonomy.json')
-        taxonomy_dict = {k:v for (k,v) in taxonomy_dict.items() if v in synset_ids_in_dir}
-        
-        # All categories that we are considering 
-        table_top_categories = []
-        with open(self.shape_categories_filepath) as shape_categories_file:
-            for line in shape_categories_file:
-                if line.strip() == '':
-                    continue
-                table_top_categories.append(line.strip())
-        
-        cat_ids = []
+        cat_ids = set()
         object_ids = set()
-        for cat_name in table_top_categories:
-            for obj_id in shapenet_models[cat_name]:
-                object_ids.add(obj_id)
-            cat_ids.append(taxonomy_dict[cat_name])
+        cat_names = set()
+        for idx in range(len(df)):
+            sample = df.iloc[idx]
+            cat_ids.add(sample['synsetId'])
+            cat_names.add(sample['name'])
+            object_ids.add(sample['objId']) 
+        cat_ids = list(cat_ids)
         object_ids = list(object_ids)
-
-        cat_id_to_label = {}
-        for i in range(len(cat_ids)):
-            cat_id_to_label[cat_ids[i]] =  i
+        cat_names = list(cat_names)
         
-        object_id_to_label = {}
-        for i in range(len(object_ids)):
-            object_id_to_label[object_ids[i]] =  i
-
-        self.taxonomy_dict = taxonomy_dict
-        return object_ids, object_id_to_label, cat_ids, cat_id_to_label
+        self.cat_ids = cat_ids
+        self.cat_id_to_label = dict(zip(self.cat_ids, range(len(self.cat_ids))))
+        self.object_ids = object_ids
+        self.object_id_to_label = dict(zip(self.object_ids, range(len(self.object_ids))))
+        
+        self.cat_names = cat_names
+        self.cat_names_to_cat_id = dict(zip(self.cat_names, self.cat_ids))
+        self.cat_id_to_cat_names = dict(zip(self.cat_ids, self.cat_names))
 
     def keep_even(self):
         self.discarded_idx = []
@@ -135,18 +120,18 @@ class InCategoryClutterDataset(Dataset):
             assert len(v)%2 == 0 
 
     def parse_sample_id(self,sample_id):
-        scene_name, cam_num, scene_obj_idx = sample_id.rsplit('_',2)
-        scene_obj_idx = int(scene_obj_idx)
+        scene_name, cam_num, object_idx = sample_id.rsplit('_',2)
+        object_idx = int(object_idx)
         cam_num = int(cam_num)
-        return scene_name, cam_num, scene_obj_idx
+        return scene_name, cam_num, object_idx
     
     def load_sample_img_mask(self, sample_id):
         # scene_000953_00022_0
-        scene_name, cam_num, scene_obj_idx = self.parse_sample_id(sample_id)
+        scene_name, cam_num, object_idx = self.parse_sample_id(sample_id)
         dir_path = os.path.join(self.scene_dir, scene_name)
 
         root_name = f'_{(cam_num):05}'
-        obj_name = f'_{(cam_num):05}_{scene_obj_idx}'
+        obj_name = f'_{(cam_num):05}_{object_idx}'
 
         rgb_all_path = os.path.join(dir_path, 'rgb{}.png'.format(root_name))
         segmentation_filename = os.path.join(dir_path, 'segmentation{}.png'.format(obj_name))
@@ -154,9 +139,8 @@ class InCategoryClutterDataset(Dataset):
         rgb_all = mpimg.imread(rgb_all_path)
         mask = mpimg.imread(segmentation_filename)
 
-        scene_description = pickle.load(open(os.path.join(dir_path, 'scene_description.p'), 'rb'))
-        object_description = scene_description['object_descriptions'][scene_obj_idx]
-        center = object_description["object_center_{}".format(cam_num)]
+        object_descriptions = pickle.load(open(os.path.join(dir_path, 'scene_description.p'), 'rb'))
+        center = object_descriptions[object_idx][cam_num]["object_center"]
         center_rev = copy.deepcopy(center.reshape(-1,))
         center_rev[0] = rgb_all.shape[1] - center_rev[0]
     
@@ -165,50 +149,46 @@ class InCategoryClutterDataset(Dataset):
     
     def load_sample(self, dir_path, idx):
         scene_name = dir_path.split("/")[-1]
-        scene_description_dir = os.path.join(dir_path, 'scene_description.p')
-        scene_description = pickle.load(open(scene_description_dir, 'rb'))
-        num_views = scene_description['camera_pos'].shape[0]
-        num_objects = len(scene_description['object_descriptions'])
-
+        scene_description_path = os.path.join(dir_path, 'scene_description.p')
+        object_descriptions = pickle.load(open(scene_description_path, 'rb'))
+        
         samples = {}
         idx_i = idx
-        for i in range(num_objects):
-            object_description = scene_description['object_descriptions'][i]
+        for object_idx in object_descriptions.keys():
+            object_description = object_descriptions[object_idx]
+            
             position = object_description['position']
             scale = object_description['scale']
             orientation = object_description['orientation']
             mesh_filename = object_description['mesh_filename']
-            object_cat_id = object_description['obj_cat']
-            object_obj_id = object_description['obj_id']#
-            
-            Ai = self.object_id_to_dict_idx.get(object_obj_id, [])
-            
-            for cam_num in range(num_views):
+            object_cat_id = self.cat_id_to_label[object_description['obj_cat']]
+            object_obj_id = self.object_id_to_label[object_description['obj_id']]
+            object_shapenet_id = object_description['obj_shapenet_id']
 
+            Ai = self.object_id_to_dict_idx.get(object_obj_id, [])
+
+            object_cam_d = object_description['object_cam_d']
+            for cam_num, object_camera_info_i in object_cam_d.items():
+                pix_left_ratio = object_camera_info_i['pix_left_ratio'] 
+                if pix_left_ratio < 0.4:
+                    continue
                 
                 root_name = f'_{(cam_num):05}'
-                obj_name = f'_{(cam_num):05}_{i}'
-                segmentation_filename = os.path.join(dir_path, 'segmentation'+obj_name+'.png')
-                if not os.path.exists(segmentation_filename):
-                    continue
-                sample_id = scene_name + f'_{cam_num}_{i}'
+                obj_name = f'_{(cam_num):05}_{object_idx}'
+                sample_id = scene_name + f'_{cam_num}_{object_idx}'
                 sample = {'sample_id': sample_id}
-                sample['depth_all_path'] = os.path.join(dir_path, 'depth'+root_name+'.png')
-                sample['rgb_all_path'] = os.path.join(dir_path, 'rgb'+root_name+'.png')
-                sample['mask_path'] = segmentation_filename
-
                 sample['position'] = position
                 sample['scale'] = scale
                 sample['orientation'] = orientation
-                sample['mesh_filename'] = mesh_filename
-                sample['object_center'] = object_description["object_center_{}".format(cam_num)]
-                sample['obj_cat'] = self.cat_id_to_label[object_cat_id]
-                sample['obj_id'] = self.object_id_to_label[object_obj_id]
-                # 
+                sample['obj_cat'] = object_cat_id
+                sample['obj_id'] = object_obj_id
+                sample['obj_shapenet_id'] = object_shapenet_id
+                sample['object_center'] = object_camera_info_i["object_center"]
 
+                sample['rgb_all_path'] = object_camera_info_i['rgb_all_path']
+                sample['mask_path'] = object_camera_info_i['mask_path'] 
                 samples[idx_i] = sample
-                # self.idx_to_sample_id[idx_i] = sample_id
-                # print(idx_i, sample_id)
+
                 Ai.append(idx_i)
                 idx_i += 1
 
