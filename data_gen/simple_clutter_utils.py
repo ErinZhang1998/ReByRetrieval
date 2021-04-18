@@ -129,6 +129,8 @@ def update_object_position_region(object_position_region, probs, selected_region
 #     return x,y, new_probs
 
 def generate_object_xy(object_rot, object_z, object_bounds, prev_bbox, object_position_region, probs, scene_folder_path):
+    ratio_lower = 0.4
+    ratio_upper = 0.8
     avoid_all_squares = False 
     x,y = None, None
     selected_region = None 
@@ -149,19 +151,32 @@ def generate_object_xy(object_rot, object_z, object_bounds, prev_bbox, object_po
     while not avoid_all_squares:
         if MAX_TRY < 0:
             raise
+        
+        prev_center_idx = np.random.choice(len(prev_bbox), 1)[0]
+        center_corners = prev_bbox[prev_center_idx]
+        x_bottom, y_bottom = np.min(center_corners, axis=0)
+        x_top, y_top = np.max(center_corners, axis=0)
+        object_position_region = {
+            0: [[x_top, 1],[y_bottom, 1]],
+            1: [[x_bottom, 1],[y_top,1]],
+            2: [[x_bottom, -1],[y_bottom, 1]],
+            3: [[x_bottom, 1],[y_bottom, -1]],
+            4: [[x_top,1],[y_bottom, -1]],
+            6: [[x_bottom, -1],[y_top,1]],
+            5: [[x_top,1],[y_top,1]],
+            7: [[x_bottom, -1],[y_bottom, -1]],
+        }
+
         region = np.random.choice(8, 1, p=probs)[0]
         region_range = object_position_region[region]
-        region_width = region_range[0][1] - region_range[0][0]
-        region_height = region_range[1][1] - region_range[1][0]
-        x_sample_start = region_range[0][0] + region_width - object_x_width
-        x_sample_end = region_range[0][0] + region_width - 0.5*object_x_width
-        y_sample_start = region_range[1][0] + region_height - object_y_width
-        y_sample_end = region_range[1][0] + region_height - 0.5*object_y_width
+        x_start,x_sign = region_range[0]
+        y_start,y_sign = region_range[1]
+        
+        x_dist = np.random.uniform(object_x_width*ratio_lower, object_x_width*ratio_upper, 1)[0]
+        y_dist = np.random.uniform(object_y_width*ratio_lower, object_y_width*ratio_upper, 1)[0]
 
-        x = np.random.uniform(x_sample_start, x_sample_end, 1)[0]
-        y = np.random.uniform(y_sample_start, y_sample_end, 1)[0]
-        # x = np.random.uniform(region_range[0][0], region_range[0][1], 1)[0]
-        # y = np.random.uniform(region_range[1][0], region_range[1][1], 1)[0]
+        x = x_start + x_dist * x_sign
+        y = y_start + y_dist * y_sign
 
         if len(prev_bbox) == 0:
             avoid_all_squares = True
@@ -178,8 +193,8 @@ def generate_object_xy(object_rot, object_z, object_bounds, prev_bbox, object_po
         new_corners = bounding_coord[:,:2]
         poly = Polygon(new_corners)
 
-        layout_filename = os.path.join(scene_folder_path, 'layout_idx-{}_try-{}.png'.format(len(prev_bbox),try_count))
-        draw_boundary_points_rect(prev_bbox + [new_corners], layout_filename)
+        # layout_filename = os.path.join(scene_folder_path, 'layout_idx-{}_try-{}.png'.format(len(prev_bbox),try_count))
+        # draw_boundary_points_rect(prev_bbox + [new_corners], layout_filename)
 
         all_outside = True
         min_corner_dist = 1000
@@ -187,7 +202,10 @@ def generate_object_xy(object_rot, object_z, object_bounds, prev_bbox, object_po
         for prev_idx, old_corners in enumerate(prev_bbox):
             old_poly = Polygon(old_corners)
             if old_poly.intersects(poly):
-                print("\n#1: ", prev_idx, x,y)
+                print("\n#1: try-{}".format(try_count), x, y)
+                print(x_start,x_sign, y_start,y_sign)
+                print("::", x_start + object_x_width*ratio_lower*x_sign, x_start + object_x_width*ratio_upper*x_sign)
+                print("::", y_start + object_y_width*ratio_lower*y_sign, y_start + object_y_width*ratio_upper*y_sign)
                 all_outside = False
                 break
 
@@ -196,18 +214,19 @@ def generate_object_xy(object_rot, object_z, object_bounds, prev_bbox, object_po
         
         if all_outside:
             min_corner_dist = np.min(np.stack(dists))
-            if min_corner_dist > 0.3:
-                print("\n#2: try-", try_count, x, y)
-                print(region_range)
-                print("::", x_sample_start, x_sample_end)
-                print("::", y_sample_start, y_sample_end)
+            if min_corner_dist > 0.35:
+                print("\n#2: try-{}".format(try_count), x, y)
+                print(x_start,x_sign, y_start,y_sign)
+                print("::", x_start + object_x_width*ratio_lower*x_sign, x_start + object_x_width*ratio_upper*x_sign)
+                print("::", y_start + object_y_width*ratio_lower*y_sign, y_start + object_y_width*ratio_upper*y_sign)
                 print(np.min(np.stack(dists), axis=1), min_corner_dist)
                 all_outside = False
 
         avoid_all_squares = all_outside
         MAX_TRY -= 1
         try_count += 1
-    new_probs = update_object_position_region(object_position_region, probs, selected_region)
+    # new_probs = update_object_position_region(object_position_region, probs, selected_region)
+    new_probs = probs
     return x,y,new_probs, object_tf, new_corners
 
 def get_2d_diagonal_corners(obj_xyzs, all_obj_bounds):

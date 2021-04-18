@@ -112,7 +112,8 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
         
         object_max_height = -10
         object_position_region = None
-        probs = [0.15,0.15,0.15,0.15,0.1,0.1,0.1,0.1]
+        # probs = [0.15,0.15,0.15,0.15,0.1,0.1,0.1,0.1]
+        probs = [1/8] * 8
         prev_bbox = []
         
         object_idx_to_obj_info = dict()
@@ -169,43 +170,15 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             '''
             object_z = table_height + object_bottom + 0.005
             if object_idx == 0:
-                a,b,_ = object_bounds[1] - object_bounds[0]
-                diag_length = np.sqrt(a **2 + b**2)
-                left_x, right_x = -diag_length/2, diag_length/2
-                down_y, up_y = -diag_length/2, diag_length/2
+                # a,b,_ = object_bounds[1] - object_bounds[0]
+                # diag_length = np.sqrt(a **2 + b**2)
+                # left_x, right_x = -diag_length/2, diag_length/2
+                # down_y, up_y = -diag_length/2, diag_length/2
                 
                 # To put at the center of the table
                 object_x = (table_bounds[1,0] + table_bounds[0,0]) / 2
                 object_y = (table_bounds[1,1] + table_bounds[0,1]) / 2
-                
-                x_top, XMAX =  object_x+right_x, object_x+right_x+REGION_LIMIT
-                x_bottom, XMIN = object_x+left_x, object_x+left_x-REGION_LIMIT
-                y_top, YMAX = object_y+up_y, object_y+up_y+REGION_LIMIT
-                y_bottom, YMIN = object_y+down_y, object_y+down_y-REGION_LIMIT
-                
-                # object_position_region = {
-                #     0: [[x_top, XMAX],[y_bottom, y_top]],
-                #     1: [[x_bottom, x_top],[y_top,YMAX]],
-                #     2: [[XMIN, x_bottom],[y_bottom, y_top]],
-                #     3: [[x_bottom, x_top],[YMIN, y_bottom]],
-                #     4: [[x_top,XMAX],[YMIN, y_bottom]],
-                #     5: [[x_top,XMAX],[y_top,YMAX]],
-                #     6: [[XMIN, x_bottom],[y_top,YMAX]],
-                #     7: [[XMIN, x_bottom],[YMIN, y_bottom]],
-                # }
-                object_position_region = {
-                    0: [[x_top, 1],[y_bottom, 1]],
-                    1: [[x_bottom, 1],[y_top,1]],
-                    2: [[x_bottom, -1],[y_bottom, 1]],
-                    3: [[x_bottom, 1],[y_bottom, -1]],
-                    4: [[x_top,1],[y_bottom, -1]],
-                    5: [[x_top,1],[y_top,1]],
-                    6: [[x_bottom, -1],[y_top,1]],
-                    7: [[x_bottom, -1],[y_bottom, -1]],
-                }
                 object_xyz = [object_x, object_y, object_z]
-                r2 = R.from_rotvec(object_rot)
-                object_tf = autolab_core.RigidTransform(rotation = r2.as_matrix(), translation = np.asarray(object_xyz), from_frame='object_{}'.format(object_idx), to_frame='world')
                 lower_x, upper_x = object_bounds[:,0]
                 lower_y, upper_y = object_bounds[:,1]
                 lower_z,_ = object_bounds[:,2]
@@ -219,13 +192,46 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                     [upper_x, lower_y, lower_z], \
                     [upper_x, upper_y, lower_z], \
                     [lower_x, upper_y, lower_z]]) #(4,3) --> (3,4)
+                r2 = R.from_rotvec(object_rot)
+                object_tf = autolab_core.RigidTransform(rotation = r2.as_matrix(), translation = np.asarray(object_xyz), from_frame='object_{}'.format(object_idx), to_frame='world')
+                
                 pt_3d_homo = np.append(new_corners_3d.T, np.ones(4).astype('int').reshape(1,-1), axis=0) #(4,4)
                 bounding_coord = object_tf.matrix @ pt_3d_homo #(4,4)
                 bounding_coord = bounding_coord / bounding_coord[-1, :]
                 bounding_coord = bounding_coord[:-1, :].T #(4,3)
-                prev_bbox.append(bounding_coord[:,:2])
-            else:
+                corners = bounding_coord[:,:2]
+                # x_top, XMAX =  object_x+right_x, object_x+right_x+REGION_LIMIT
+                # x_bottom, XMIN = object_x+left_x, object_x+left_x-REGION_LIMIT
+                # y_top, YMAX = object_y+up_y, object_y+up_y+REGION_LIMIT
+                # y_bottom, YMIN = object_y+down_y, object_y+down_y-REGION_LIMIT
                 
+                # object_position_region = {
+                #     0: [[x_top, XMAX],[y_bottom, y_top]],
+                #     1: [[x_bottom, x_top],[y_top,YMAX]],
+                #     2: [[XMIN, x_bottom],[y_bottom, y_top]],
+                #     3: [[x_bottom, x_top],[YMIN, y_bottom]],
+                #     4: [[x_top,XMAX],[YMIN, y_bottom]],
+                #     5: [[x_top,XMAX],[y_top,YMAX]],
+                #     6: [[XMIN, x_bottom],[y_top,YMAX]],
+                #     7: [[XMIN, x_bottom],[YMIN, y_bottom]],
+                # }
+                prev_bbox.append(corners)
+            else:
+                # all_corners = np.vstack(prev_bbox)
+                # assert all_corners.shape[1] == 2
+                # x_bottom, y_bottom = np.min(all_corners, axis=0)
+                # x_top, y_top = np.max(all_corners, axis=0)
+                # object_position_region = {
+                #     0: [[x_top, 1],[y_bottom, 1]],
+                #     1: [[x_bottom, 1],[y_top,1]],
+                #     2: [[x_bottom, -1],[y_bottom, 1]],
+                #     3: [[x_bottom, 1],[y_bottom, -1]],
+                #     4: [[x_top,1],[y_bottom, -1]],
+                #     6: [[x_bottom, -1],[y_top,1]],
+                #     5: [[x_top,1],[y_top,1]],
+                #     7: [[x_bottom, -1],[y_bottom, -1]],
+                # }
+
                 # object_x, object_y, probs = generate_object_xy_rect(object_bounds, prev_bbox, object_position_region, probs)
                 object_x, object_y, probs, object_tf, corners = generate_object_xy(object_rot, object_z, object_bounds, prev_bbox, object_position_region, probs, scene_folder_path)
                 prev_bbox.append(corners)
@@ -287,7 +293,7 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             current_xyz = all_poses[7+7*object_idx : 7+7*object_idx+3]
             original_xyz = object_idx_to_obj_info[object_idx]['xyz']
 
-            if np.linalg.norm(current_xyz - original_xyz) > 0.1:
+            if np.linalg.norm(current_xyz - original_xyz) > 0.15:
                 print("????????????????????????", current_xyz, original_xyz, np.linalg.norm(current_xyz - original_xyz))
                 print("????????????????????????",  object_idx_to_obj_info[object_idx]['obj_mesh_filename'])
                 del object_idx_to_obj_info[object_idx]  
@@ -527,7 +533,7 @@ if __name__ == '__main__':
 
     selected_object_indices = []
     for scene_idx in range(args.num_scenes):
-        num_object = np.random.randint(args.min_num_objects, args.max_num_objects, 1)[0]
+        num_object = np.random.randint(args.min_num_objects, args.max_num_objects+1, 1)[0]
         selected_object_indices.append(np.random.randint(0, len(df), num_object))
 
     selected_objects = []
