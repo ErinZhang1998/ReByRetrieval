@@ -150,6 +150,8 @@ class InCategoryClutterDataset(Dataset):
     def load_sample(self, dir_path, idx):
         scene_name = dir_path.split("/")[-1]
         scene_description_path = os.path.join(dir_path, 'scene_description.p')
+        if not os.path.exists(scene_description_path):
+            return {}, idx
         object_descriptions = pickle.load(open(scene_description_path, 'rb'))
         
         samples = {}

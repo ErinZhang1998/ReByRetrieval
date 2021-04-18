@@ -220,50 +220,48 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
         layout_filename = os.path.join(scene_folder_path, 'layout.png')
         draw_boundary_points_rect(prev_bbox, layout_filename)
 
-        stable = False 
+        
+        scene_xml_file=os.path.join(top_dir, f'base_scene.xml')
+        cam_temp_scene_xml_file=os.path.join(top_dir, f'{train_or_test}_xml/cam_temp_data_gen_scene_{scene_num}.xml')
+        shutil.copyfile(scene_xml_file, cam_temp_scene_xml_file)
 
-        while not stable:
-            scene_xml_file=os.path.join(top_dir, f'base_scene.xml')
-            cam_temp_scene_xml_file=os.path.join(top_dir, f'{train_or_test}_xml/cam_temp_data_gen_scene_{scene_num}.xml')
-            shutil.copyfile(scene_xml_file, cam_temp_scene_xml_file)
-
-            add_objects(cam_temp_scene_xml_file, 'table', [stl_table_mesh_filename], table_xyz, table_size, table_color, table_orientation, scene_num, add_contacts=False)
-            
-            # scene_name, object_name, mesh_names, pos, size, color, rot, run_id, contact_geom_list=None, add_ind=-1, add_contacts=True
-            for object_idx in object_idx_to_obj_info.keys():
-                obj_info = object_idx_to_obj_info[object_idx]
-                mesh_names = [os.path.join(top_dir, f'assets/model_normalized_{scene_num}_{object_idx}.stl')]
-                add_objects(cam_temp_scene_xml_file, \
-                            f'object_{object_idx}_{scene_num}', \
-                            mesh_names, \
-                            obj_info['xyz'], \
-                            obj_info['scale'], \
-                            obj_info['color'], \
-                            obj_info['rotation'], \
-                            scene_num, \
-                            add_contacts=False)
-            
-            
-            e = MujocoEnv(cam_temp_scene_xml_file, 1, has_robot=False)
-            e.sim.physics.forward()
-            
-            for _ in range(num_objects):
-                for _ in range(4000):
-                    e.model.step()
-            
-            state = e.get_env_state().copy()
-
-            stable = True
-            all_poses=e.data.qpos.ravel().copy()
-            for object_idx in range(num_objects):
-                current_xyz = all_poses[7+7*object_idx : 7+7*object_idx+3]
-                original_xyz = object_idx_to_obj_info[object_idx]['xyz']
-
-                if np.linalg.norm(current_xyz - original_xyz) > 0.05:
-                    del object_idx_to_obj_info[object_idx]  
-                    stable = False
+        add_objects(cam_temp_scene_xml_file, 'table', [stl_table_mesh_filename], table_xyz, table_size, table_color, table_orientation, scene_num, add_contacts=False)
+        
+        # scene_name, object_name, mesh_names, pos, size, color, rot, run_id, contact_geom_list=None, add_ind=-1, add_contacts=True
+        for object_idx in object_idx_to_obj_info.keys():
+            obj_info = object_idx_to_obj_info[object_idx]
+            mesh_names = [os.path.join(top_dir, f'assets/model_normalized_{scene_num}_{object_idx}.stl')]
+            add_objects(cam_temp_scene_xml_file, \
+                        f'object_{object_idx}_{scene_num}', \
+                        mesh_names, \
+                        obj_info['xyz'], \
+                        obj_info['scale'], \
+                        obj_info['color'], \
+                        obj_info['rotation'], \
+                        scene_num, \
+                        add_contacts=False)
         
         
+        e = MujocoEnv(cam_temp_scene_xml_file, 1, has_robot=False)
+        e.sim.physics.forward()
+        
+        for _ in object_idx_to_obj_info.keys():
+            for _ in range(4000):
+                e.model.step()
+        
+        state = e.get_env_state().copy()
+
+        stable = True
+        all_poses=e.data.qpos.ravel().copy()
+        original_obj_keys = list(object_idx_to_obj_info.keys())
+        for object_idx in original_obj_keys:
+            current_xyz = all_poses[7+7*object_idx : 7+7*object_idx+3]
+            original_xyz = object_idx_to_obj_info[object_idx]['xyz']
+
+            if np.linalg.norm(current_xyz - original_xyz) > 0.1:
+                print("????????????????????????", current_xyz, original_xyz, np.linalg.norm(current_xyz - original_xyz))
+                print("????????????????????????",  object_idx_to_obj_info[object_idx]['obj_mesh_filename'])
+                #del object_idx_to_obj_info[object_idx]  
         
         '''
         Generate camera position and target
@@ -278,7 +276,6 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
         
         camera_poss, cam_targets, cam_num_to_occlusion_target = get_camera_position_occluded(camera_distance, table_height, max_object_height, xyzs, heights)
         num_camera = len(camera_poss)
-        print("num_camera: ", num_camera)
         
         
         for cam_num in camera_poss.keys():
@@ -318,7 +315,7 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                 
                 # Move all other objects far away, except the table, so that we can capture
                 # only one object in a scene.
-                for move_obj_ind in object_idx_to_obj_info.keys():
+                for move_obj_ind in original_obj_keys:
                     if move_obj_ind != object_idx:
                         move_object(e, move_obj_ind, [20, 20, move_obj_ind], [0,0,0,0])
 
