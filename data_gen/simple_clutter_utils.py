@@ -79,54 +79,136 @@ def update_object_position_region(object_position_region, probs, selected_region
     return new_probs
     
 
-def generate_object_xy(object_position_region,
-                    probs,
-                    prev_polys, 
-                    obj_trans, 
-                    obj_rotations, 
-                    object_rot, 
-                    bound,  
-                    obj_xyzs, 
-                    all_obj_bounds, 
-                    z):
+# def generate_object_xy(object_position_region,
+#                     probs,
+#                     prev_polys, 
+#                     obj_trans, 
+#                     obj_rotations, 
+#                     object_rot, 
+#                     bound,  
+#                     obj_xyzs, 
+#                     all_obj_bounds, 
+#                     z):
+#     avoid_all_squares = False 
+#     x,y = None, None
+#     acc = 0
+#     selected_region = None 
+#     while not avoid_all_squares:
+#         region = np.random.choice(8, 1, p=probs)[0]
+        
+#         acc += 1
+#         region_range = object_position_region[region]
+#         x = np.random.uniform(region_range[0][0]/2, region_range[0][1]/2, 1)[0]
+#         y = np.random.uniform(region_range[1][0]/2, region_range[1][1]/2, 1)[0]
+        
+#         if len(prev_polys) == 0:
+#             avoid_all_squares = True
+#             continue 
+
+#         selected_region = region 
+        
+#         r = R.from_euler('xyz', object_rot, degrees=False) 
+#         r = R.from_euler('xyz', [0,0,0], degrees=False)
+#         r = R.from_euler('xyz', [0,0,object_rot[-1]], degrees=False)
+#         trans = autolab_core.RigidTransform(rotation = r.as_matrix(), translation = np.asarray([x,y,z]), from_frame='guess')
+#         corners4 = get_bound_2d_4corners(trans, bound)
+#         poly = Polygon(corners4)
+
+        
+#         all_outside = True
+#         for prev_poly in prev_polys:
+#             # draw_boundary_points(obj_trans+[trans], obj_xyzs+[[x,y,z]],  all_obj_bounds+[bound])
+#             # draw_boundary_points(obj_trans, obj_xyzs,  all_obj_bounds)
+#             if prev_poly.intersects(poly):
+#                 all_outside = False
+#                 break
+#         avoid_all_squares = all_outside
+    
+#     # import pdb; pdb.set_trace()
+#     new_probs = update_object_position_region(object_position_region, probs, selected_region)
+#     return x,y, new_probs
+
+def generate_object_xy(object_rot, object_z, object_bounds, prev_bbox, object_position_region, probs, scene_folder_path):
     avoid_all_squares = False 
     x,y = None, None
-    acc = 0
     selected_region = None 
+    MAX_TRY = 50
+    lower_x, upper_x = object_bounds[:,0]
+    lower_y, upper_y = object_bounds[:,1]
+    lower_z,_ = object_bounds[:,2]
+    object_x_width, object_y_width, _ = object_bounds[1] - object_bounds[0]
+    add_x = object_x_width * 0.1
+    add_y = object_y_width * 0.1
+    upper_x, upper_y = upper_x+add_x, upper_y+add_y
+    lower_x, lower_y = lower_x-add_x, lower_y-add_y
+    new_corners_3d = np.array([[lower_x, lower_y, lower_z], \
+            [upper_x, lower_y, lower_z], \
+            [upper_x, upper_y, lower_z], \
+            [lower_x, upper_y, lower_z]]) #(4,3) --> (3,4)
+    try_count = 0
     while not avoid_all_squares:
+        if MAX_TRY < 0:
+            raise
         region = np.random.choice(8, 1, p=probs)[0]
-        
-        acc += 1
         region_range = object_position_region[region]
-        x = np.random.uniform(region_range[0][0]/2, region_range[0][1]/2, 1)[0]
-        y = np.random.uniform(region_range[1][0]/2, region_range[1][1]/2, 1)[0]
-        
-        if len(prev_polys) == 0:
+        region_width = region_range[0][1] - region_range[0][0]
+        region_height = region_range[1][1] - region_range[1][0]
+        x_sample_start = region_range[0][0] + region_width - object_x_width
+        x_sample_end = region_range[0][0] + region_width - 0.5*object_x_width
+        y_sample_start = region_range[1][0] + region_height - object_y_width
+        y_sample_end = region_range[1][0] + region_height - 0.5*object_y_width
+
+        x = np.random.uniform(x_sample_start, x_sample_end, 1)[0]
+        y = np.random.uniform(y_sample_start, y_sample_end, 1)[0]
+        # x = np.random.uniform(region_range[0][0], region_range[0][1], 1)[0]
+        # y = np.random.uniform(region_range[1][0], region_range[1][1], 1)[0]
+
+        if len(prev_bbox) == 0:
             avoid_all_squares = True
             continue 
-
-        selected_region = region 
+        selected_region = region
         
-        r = R.from_euler('xyz', object_rot, degrees=False) 
-        r = R.from_euler('xyz', [0,0,0], degrees=False)
-        r = R.from_euler('xyz', [0,0,object_rot[-1]], degrees=False)
-        trans = autolab_core.RigidTransform(rotation = r.as_matrix(), translation = np.asarray([x,y,z]), from_frame='guess')
-        corners4 = get_bound_2d_4corners(trans, bound)
-        poly = Polygon(corners4)
+        object_xyz = [x, y, object_z]
+        r2 = R.from_rotvec(object_rot)
+        object_tf = autolab_core.RigidTransform(rotation = r2.as_matrix(), translation = np.asarray(object_xyz), from_frame='object_tmp', to_frame='world')
+        pt_3d_homo = np.append(new_corners_3d.T, np.ones(4).astype('int').reshape(1,-1), axis=0) #(4,4)
+        bounding_coord = object_tf.matrix @ pt_3d_homo #(4,4)
+        bounding_coord = bounding_coord / bounding_coord[-1, :]
+        bounding_coord = bounding_coord[:-1, :].T 
+        new_corners = bounding_coord[:,:2]
+        poly = Polygon(new_corners)
 
-        
+        layout_filename = os.path.join(scene_folder_path, 'layout_idx-{}_try-{}.png'.format(len(prev_bbox),try_count))
+        draw_boundary_points_rect(prev_bbox + [new_corners], layout_filename)
+
         all_outside = True
-        for prev_poly in prev_polys:
-            # draw_boundary_points(obj_trans+[trans], obj_xyzs+[[x,y,z]],  all_obj_bounds+[bound])
-            # draw_boundary_points(obj_trans, obj_xyzs,  all_obj_bounds)
-            if prev_poly.intersects(poly):
+        min_corner_dist = 1000
+        dists = []
+        for prev_idx, old_corners in enumerate(prev_bbox):
+            old_poly = Polygon(old_corners)
+            if old_poly.intersects(poly):
+                print("\n#1: ", prev_idx, x,y)
                 all_outside = False
                 break
+
+            for corner in new_corners:
+                dists.append(np.linalg.norm(old_corners - corner, axis=1))
+        
+        if all_outside:
+            min_corner_dist = np.min(np.stack(dists))
+            if min_corner_dist > 0.3:
+                print("\n#2: try-", try_count, x, y)
+                print(region_range)
+                print("::", x_sample_start, x_sample_end)
+                print("::", y_sample_start, y_sample_end)
+                print(np.min(np.stack(dists), axis=1), min_corner_dist)
+                all_outside = False
+
         avoid_all_squares = all_outside
-    
-    # import pdb; pdb.set_trace()
+        MAX_TRY -= 1
+        try_count += 1
     new_probs = update_object_position_region(object_position_region, probs, selected_region)
-    return x,y, new_probs
+    return x,y,new_probs, object_tf, new_corners
 
 def get_2d_diagonal_corners(obj_xyzs, all_obj_bounds):
     corners = []
@@ -282,7 +364,7 @@ def get_camera_position_occluded(camera_distance, table_height, max_object_heigh
                 cam_num += 1
     
     #bird eye view
-    num_angles = 8
+    num_angles = 16
     quad = (2.0*math.pi) / num_angles
     normal_thetas = [np.random.uniform(i*quad, (i+1.0)*quad,1)[0] for i in range(num_angles)]
     
@@ -294,7 +376,7 @@ def get_camera_position_occluded(camera_distance, table_height, max_object_heigh
     for theta in normal_thetas:
         cam_x = np.cos(theta) * (max_dist+distance_away) + center[0]
         cam_y = np.sin(theta) * (max_dist+distance_away) + center[1]
-        cam_z = max_object_height * 1.2
+        cam_z = max_object_height * np.random.uniform(1,2,1)[0]
         cam_xyzs[cam_num] = [cam_x, cam_y, cam_z]
         cam_targets[cam_num] = [center[0],center[1],table_height]
 

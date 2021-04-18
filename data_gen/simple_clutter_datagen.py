@@ -63,7 +63,12 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
     selected_colors = [ALL_COLORS[i] for i in np.random.choice(len(ALL_COLORS), num_objects+1, replace=False)]
 
     try:
-        scene_description={}
+        scene_description=dict()
+        scene_folder_path = os.path.join(top_dir, f'{train_or_test}/scene_{scene_num:06}')
+
+        if os.path.exists(scene_folder_path):
+            shutil.rmtree(scene_folder_path)
+        os.mkdir(scene_folder_path)
 
         '''
         Add table
@@ -178,39 +183,58 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                 y_top, YMAX = object_y+up_y, object_y+up_y+REGION_LIMIT
                 y_bottom, YMIN = object_y+down_y, object_y+down_y-REGION_LIMIT
                 
+                # object_position_region = {
+                #     0: [[x_top, XMAX],[y_bottom, y_top]],
+                #     1: [[x_bottom, x_top],[y_top,YMAX]],
+                #     2: [[XMIN, x_bottom],[y_bottom, y_top]],
+                #     3: [[x_bottom, x_top],[YMIN, y_bottom]],
+                #     4: [[x_top,XMAX],[YMIN, y_bottom]],
+                #     5: [[x_top,XMAX],[y_top,YMAX]],
+                #     6: [[XMIN, x_bottom],[y_top,YMAX]],
+                #     7: [[XMIN, x_bottom],[YMIN, y_bottom]],
+                # }
                 object_position_region = {
-                    0: [[x_top, XMAX],[y_bottom, y_top]],
-                    1: [[x_bottom, x_top],[y_top,YMAX]],
-                    2: [[XMIN, x_bottom],[y_bottom, y_top]],
-                    3: [[x_bottom, x_top],[YMIN, y_bottom]],
-                    4: [[x_top,XMAX],[YMIN, y_bottom]],
-                    5: [[x_top,XMAX],[y_top,YMAX]],
-                    6: [[XMIN, x_bottom],[y_top,YMAX]],
-                    7: [[XMIN, x_bottom],[YMIN, y_bottom]],
+                    0: [[x_top, 1],[y_bottom, 1]],
+                    1: [[x_bottom, 1],[y_top,1]],
+                    2: [[x_bottom, -1],[y_bottom, 1]],
+                    3: [[x_bottom, 1],[y_bottom, -1]],
+                    4: [[x_top,1],[y_bottom, -1]],
+                    5: [[x_top,1],[y_top,1]],
+                    6: [[x_bottom, -1],[y_top,1]],
+                    7: [[x_bottom, -1],[y_bottom, -1]],
                 }
-                # print("REGION INFO:")
-                # for region in range(8):
-                #     print("----------------------------------------------------")
-                #     region_range = object_position_region[region]
-                #     print("\tregion_range: ", region_range)
-                #     region_width = region_range[0][1] - region_range[0][0]
-                #     region_height = region_range[1][1] - region_range[1][0]
-                #     print("\tegion_width, region_height: ", region_width, region_height)
-                #     print("\tsample range x: ", region_range[0][0] + region_width/4, region_range[0][1] - region_width/4)
-                #     print("\tsample_range y: ", region_range[1][0] + region_height/4, region_range[1][1] - region_height/4)
+                object_xyz = [object_x, object_y, object_z]
+                r2 = R.from_rotvec(object_rot)
+                object_tf = autolab_core.RigidTransform(rotation = r2.as_matrix(), translation = np.asarray(object_xyz), from_frame='object_{}'.format(object_idx), to_frame='world')
+                lower_x, upper_x = object_bounds[:,0]
+                lower_y, upper_y = object_bounds[:,1]
+                lower_z,_ = object_bounds[:,2]
+                object_x_width, object_y_width, _ = object_bounds[1] - object_bounds[0]
+                add_x = object_x_width * 0.1
+                add_y = object_y_width * 0.1
+                upper_x, upper_y = upper_x+add_x, upper_y+add_y
+                lower_x, lower_y = lower_x-add_x, lower_y-add_y
 
+                new_corners_3d = np.array([[lower_x, lower_y, lower_z], \
+                    [upper_x, lower_y, lower_z], \
+                    [upper_x, upper_y, lower_z], \
+                    [lower_x, upper_y, lower_z]]) #(4,3) --> (3,4)
+                pt_3d_homo = np.append(new_corners_3d.T, np.ones(4).astype('int').reshape(1,-1), axis=0) #(4,4)
+                bounding_coord = object_tf.matrix @ pt_3d_homo #(4,4)
+                bounding_coord = bounding_coord / bounding_coord[-1, :]
+                bounding_coord = bounding_coord[:-1, :].T #(4,3)
+                prev_bbox.append(bounding_coord[:,:2])
             else:
                 
-                object_x, object_y, probs = generate_object_xy_rect(object_bounds, prev_bbox, object_position_region, probs)
+                # object_x, object_y, probs = generate_object_xy_rect(object_bounds, prev_bbox, object_position_region, probs)
+                object_x, object_y, probs, object_tf, corners = generate_object_xy(object_rot, object_z, object_bounds, prev_bbox, object_position_region, probs, scene_folder_path)
+                prev_bbox.append(corners)
             
             object_xyz = [object_x, object_y, object_z]
-            prev_bbox.append(get_2d_diagonal_corners([object_xyz], [object_bounds])[0])
+            # prev_bbox.append(get_2d_diagonal_corners([object_xyz], [object_bounds])[0])
             
             object_height = object_bounds[1][2] - object_bounds[0][2]            
             object_max_height = max(object_max_height, object_height)
-            
-            r2 = R.from_rotvec(object_rot)
-            object_tf = autolab_core.RigidTransform(rotation = r2.as_matrix(), translation = np.asarray(object_xyz), from_frame='object_{}'.format(object_idx), to_frame='world')
 
             obj_info['xyz'] = np.asarray(object_xyz)
             obj_info['scale'] = object_size
@@ -221,13 +245,6 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             obj_info['object_tf'] = object_tf
             obj_info['object_bounds'] = object_bounds
             object_idx_to_obj_info[object_idx] = obj_info
-
-        
-        scene_folder_path = os.path.join(top_dir, f'{train_or_test}/scene_{scene_num:06}')
-
-        if os.path.exists(scene_folder_path):
-            shutil.rmtree(scene_folder_path)
-        os.mkdir(scene_folder_path)
 
         layout_filename = os.path.join(scene_folder_path, 'layout.png')
         draw_boundary_points_rect(prev_bbox, layout_filename)
