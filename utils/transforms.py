@@ -79,6 +79,25 @@ class Resized(object):
         
         return np.ascontiguousarray(resized_img), resized_mask, center_copy
 
+class CropArea(object):
+    def __init__(self, corners):
+        self.corners = corners
+        self.x_bottom, self.y_bottom = np.min(self.corners, axis=0)
+        self.x_top, self.y_top = np.max(self.corners, axis=0)
+        self.width = self.x_top - self.x_bottom
+        self.height = self.y_top - self.y_bottom
+    
+    def __call__(self, img, mask, center):
+        center_copy = copy.deepcopy(center)
+        center_copy = center_copy.reshape(-1,)
+        h, w = img.shape[0], img.shape[1]
+        new_img = np.empty((self.height, self.width, 3), dtype=np.float32)
+        new_img.fill(128)
+        new_mask = np.empty((self.height, self.width), dtype=np.float32)
+        new_mask.fill(0)
+        new_img = img[self.y_bottom: self.y_top, self.x_bottom: self.x_top, :].copy()
+        new_mask = mask[self.y_bottom: self.y_top, self.x_bottom: self.x_top, :].copy()
+        return np.ascontiguousarray(new_img), new_mask, center_copy
 
 def horizontal_flip(img, flip):
     if flip:
@@ -87,7 +106,6 @@ def horizontal_flip(img, flip):
         else:
             img = img[:, ::-1, :]
     return img
-
 
 class RandomHorizontalFlip(object):
     

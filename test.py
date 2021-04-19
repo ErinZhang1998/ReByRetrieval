@@ -68,6 +68,7 @@ def eval_dataset(epoch, cnt, model, device, test_loader, loss_args, test_args, l
 
             _,c_loss = triploss.batch_all_triplet_loss(labels=cat_gt, embeddings=img_embed, margin=loss_args.margin, squared=False) #.cpu()
             _,o_loss = triploss.batch_all_triplet_loss(labels=id_gt, embeddings=img_embed, margin=loss_args.margin, squared=False) #.cpu()
+            print("===> Testing: ", batch_idx, c_loss.item()* loss_args.lambda_cat, o_loss.item()* loss_args.lambda_obj)
 
             # print(torch.nn.MSELoss()(pixel_pred, pixel_gt).item() * loss_args.lambda_pixel)
 

@@ -61,7 +61,7 @@ class InCategoryClutterDataset(Dataset):
         for k,v in self.object_id_to_dict_idx.items():
             self.total.append(len(v))
         
-        # self.determine_imge_dim()
+        self.determine_imge_dim()
 
 
     def determine_imge_dim(self):
@@ -75,7 +75,9 @@ class InCategoryClutterDataset(Dataset):
             if subdir.startswith('scene_'):
                 subdir_path = os.path.join(root_dir, subdir)
                 scene_description_dir = os.path.join(subdir_path, 'scene_description.p')
+                # print(scene_description_dir)
                 if not os.path.exists(scene_description_dir):
+                    # print("WARNING: CANNOT FIND: ", scene_description_dir)
                     continue 
                 l.append(subdir_path)
         
@@ -187,8 +189,12 @@ class InCategoryClutterDataset(Dataset):
                 sample['obj_shapenet_id'] = object_shapenet_id
                 sample['object_center'] = object_camera_info_i["object_center"]
 
-                sample['rgb_all_path'] = object_camera_info_i['rgb_all_path']
-                sample['mask_path'] = object_camera_info_i['mask_path'] 
+                rgb_all_path = object_camera_info_i['rgb_all_path'].split('/')[-2:]
+                mask_path = object_camera_info_i['mask_path'].split('/')[-2:]
+                sample['rgb_all_path'] = os.path.join(self.scene_dir, *rgb_all_path)
+                sample['mask_path'] = os.path.join(self.scene_dir, *mask_path)
+                
+                
                 samples[idx_i] = sample
 
                 Ai.append(idx_i)

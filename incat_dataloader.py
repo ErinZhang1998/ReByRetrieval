@@ -32,18 +32,35 @@ class InCategoryClutterDataloader(object):
 
         idx_keys = list(idx_dict.keys())
 
-        i = 0
+        # i = 0
+        # pair_map = {}
+        # for c in range(np.max(acc) //2):
+        #     for r in range(len(acc)):
+        #         if 2*c >= acc[r]:
+        #             continue
+        #         assert 2*c+1 < acc[r]
+        #         idx1 = idx_dict[idx_keys[r]][2*c]
+        #         idx2 = idx_dict[idx_keys[r]][2*c+1]
+        #         pair_map[i] = [idx1, idx2]
+        #         i+=1
+
         pair_map = {}
-        for c in range(np.max(acc) //2):
-            for r in range(len(acc)):
-                if 2*c >= acc[r]:
-                    continue
-                assert 2*c+1 < acc[r]
-                idx1 = idx_dict[idx_keys[r]][2*c]
-                idx2 = idx_dict[idx_keys[r]][2*c+1]
-                pair_map[i] = [idx1, idx2]
-                i+=1
-        
+        pair_map_idx = np.zeros(shape=(num_batches, batch_size // 2)).astype(int)
+        for i in range(num_batches):
+            for j in range(batch_size // 2):
+                pair_map_idx[i,j] = j + i*(batch_size // 2)
+
+        pair_order_full_part = pair_map_idx[:,:last_batch_size//2].T.flatten()
+        pair_order_without_last_part = pair_map_idx[:-1,last_batch_size//2:].T.flatten()
+        pair_order = np.hstack([pair_order_full_part, pair_order_without_last_part])
+
+        fill_in_order_idx = 0
+        for k,v in idx_dict.items():
+            for c in range(len(v)//2):
+                idx1 = v[2*c]
+                idx2 = v[2*c+1]
+                pair_map[pair_order[fill_in_order_idx]] = [idx1,idx2]
+                fill_in_order_idx +=1
 
         i = 0
         for bi in range(num_batches):
