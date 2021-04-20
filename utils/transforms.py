@@ -82,22 +82,61 @@ class Resized(object):
 class CropArea(object):
     def __init__(self, corners):
         self.corners = corners
-        self.x_bottom, self.y_bottom = np.min(self.corners, axis=0)
-        self.x_top, self.y_top = np.max(self.corners, axis=0)
-        self.width = self.x_top - self.x_bottom
-        self.height = self.y_top - self.y_bottom
+        self.x0, self.y0 = np.min(self.corners, axis=0)
+        self.x0, self.y0 = int(self.x0), int(self.y0)
+        self.x1, self.y1 = np.max(self.corners, axis=0)
+        self.x1, self.y1 = int(self.x1), int(self.y1)
+        self.width = self.x1 - self.x0
+        self.height = self.y1 - self.y0
     
     def __call__(self, img, mask, center):
         center_copy = copy.deepcopy(center)
         center_copy = center_copy.reshape(-1,)
+        center_copy[0] = center_copy[0] - self.x0
+        center_copy[1] = center_copy[1] - self.y0
+        
         h, w = img.shape[0], img.shape[1]
         new_img = np.empty((self.height, self.width, 3), dtype=np.float32)
         new_img.fill(128)
         new_mask = np.empty((self.height, self.width), dtype=np.float32)
         new_mask.fill(0)
-        new_img = img[self.y_bottom: self.y_top, self.x_bottom: self.x_top, :].copy()
-        new_mask = mask[self.y_bottom: self.y_top, self.x_bottom: self.x_top, :].copy()
+        new_img = img[self.y0: self.y1, self.x0: self.x1, :].copy()
+        new_mask = mask[self.y0: self.y1, self.x0: self.x1].copy()
+        
         return np.ascontiguousarray(new_img), new_mask, center_copy
+
+# class InpaintArea(object):
+#     def __init__(self, corners, canvas, canvas_mask):
+#         self.corners = corners
+#         self.x0, self.y0 = np.min(self.corners, axis=0)
+#         self.x0, self.y0 = int(self.x0), int(self.y0)
+#         self.x1, self.y1 = np.max(self.corners, axis=0)
+#         self.x1, self.y1 = int(self.x1), int(self.y1)
+        
+#         self.width = self.x1 - self.x0
+#         self.height = self.y1 - self.y0
+
+#         self.original_h, self.original_w = canvas.shape[0], canvas.shape[1]
+#         self.canvas = canvas
+#         self.canvas_mask = canvas_mask
+    
+#     def __call__(self, img, mask, center):
+#         center_copy = copy.deepcopy(center)
+#         center_copy = center_copy.reshape(-1,)
+        
+#         center_copy[0] = center_copy[0] + self.x0
+#         center_copy[1] = center_copy[1] + self.y0
+        
+#         h, w = img.shape[0], img.shape[1]
+#         new_img = np.empty((self.original_h, self.original_w, 3), dtype=np.float32)
+#         new_img.fill(128)
+#         new_mask = np.empty((self.original_h, self.original_w), dtype=np.float32)
+#         new_mask.fill(0)
+        
+#         new_img = img[self.y0: self.y1, self.x0: self.x1, :].copy()
+#         new_mask = mask[self.y0: self.y1, self.x0: self.x1].copy()
+        
+#         return np.ascontiguousarray(new_img), new_mask, center_copy
 
 def horizontal_flip(img, flip):
     if flip:

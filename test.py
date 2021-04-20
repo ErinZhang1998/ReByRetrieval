@@ -11,6 +11,7 @@ import os
 import utils.utils as uu
 import loss.triplet_loss as triploss
 import utils.plot_image as uplot
+import utils.transforms as utrans
 
 def eval_dataset(epoch, cnt, model, device, test_loader, loss_args, test_args, loss_used, last_epoch=False):
     # np.random.seed(129)
@@ -27,6 +28,9 @@ def eval_dataset(epoch, cnt, model, device, test_loader, loss_args, test_args, l
     scene_names_list = []
 
     test_dataset = test_loader.dataset
+
+    plot_step = len(test_loader) // test_args.num_gt_image_plot
+    plot_batch_idx = np.arange(test_args.num_gt_image_plot) * plot_step
     
     with torch.no_grad():
         
@@ -68,24 +72,48 @@ def eval_dataset(epoch, cnt, model, device, test_loader, loss_args, test_args, l
 
             _,c_loss = triploss.batch_all_triplet_loss(labels=cat_gt, embeddings=img_embed, margin=loss_args.margin, squared=False) #.cpu()
             _,o_loss = triploss.batch_all_triplet_loss(labels=id_gt, embeddings=img_embed, margin=loss_args.margin, squared=False) #.cpu()
-            print("===> Testing: ", batch_idx, c_loss.item()* loss_args.lambda_cat, o_loss.item()* loss_args.lambda_obj)
+            # print("===> Testing: ", batch_idx, c_loss.item()* loss_args.lambda_cat, o_loss.item()* loss_args.lambda_obj)
 
             # print(torch.nn.MSELoss()(pixel_pred, pixel_gt).item() * loss_args.lambda_pixel)
 
-            if batch_idx % test_args.plot_gt_image_every == 0 and batch_idx != len(test_loader)-1:
+            # if batch_idx % test_args.plot_gt_image_every == 0 and batch_idx != len(test_loader)-1:
+            if batch_idx in plot_batch_idx and batch_idx != len(test_loader)-1:
                 print("===> Plotting Test: ", batch_idx)
-                
                 j_idx = np.random.choice(len(dataset_indices),1)[0]
-                dataset_idx = dataset_indices.reshape(-1,)[j_idx].item()
-                sample = test_dataset.idx_to_data_dict[dataset_idx]
-                sample_id = sample['sample_id']
-                img_plot = mpimg.imread(sample['rgb_all_path'])
+                # dataset_idx = dataset_indices.reshape(-1,)[j_idx].item()
+                # sample = test_dataset.idx_to_data_dict[dataset_idx]
+                # sample_id = sample['sample_id']
+                # img_plot = mpimg.imread(sample['rgb_all_path'])
+                # corners = copy.deepcopy(sample['scene_corners']).reshape(-1,)
+                # pixel_pred_idx = copy.deepcopy(pixel_pred).numpy()[j_idx].reshape(-1,)
+                # pixel_gt_idx = copy.deepcopy(sample['object_center'].reshape(-1,))
                 
-                pixel_pred_idx = copy.deepcopy(pixel_pred).numpy()[j_idx].reshape(-1,)
-                pixel_pred_idx[0] *= test_dataset.img_w
-                pixel_pred_idx[1] *= test_dataset.img_h
-                pixel_gt_idx = copy.deepcopy(sample['object_center'].reshape(-1,))
-                pixel_gt_idx[0] = test_dataset.img_w - pixel_gt_idx[0]
+                # if test_dataset.crop_area:
+                #     crop_trans = utrans.CropArea(corners)
+                #     pixel_pred_idx[0] *= test_dataset.size
+                #     pixel_pred_idx[1] *= test_dataset.size
+                #     pixel_pred_idx[0] = pixel_pred_idx[0] + crop_trans.x0
+                #     pixel_pred_idx[1] = pixel_pred_idx[1] + crop_trans.y0
+                # else:
+                #     pixel_pred_idx[0] *= test_dataset.img_w
+                #     pixel_pred_idx[1] *= test_dataset.img_h
+
+                dataset_indices_np = dataset_indices.cpu().numpy().astype(int).reshape(-1,)
+                    
+                image_np = image.cpu().detach()[:,:3,:,:]
+                image_np = utrans.denormalize(image_np, test_dataset.img_mean, test_dataset.img_std)
+                image_np = utrans.from_tensor(image_np)
+                
+                pixel_pred_np = pixel_pred.cpu().detach().numpy()
+                pixel_gt_np = pixel_gt.cpu().detach().numpy()
+                            
+                dataset_idx = dataset_indices_np[j_idx]
+                sample_id = test_dataset.idx_to_sample_id[dataset_idx]
+                img_plot = image_np[j_idx]
+
+                pixel_pred_idx = pixel_pred_np[j_idx] * test_dataset.size
+                pixel_gt_idx = pixel_gt_np[j_idx] * test_dataset.size
+
                 scale_pred_idx = scale_pred[j_idx].item()
                 scale_gt_idx = scale_gt[j_idx].item()
                 

@@ -17,8 +17,8 @@ parser.add_option("--only_test", dest="only_test", action='store_true')
 parser.add_option("--model_path", dest="model_path", default='')
 (options, args) = parser.parse_args()
 
-# f =  open(options.config_file)
-f = open('configs/config_all_occlusion.yaml')
+f =  open(options.config_file)
+# f = open('configs/config_all_occlusion.yaml')
 args_dict = yaml.safe_load(f)
 default_args_dict = yaml.safe_load(open('configs/default.yaml'))
 args_dict_filled = uu.fill_in_args_from_default(args_dict, default_args_dict)
@@ -34,12 +34,14 @@ optimizer = torch.optim.Adam(model.parameters(), lr=args.optimizer_config.lr)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.scheduler_config.step, gamma=args.scheduler_config.gamma)
 
 train_dataset = incat_dataset.InCategoryClutterDataset('train', args.dataset_config.size, \
+    crop_area = args.dataset_config.crop_area, \
     scene_dir=args.files.training_scene_dir, \
     csv_file_path=args.files.csv_file_path, \
     shapenet_filepath=args.files.shapenet_filepath)
 train_loader = incat_dataloader.InCategoryClutterDataloader(train_dataset, args.training_config.batch_size, shuffle = True)
 
 test_dataset = incat_dataset.InCategoryClutterDataset('test', args.dataset_config.size, \
+    crop_area = args.dataset_config.crop_area, \
     scene_dir=args.files.testing_scene_dir, \
     csv_file_path=args.files.csv_file_path, \
     shapenet_filepath=args.files.shapenet_filepath)

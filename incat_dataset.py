@@ -25,10 +25,11 @@ from torch.utils.data.sampler import Sampler
 
 class InCategoryClutterDataset(Dataset):
     
-    def __init__(self, split, size, scene_dir, csv_file_path, shapenet_filepath):
+    def __init__(self, split, size, crop_area, scene_dir, csv_file_path, shapenet_filepath):
 
         self.split = split 
         self.size = size 
+        self.crop_area = crop_area
         self.scene_dir = scene_dir
         self.csv_file_path = csv_file_path
         self.shapenet_filepath = shapenet_filepath
@@ -103,8 +104,11 @@ class InCategoryClutterDataset(Dataset):
         
         self.cat_ids = cat_ids
         self.cat_id_to_label = dict(zip(self.cat_ids, range(len(self.cat_ids))))
+        self.label_to_cat_id = dict(zip(range(len(self.cat_ids)), self.cat_ids))
+        
         self.object_ids = object_ids
         self.object_id_to_label = dict(zip(self.object_ids, range(len(self.object_ids))))
+        self.object_label_to_id = dict(zip(range(len(self.object_ids)), self.object_ids))
         
         self.cat_names = cat_names
         self.cat_names_to_cat_id = dict(zip(self.cat_names, self.cat_ids))
@@ -142,12 +146,30 @@ class InCategoryClutterDataset(Dataset):
         mask = mpimg.imread(segmentation_filename)
 
         object_descriptions = pickle.load(open(os.path.join(dir_path, 'scene_description.p'), 'rb'))
-        center = object_descriptions[object_idx][cam_num]["object_center"]
+        center = object_descriptions[object_idx]['object_cam_d'][cam_num]["object_center"]
         center_rev = copy.deepcopy(center.reshape(-1,))
         center_rev[0] = rgb_all.shape[1] - center_rev[0]
     
         return rgb_all, mask, center_rev
     
+    def compile_mask_files(self, dir_path):
+        mask_all_d = dict()
+        for seg_path in os.listdir(dir_path):
+            seg_path_pre = seg_path.split('.')[0]
+            l = seg_path_pre.rsplit('_')
+            if len(l) == 3 and l[0] == 'segmentation':
+                other_obj_masks = mask_all_d.get(l[1], [])
+                other_obj_masks.append(os.path.join(dir_path, seg_path))
+                mask_all_d[l[1]] = other_obj_masks
+        return mask_all_d
+    
+    def compile_mask(self, mask_path_lists):
+        masks = []
+        for mask_path in mask_path_lists:
+            mask = mpimg.imread(mask_path)
+            masks.append(mask)
+        
+        return np.sum(np.stack(masks), axis=0)
     
     def load_sample(self, dir_path, idx):
         scene_name = dir_path.split("/")[-1]
@@ -155,6 +177,8 @@ class InCategoryClutterDataset(Dataset):
         if not os.path.exists(scene_description_path):
             return {}, idx
         object_descriptions = pickle.load(open(scene_description_path, 'rb'))
+
+        mask_all_d = self.compile_mask_files(dir_path)
         
         samples = {}
         idx_i = idx
@@ -168,6 +192,8 @@ class InCategoryClutterDataset(Dataset):
             object_cat_id = self.cat_id_to_label[object_description['obj_cat']]
             object_obj_id = self.object_id_to_label[object_description['obj_id']]
             object_shapenet_id = object_description['obj_shapenet_id']
+            cam_height = object_description['cam_height'] 
+            cam_width = object_description['cam_width']
 
             Ai = self.object_id_to_dict_idx.get(object_obj_id, [])
 
@@ -177,24 +203,39 @@ class InCategoryClutterDataset(Dataset):
                 if pix_left_ratio < 0.4:
                     continue
                 
+                center = copy.deepcopy(object_camera_info_i["object_center"].reshape(-1,))
+                center[0] = cam_width - center[0]
+
+                corners = copy.deepcopy(object_description["scene_bounds_{}".format(cam_num)])
+                corners[:,0] = cam_width - corners[:,0]
+
+                x0,y0 = np.min(corners, axis=0).astype(int)
+                x1,y1 = np.max(corners, axis=0).astype(int)
+                if not(center[0] >= x0 and center[0] <= x1) or not(center[1] >= y0 and center[1] <= y1):
+                    continue
+                
                 root_name = f'_{(cam_num):05}'
                 obj_name = f'_{(cam_num):05}_{object_idx}'
                 sample_id = scene_name + f'_{cam_num}_{object_idx}'
                 sample = {'sample_id': sample_id}
+                sample['object_center'] = center
+                sample['scene_corners'] = corners
+
                 sample['position'] = position
                 sample['scale'] = scale
                 sample['orientation'] = orientation
                 sample['obj_cat'] = object_cat_id
                 sample['obj_id'] = object_obj_id
                 sample['obj_shapenet_id'] = object_shapenet_id
-                sample['object_center'] = object_camera_info_i["object_center"]
+                
 
                 rgb_all_path = object_camera_info_i['rgb_all_path'].split('/')[-2:]
                 mask_path = object_camera_info_i['mask_path'].split('/')[-2:]
                 sample['rgb_all_path'] = os.path.join(self.scene_dir, *rgb_all_path)
                 sample['mask_path'] = os.path.join(self.scene_dir, *mask_path)
                 
-                
+                sample['mask_all_path'] = os.path.join(dir_path, f'segmentation_{(cam_num):05}.png')
+                sample['mask_all_objs'] = mask_all_d[f'{(cam_num):05}']
                 samples[idx_i] = sample
 
                 Ai.append(idx_i)
@@ -210,22 +251,35 @@ class InCategoryClutterDataset(Dataset):
 
     def __getitem__(self, idx):
         sample = self.idx_to_data_dict[idx]
-        if self.split == 'train':
-            trans = utrans.Compose([utrans.Resized(width = self.size, height = self.size),
-                    utrans.RandomHorizontalFlip(),
-                ])
-        else:
-            trans = utrans.Compose([utrans.Resized(width = self.size, height = self.size)
-                ])
-
         rgb_all = mpimg.imread(sample['rgb_all_path'])
         mask = mpimg.imread(sample['mask_path'])
         center = copy.deepcopy(sample['object_center'].reshape(-1,))
-        center[0] = rgb_all.shape[1] - center[0]
+        # center[0] = rgb_all.shape[1] - center[0]
 
+        corners = copy.deepcopy(sample['scene_corners'])
+        # corners[:,0] = rgb_all.shape[1] - corners[:,0]
+        
+        if self.crop_area:
+            if self.split == 'train':
+                trans = utrans.Compose([utrans.CropArea(corners),
+                        utrans.Resized(width = self.size, height = self.size),
+                        utrans.RandomHorizontalFlip(),
+                    ])
+            else:
+                trans = utrans.Compose([utrans.CropArea(corners),
+                    utrans.Resized(width = self.size, height = self.size),
+                    ])
+        else:
+            if self.split == 'train':
+                trans = utrans.Compose([utrans.Resized(width = self.size, height = self.size),
+                        utrans.RandomHorizontalFlip(),
+                    ])
+            else:
+                trans = utrans.Compose([utrans.Resized(width = self.size, height = self.size),
+                    ])
 
+        
         img_rgb, img_mask, center_trans = trans(rgb_all, mask, center)
-        # img_mask, center_trans = trans(mask , center)
 
         img_mask = np.expand_dims(img_mask, axis=2)
         img_rgb = utrans.normalize(utrans.to_tensor(img_rgb), self.img_mean, self.img_std)
