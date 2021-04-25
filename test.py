@@ -109,7 +109,7 @@ def eval_dataset(epoch, cnt, model, device, test_loader, loss_args, test_args, l
                             
                 dataset_idx = dataset_indices_np[j_idx]
                 sample_id = test_dataset.idx_to_sample_id[dataset_idx]
-                img_plot = image_np[j_idx]
+                img_plot = np.uint8(image_np[j_idx])
 
                 pixel_pred_idx = pixel_pred_np[j_idx] * test_dataset.size
                 pixel_gt_idx = pixel_gt_np[j_idx] * test_dataset.size

@@ -150,7 +150,7 @@ class Trainer(object):
                     for j_idx, dataset_idx in enumerate(dataset_indices_np):                    
                         dataset_idx = dataset_indices_np[j_idx]
                         sample_id = self.train_loader.dataset.idx_to_sample_id[dataset_idx]
-                        img_plot = image_np[j_idx]
+                        img_plot = np.uint8(image_np[j_idx])
 
                         pixel_pred_idx = pixel_pred_np[j_idx] * self.train_loader.dataset.size
                         pixel_gt_idx = pixel_gt_np[j_idx] * self.train_loader.dataset.size
@@ -198,7 +198,7 @@ class Trainer(object):
                         for i in range(3):
                             sample = self.train_loader.dataset.idx_to_data_dict[idx_in_dataset[i]]
                             sample_ids.append(sample['sample_id'])
-                            img = image_np[j_idxs[i]]
+                            img = np.uint8(image_np[j_idxs[i]])
                             maski = mask_np[j_idxs[i]]
                             masked_img = uplot.masked_image(img, maski)
                             axs[i].imshow(masked_img)

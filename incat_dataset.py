@@ -25,18 +25,28 @@ from torch.utils.data.sampler import Sampler
 
 class InCategoryClutterDataset(Dataset):
     
-    def __init__(self, split, size, crop_area, scene_dir, csv_file_path, shapenet_filepath):
+    def __init__(self, split, args):
 
         self.split = split 
-        self.size = size 
-        self.crop_area = crop_area
-        self.scene_dir = scene_dir
-        self.csv_file_path = csv_file_path
-        self.shapenet_filepath = shapenet_filepath
+        self.size = args.dataset_config.size 
+        self.crop_area = args.dataset_config.crop_area
+        self.inpaint = args.dataset_config.inpaint
+        if split == 'train':
+            self.scene_dir = args.files.training_scene_dir
+        else:
+            self.scene_dir = args.files.testing_scene_dir
+        self.canvas_file_path = args.files.canvas_file_path
+        self.csv_file_path = args.files.csv_file_path
+        self.shapenet_filepath = args.files.shapenet_filepath
         self.img_mean = [0.5,0.5,0.5]
         self.img_std = [0.5,0.5,0.5]
 
         self.dir_list = self.data_dir_list(self.scene_dir)
+        if self.inpaint:
+            file_ptr = open(self.canvas_file_path, 'r')
+            self.all_canvas_path = file_ptr.read().split('\n')[:-1]
+            # print(self.all_canvas_path)
+            file_ptr.close()
         
         self.object_id_to_dict_idx = {}
         self.generate_object_category_information()
@@ -46,7 +56,7 @@ class InCategoryClutterDataset(Dataset):
         for dir_path in self.dir_list:
             idx_to_data_dicti, idx = self.load_sample(dir_path, idx)
             self.idx_to_data_dict.update(idx_to_data_dicti)
-        
+
         self.idx_to_sample_id = [[]]*len(self.idx_to_data_dict)
         for k,v in self.idx_to_data_dict.items():
             self.idx_to_sample_id[k] = [v['sample_id']]
@@ -236,6 +246,8 @@ class InCategoryClutterDataset(Dataset):
                 
                 sample['mask_all_path'] = os.path.join(dir_path, f'segmentation_{(cam_num):05}.png')
                 sample['mask_all_objs'] = mask_all_d[f'{(cam_num):05}']
+                if self.inpaint:
+                    sample['canvas_path'] = np.random.choice(self.all_canvas_path,1)[0]
                 samples[idx_i] = sample
 
                 Ai.append(idx_i)
@@ -253,13 +265,11 @@ class InCategoryClutterDataset(Dataset):
         sample = self.idx_to_data_dict[idx]
         rgb_all = mpimg.imread(sample['rgb_all_path'])
         mask = mpimg.imread(sample['mask_path'])
+        mask_all = self.compile_mask(sample['mask_all_objs'])
         center = copy.deepcopy(sample['object_center'].reshape(-1,))
-        # center[0] = rgb_all.shape[1] - center[0]
-
         corners = copy.deepcopy(sample['scene_corners'])
-        # corners[:,0] = rgb_all.shape[1] - corners[:,0]
         
-        if self.crop_area:
+        if self.crop_area and not self.inpaint:
             if self.split == 'train':
                 trans = utrans.Compose([utrans.CropArea(corners),
                         utrans.Resized(width = self.size, height = self.size),
@@ -278,6 +288,10 @@ class InCategoryClutterDataset(Dataset):
                 trans = utrans.Compose([utrans.Resized(width = self.size, height = self.size),
                     ])
 
+        if self.inpaint:
+            canvas = mpimg.imread(sample['canvas_path'])
+            canvas = cv2.resize(canvas, (self.img_w,self.img_h), interpolation=cv2.INTER_NEAREST)
+            rgb_all = utrans.inpaint_image(canvas, rgb_all, mask_all)
         
         img_rgb, img_mask, center_trans = trans(rgb_all, mask, center)
 

@@ -33,18 +33,10 @@ model = resnet_pretrain.PretrainedResNet(emb_dim=args.model_config.emb_dim, pose
 optimizer = torch.optim.Adam(model.parameters(), lr=args.optimizer_config.lr)
 scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.scheduler_config.step, gamma=args.scheduler_config.gamma)
 
-train_dataset = incat_dataset.InCategoryClutterDataset('train', args.dataset_config.size, \
-    crop_area = args.dataset_config.crop_area, \
-    scene_dir=args.files.training_scene_dir, \
-    csv_file_path=args.files.csv_file_path, \
-    shapenet_filepath=args.files.shapenet_filepath)
+train_dataset = incat_dataset.InCategoryClutterDataset('train', args)
 train_loader = incat_dataloader.InCategoryClutterDataloader(train_dataset, args.training_config.batch_size, shuffle = True)
 
-test_dataset = incat_dataset.InCategoryClutterDataset('test', args.dataset_config.size, \
-    crop_area = args.dataset_config.crop_area, \
-    scene_dir=args.files.testing_scene_dir, \
-    csv_file_path=args.files.csv_file_path, \
-    shapenet_filepath=args.files.shapenet_filepath)
+test_dataset = incat_dataset.InCategoryClutterDataset('test', args)
 test_loader = incat_dataloader.InCategoryClutterDataloader(test_dataset, args.testing_config.batch_size, shuffle = False)
 
 if options.only_test:
