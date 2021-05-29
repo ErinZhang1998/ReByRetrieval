@@ -7,42 +7,45 @@ class InCategoryClutterDataloader(object):
         self.dataset = dataset
         self.batch_size = batch_size
         self.shuffle = shuffle 
-        self.num_batches, self.last_batch_size, self.batch_indices = self.assign_idx_to_batch()
+        self.num_batches, self.batch_indices = self.assign_idx_to_batch()
         self.acc = 0
     
     def assign_idx_to_batch(self):
         batch_size = self.batch_size
-        num_batches = int(len(self.dataset) / batch_size) + 1
-        last_batch_size = len(self.dataset) - (num_batches - 1) * batch_size
+        num_batches = int(len(self.dataset) / batch_size)
 
         batch_indices = np.ones((num_batches, batch_size)).astype('int') * -1
         idx_dict = copy.deepcopy(self.dataset.object_id_to_dict_idx)
-        
-        fill_in_count = np.zeros(num_batches).astype(int)
-        for k,v in idx_dict:
-            if self.shuffle:
-                np.random.shuffle(v)
-            
-            v_idx = 0
-            while v_idx < len(v):
-                for batch_idx in range(num_batches):
-                    if v_idx >= len(v):
-                        break
-                    start = fill_in_count[batch_idx]
-                    if start > batch_size-1 or (batch_idx == num_batches-1 and start > last_batch_size-1):
-                        print(start)
-                        continue 
-                    batch_indices[batch_idx][start] = v[v_idx]
-                    batch_indices[batch_idx][start+1] = v[v_idx+1]
-                    fill_in_count[batch_idx] += 2
-                    v_idx += 2
+
+        l = np.arange(num_batches * (batch_size // 2))
         if self.shuffle:
-            for i in range(num_batches):
-                if i == num_batches - 1:
-                    np.random.shuffle(batch_indices[i])
-                else:
-                    np.random.shuffle(batch_indices[i])
-        return num_batches, last_batch_size, batch_indices
+            np.random.shuffle(l)
+        l = l.reshape(num_batches, batch_size//2)
+        
+        vs = []
+        for k,v in idx_dict.items():
+            vs.append(v)
+        vs = np.hstack(vs).reshape(-1,2)
+        if self.shuffle:
+            np.random.shuffle(vs)
+        else:
+            width = 256
+            A = np.array(list(np.arange(len(vs))) + [-1] * (width - len(vs) % width)).reshape(-1,width).T
+            A = A.flatten()
+            A = A[A > -1]
+            vs = vs[A]
+        
+        for batch_idx in range(num_batches):
+            for i in range(batch_size // 2):
+                acc = l[batch_idx][i]
+                v1,v2 = vs[acc]
+                batch_indices[batch_idx][2*i] = v1
+                batch_indices[batch_idx][2*i+1] = v2
+        
+        for i in range(num_batches):
+            np.random.shuffle(batch_indices[i])
+            
+        return num_batches, batch_indices
     
     def __len__(self):
         return self.num_batches
