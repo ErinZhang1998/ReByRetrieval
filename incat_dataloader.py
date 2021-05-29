@@ -36,7 +36,12 @@ class InCategoryClutterDataloader(object):
                     batch_indices[batch_idx][start+1] = v[v_idx+1]
                     fill_in_count[batch_idx] += 2
                     v_idx += 2
-        
+        if self.shuffle:
+            for i in range(num_batches):
+                if i == num_batches - 1:
+                    np.random.shuffle(batch_indices[i])
+                else:
+                    np.random.shuffle(batch_indices[i])
         return num_batches, last_batch_size, batch_indices
     
     def __len__(self):
