@@ -31,19 +31,6 @@ class InCategoryClutterDataloader(object):
             acc.append(len(v))
 
         idx_keys = list(idx_dict.keys())
-
-        # i = 0
-        # pair_map = {}
-        # for c in range(np.max(acc) //2):
-        #     for r in range(len(acc)):
-        #         if 2*c >= acc[r]:
-        #             continue
-        #         assert 2*c+1 < acc[r]
-        #         idx1 = idx_dict[idx_keys[r]][2*c]
-        #         idx2 = idx_dict[idx_keys[r]][2*c+1]
-        #         pair_map[i] = [idx1, idx2]
-        #         i+=1
-
         pair_map = {}
         pair_map_idx = np.zeros(shape=(num_batches, batch_size // 2)).astype(int)
         for i in range(num_batches):
@@ -98,25 +85,11 @@ class InCategoryClutterDataloader(object):
                 l = all_data.get(j,[])
                 l.append(data[j])
                 all_data[j] = l
-        
-        # imaget, scale_infot, pixel_infot, cat_infot, id_infot = [],[],[],[],[]
-        # for i in indices:
-        #     if i < 0:
-        #         break
-        #     image, scale_info, pixel_info, cat_info,id_info = self.dataset[i]
-        #     imaget.append(image)
-        #     scale_infot.append(scale_info)
-        #     pixel_infot.append(pixel_info)
-        #     cat_infot.append(cat_info)
-        #     id_infot.append(id_info)
 
         res = []
         for l in all_data.values(): 
             res.append(torch.stack(l, dim=0))
 
-        
-        # return torch.stack(imaget, dim=0), torch.stack(scale_infot, dim=0), torch.stack(pixel_infot, dim=0), \
-        #     torch.stack(cat_infot, dim=0), torch.stack(id_infot, dim=0)
         return res
 
     

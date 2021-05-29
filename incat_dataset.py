@@ -30,7 +30,7 @@ class InCategoryClutterDataset(Dataset):
         self.split = split 
         self.size = args.dataset_config.size 
         self.crop_area = args.dataset_config.crop_area
-        self.inpaint = args.dataset_config.inpaint
+        self.superimpose = args.dataset_config.superimpose
         if split == 'train':
             self.scene_dir = args.files.training_scene_dir
         else:
@@ -42,7 +42,7 @@ class InCategoryClutterDataset(Dataset):
         self.img_std = [0.5,0.5,0.5]
 
         self.dir_list = self.data_dir_list(self.scene_dir)
-        if self.inpaint:
+        if self.superimpose:
             file_ptr = open(self.canvas_file_path, 'r')
             self.all_canvas_path = file_ptr.read().split('\n')[:-1]
             # print(self.all_canvas_path)
@@ -57,6 +57,7 @@ class InCategoryClutterDataset(Dataset):
             idx_to_data_dicti, idx = self.load_sample(dir_path, idx)
             self.idx_to_data_dict.update(idx_to_data_dicti)
 
+        # 
         self.idx_to_sample_id = [[]]*len(self.idx_to_data_dict)
         for k,v in self.idx_to_data_dict.items():
             self.idx_to_sample_id[k] = [v['sample_id']]
@@ -246,7 +247,7 @@ class InCategoryClutterDataset(Dataset):
                 
                 sample['mask_all_path'] = os.path.join(dir_path, f'segmentation_{(cam_num):05}.png')
                 sample['mask_all_objs'] = mask_all_d[f'{(cam_num):05}']
-                if self.inpaint:
+                if self.superimpose:
                     sample['canvas_path'] = np.random.choice(self.all_canvas_path,1)[0]
                 samples[idx_i] = sample
 
@@ -269,7 +270,7 @@ class InCategoryClutterDataset(Dataset):
         center = copy.deepcopy(sample['object_center'].reshape(-1,))
         corners = copy.deepcopy(sample['scene_corners'])
         
-        if self.crop_area and not self.inpaint:
+        if self.crop_area and not self.superimpose:
             if self.split == 'train':
                 trans = utrans.Compose([utrans.CropArea(corners),
                         utrans.Resized(width = self.size, height = self.size),
@@ -288,7 +289,7 @@ class InCategoryClutterDataset(Dataset):
                 trans = utrans.Compose([utrans.Resized(width = self.size, height = self.size),
                     ])
 
-        if self.inpaint:
+        if self.superimpose:
             canvas = mpimg.imread(sample['canvas_path'])
             canvas = cv2.resize(canvas, (self.img_w,self.img_h), interpolation=cv2.INTER_NEAREST)
             rgb_all = utrans.inpaint_image(canvas, rgb_all, mask_all)
