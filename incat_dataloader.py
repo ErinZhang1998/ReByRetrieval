@@ -17,53 +17,25 @@ class InCategoryClutterDataloader(object):
 
         batch_indices = np.ones((num_batches, batch_size)).astype('int') * -1
         idx_dict = copy.deepcopy(self.dataset.object_id_to_dict_idx)
-        total_pairs = len(self.dataset) // 2
-        if not self.shuffle:
-            pairs = np.arange(total_pairs)
-        else:
-            for k,v in idx_dict.items():
-                idx_dict[k] = np.random.permutation(v)
-
-            pairs = np.random.permutation(total_pairs)
         
-        acc = []
-        for k,v in idx_dict.items():
-            acc.append(len(v))
-
-        idx_keys = list(idx_dict.keys())
-        pair_map = {}
-        pair_map_idx = np.zeros(shape=(num_batches, batch_size // 2)).astype(int)
-        for i in range(num_batches):
-            for j in range(batch_size // 2):
-                pair_map_idx[i,j] = j + i*(batch_size // 2)
-
-        pair_order_full_part = pair_map_idx[:,:last_batch_size//2].T.flatten()
-        pair_order_without_last_part = pair_map_idx[:-1,last_batch_size//2:].T.flatten()
-        pair_order = np.hstack([pair_order_full_part, pair_order_without_last_part])
-
-        fill_in_order_idx = 0
-        for k,v in idx_dict.items():
-            for c in range(len(v)//2):
-                idx1 = v[2*c]
-                idx2 = v[2*c+1]
-                pair_map[pair_order[fill_in_order_idx]] = [idx1,idx2]
-                fill_in_order_idx +=1
-
-        i = 0
-        for bi in range(num_batches):
-            if bi == num_batches-1:
-                times = last_batch_size // 2
-            else:
-                times = batch_size // 2
-            for j in range(times):
-                i1,i2 = pair_map[pairs[i]]
-                batch_indices[bi, 2*j] = i1 
-                batch_indices[bi, 2*j+1] = i2 
-                i += 1
+        fill_in_count = np.zeros(num_batches).astype(int)
+        for k,v in idx_dict:
             if self.shuffle:
-                row = batch_indices[bi][:times*2]
-                row = np.random.permutation(row)
-                batch_indices[bi][:times*2] = row 
+                np.random.shuffle(v)
+            
+            v_idx = 0
+            while v_idx < len(v):
+                for batch_idx in range(num_batches):
+                    if v_idx >= len(v):
+                        break
+                    start = fill_in_count[batch_idx]
+                    if start > batch_size-1 or (batch_idx == num_batches-1 and start > last_batch_size-1):
+                        print(start)
+                        continue 
+                    batch_indices[batch_idx][start] = v[v_idx]
+                    batch_indices[batch_idx][start+1] = v[v_idx+1]
+                    fill_in_count[batch_idx] += 2
+                    v_idx += 2
         
         return num_batches, last_batch_size, batch_indices
     
