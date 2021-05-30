@@ -199,7 +199,7 @@ class PILRandomHorizontalFlip(object):
     def __call__(self, img, mask, center):
         center_copy = copy.deepcopy(center)
         center_copy = center_copy.reshape(-1,)
-        h, w= img.shape[0], img.shape[1]
+        w,h = img.size
 
         if np.random.random() < self.prob:
             img = img.transpose(PIL.Image.FLIP_LEFT_RIGHT)

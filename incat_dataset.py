@@ -19,6 +19,7 @@ import copy
 
 import json
 import pandas as pd
+import torchvision
 import numpy as np
 from torch.utils.data.sampler import Sampler
 
@@ -253,8 +254,6 @@ class InCategoryClutterDataset(Dataset):
                 
                 sample['mask_all_path'] = os.path.join(dir_path, f'segmentation_{(cam_num):05}.png')
                 sample['mask_all_objs'] = mask_all_d[f'{(cam_num):05}']
-                if self.superimpose:
-                    sample['canvas_path'] = np.random.choice(self.all_canvas_path,1)[0]
                 
                 if self.split == 'test' and self.args.dataset_config.test_cropped_area_position > 3:
                     for i in range(4):
@@ -297,7 +296,8 @@ class InCategoryClutterDataset(Dataset):
                     ])
             img_rgb, img_mask, center_trans = trans(rgb_all, mask, center)
         else:
-            canvas = PIL.Image.open(sample['canvas_path'])
+            canvas_path = np.random.choice(self.all_canvas_path,1)[0]
+            canvas = PIL.Image.open(canvas_path)
             canvas = canvas.resize((self.size,self.size))
             cropped_obj_transform = utrans.PILCropArea(corners)
             cropped_obj_img, cropped_mask, cropped_center = cropped_obj_transform(rgb_all, mask_all, center)
@@ -307,44 +307,54 @@ class InCategoryClutterDataset(Dataset):
             else:
                 patch_size = int(self.size * 0.5)
             cropped_w, cropped_h = cropped_obj_img.size
+            if cropped_w > cropped_h:
+                patch_w = patch_size
+                patch_h = patch_size * (cropped_h / cropped_w)
+            else:
+                patch_h = patch_size
+                patch_w = patch_size * (cropped_w / cropped_h)
+
+            patch_w = int(patch_w)
+            patch_h = int(patch_h)
 
             if self.split == 'train':
-                area_x = int(np.random.uniform(0, self.size-patch_size,1)[0])
-                area_y = int(np.random.uniform(0, self.size-patch_size,1)[0])
+                area_x = int(np.random.uniform(0, self.size-patch_w,1)[0])
+                area_y = int(np.random.uniform(0, self.size-patch_h,1)[0])
             else:
                 area_type = sample['area_type']
                 if area_type == 0:
                     area_x,area_y = 0,0
                 elif area_type == 1:
-                    area_x = int((self.size-patch_size) // 2)
+                    area_x = int((self.size-patch_w) // 2)
                     area_y = 0
                 elif area_type == 1:
                     area_x = 0
-                    area_y = int((self.size-patch_size) // 2)
+                    area_y = int((self.size-patch_h) // 2)
                 else:
-                    area_x = int((self.size-patch_size) // 2)
-                    area_y = int((self.size-patch_size) // 2)
-            area = (area_x, area_y, area_x+patch_size, area_y+patch_size)
+                    area_x = int((self.size-patch_w) // 2)
+                    area_y = int((self.size-patch_h) // 2)
+            area = (area_x, area_y, area_x+patch_w, area_y+patch_h)
             
             # On the canvas, but mask showing the place that the objects will be
             # Produce input image
-            cropped_mask_L_resized = cropped_mask.convert('L').resize((patch_size,patch_size))
+            cropped_mask_L_resized = cropped_mask.convert('L').resize((patch_w,patch_h))
             canvas_mask = Image.new("L", canvas.size, 255)
             canvas_mask.paste(cropped_mask_L_resized, area)
 
             # On the canvas, but mask showing the place that the sample object will be
             object_canvas_mask = Image.new("L", canvas.size, 255)
-            object_canvas_mask.paste(cropped_object_mask.resize((patch_size,patch_size)), area)
+            object_canvas_mask.paste(cropped_object_mask.resize((patch_w,patch_h)), area)
+
             object_canvas_mask = PIL.ImageOps.invert(object_canvas_mask)
 
             obj_background = Image.new("RGB", canvas.size, 0)
-            cropped_obj_img_resized = cropped_obj_img.resize((patch_size,patch_size))
+            cropped_obj_img_resized = cropped_obj_img.resize((patch_w,patch_h))
             obj_background.paste(cropped_obj_img_resized, area)
             superimposed_img = Image.composite(canvas, obj_background, canvas_mask)
-            
+
             cx,cy = cropped_center
-            cx *= (patch_size) / cropped_w
-            cy *= (patch_size) / cropped_h
+            cx *= (patch_w) / cropped_w
+            cy *= (patch_h) / cropped_h
             cx += area_x
             cy += area_y
             canvas_center = np.array([cx,cy])
@@ -354,10 +364,8 @@ class InCategoryClutterDataset(Dataset):
             img_rgb, img_mask, center_trans = flip_trans(superimposed_img, object_canvas_mask, canvas_center)
     
 
-        img_mask = np.expand_dims(img_mask, axis=2)
-        img_rgb = utrans.normalize(utrans.to_tensor(img_rgb), self.img_mean, self.img_std)
-        img_mask = utrans.to_tensor(img_mask)
-
+        img_rgb = utrans.normalize(torchvision.transforms.ToTensor()(img_rgb), self.img_mean, self.img_std)
+        img_mask = torchvision.transforms.ToTensor()(img_mask)
 
         img = torch.cat((img_rgb, img_mask), 0)
         image = torch.FloatTensor(img)
