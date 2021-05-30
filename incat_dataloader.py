@@ -42,9 +42,10 @@ class InCategoryClutterDataloader(object):
                 batch_indices[batch_idx][2*i] = v1
                 batch_indices[batch_idx][2*i+1] = v2
         
-        for i in range(num_batches):
-            np.random.shuffle(batch_indices[i])
-            
+        if self.shuffle:
+            for i in range(num_batches):
+                np.random.shuffle(batch_indices[i])
+                
         return num_batches, batch_indices
     
     def __len__(self):

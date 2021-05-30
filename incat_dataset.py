@@ -28,8 +28,11 @@ class InCategoryClutterDataset(Dataset):
     def __init__(self, split, args):
 
         self.split = split 
+        self.args = args
         self.size = args.dataset_config.size 
-        self.crop_area = args.dataset_config.crop_area
+        self.crop_out_background = args.dataset_config.crop_out_background
+        self.cropped_out_scale_max = args.dataset_config.cropped_out_scale_max
+        self.cropped_out_scale_min = args.dataset_config.cropped_out_scale_min
         self.superimpose = args.dataset_config.superimpose
         if split == 'train':
             self.scene_dir = args.files.training_scene_dir
@@ -164,6 +167,10 @@ class InCategoryClutterDataset(Dataset):
         return rgb_all, mask, center_rev
     
     def compile_mask_files(self, dir_path):
+        '''
+        Dictionary mapping from camera index (in str form, e.g. '00039') to files of individual
+        object segmentation capture by the given camera
+        '''
         mask_all_d = dict()
         for seg_path in os.listdir(dir_path):
             seg_path_pre = seg_path.split('.')[0]
@@ -211,7 +218,7 @@ class InCategoryClutterDataset(Dataset):
             object_cam_d = object_description['object_cam_d']
             for cam_num, object_camera_info_i in object_cam_d.items():
                 pix_left_ratio = object_camera_info_i['pix_left_ratio'] 
-                if pix_left_ratio < 0.4:
+                if pix_left_ratio < self.args.dataset_config.ignore_input_ratio:
                     continue
                 
                 center = copy.deepcopy(object_camera_info_i["object_center"].reshape(-1,))
@@ -270,29 +277,41 @@ class InCategoryClutterDataset(Dataset):
         center = copy.deepcopy(sample['object_center'].reshape(-1,))
         corners = copy.deepcopy(sample['scene_corners'])
         
-        if self.crop_area and not self.superimpose:
-            if self.split == 'train':
-                trans = utrans.Compose([utrans.CropArea(corners),
-                        utrans.Resized(width = self.size, height = self.size),
-                        utrans.RandomHorizontalFlip(),
-                    ])
-            else:
-                trans = utrans.Compose([utrans.CropArea(corners),
-                    utrans.Resized(width = self.size, height = self.size),
-                    ])
-        else:
-            if self.split == 'train':
-                trans = utrans.Compose([utrans.Resized(width = self.size, height = self.size),
-                        utrans.RandomHorizontalFlip(),
-                    ])
-            else:
-                trans = utrans.Compose([utrans.Resized(width = self.size, height = self.size),
-                    ])
+        # transform_list = []
+        # if self.crop_out_background:
+        #     transform_list.append(utrans.CropArea(corners))
+        #     if self.superimpose:
+        #         patch_size = self.size * np.random.uniform(self.cropped_out_scale_min, self.cropped_out_scale_max,1)[0]
+        #         transform_list.append(utrans.Resized(width = patch_size, height = patch_size))
+        
+        # if self.crop_out_background and not self.superimpose:
+        #     if self.split == 'train':
+        #         trans = utrans.Compose([utrans.CropArea(corners),
+        #                 utrans.Resized(width = self.size, height = self.size),
+        #                 utrans.RandomHorizontalFlip(),
+        #             ])
+        #     else:
+        #         trans = utrans.Compose([utrans.CropArea(corners),
+        #             utrans.Resized(width = self.size, height = self.size),
+        #             ])
+        # else:
+        #     if self.split == 'train':
+        #         trans = utrans.Compose([utrans.Resized(width = self.size, height = self.size),
+        #                 utrans.RandomHorizontalFlip(),
+        #             ])
+        #     else:
+        #         trans = utrans.Compose([utrans.Resized(width = self.size, height = self.size),
+        #             ])
 
         if self.superimpose:
             canvas = mpimg.imread(sample['canvas_path'])
             canvas = cv2.resize(canvas, (self.img_w,self.img_h), interpolation=cv2.INTER_NEAREST)
-            rgb_all = utrans.inpaint_image(canvas, rgb_all, mask_all)
+            cropped_obj_transform = utrans.CropArea(corners)
+            cropped_obj_img, cropped_mask, cropped_center = cropped_obj_transform(rgb_all, mask, center)
+            patch_size = self.size * np.random.uniform(self.cropped_out_scale_min, self.cropped_out_scale_max,1)[0]
+            patch_size = int(patch_size)
+            cropped_obj_img_resized = utrans.Resized(width = patch_size, height = patch_size)(cropped_obj_img, cropped_mask, cropped_center)
+            rgb_all = utrans.superimpose_image(canvas, rgb_all, mask_all)
         
         img_rgb, img_mask, center_trans = trans(rgb_all, mask, center)
 

@@ -88,7 +88,7 @@ def eval_dataset(epoch, cnt, model, device, test_loader, loss_args, test_args, l
                 # pixel_pred_idx = copy.deepcopy(pixel_pred).numpy()[j_idx].reshape(-1,)
                 # pixel_gt_idx = copy.deepcopy(sample['object_center'].reshape(-1,))
                 
-                # if test_dataset.crop_area:
+                # if test_dataset.crop_out_background:
                 #     crop_trans = utrans.CropArea(corners)
                 #     pixel_pred_idx[0] *= test_dataset.size
                 #     pixel_pred_idx[1] *= test_dataset.size

@@ -5,6 +5,8 @@ import numbers
 import collections
 import cv2
 import copy
+import PIL
+
 
 '''
 img.shape
@@ -105,9 +107,23 @@ class CropArea(object):
         
         return np.ascontiguousarray(new_img), new_mask, center_copy
 
-def inpaint_image(canvas, img, mask):
+def superimpose_image(canvas, img, mask):
     if np.max(img) <= 1:
         img = img * 255
+    img_all = np.empty((img.shape[0], img.shape[1], 3), dtype=np.float32)
+    img_all.fill(0)
+    
+    anti_mask = np.logical_not(mask > 0)
+    
+    for i in range(3):
+        
+        img_all[:,:,i][anti_mask] = canvas[:,:,i][anti_mask]
+        img_all[:,:,i][mask > 0] = img[:,:,i][mask > 0]
+    return np.uint8(img_all)
+
+def superimpose_patch_at_random_location(canvas, patch, mask):
+    if np.max(patch) <= 1:
+        img = patch * 255
     img_all = np.empty((img.shape[0], img.shape[1], 3), dtype=np.float32)
     img_all.fill(0)
     
@@ -171,3 +187,46 @@ class Compose(object):
             img_copy, mask_copy, center_copy = t(img_copy, mask_copy, center_copy)
 
         return img_copy, mask_copy, center_copy
+
+
+class PILCropArea(object):
+    def __init__(self, corners):
+        self.corners = corners
+        self.x0, self.y0 = np.min(self.corners, axis=0)
+        self.x0, self.y0 = int(self.x0), int(self.y0)
+        self.x1, self.y1 = np.max(self.corners, axis=0)
+        self.x1, self.y1 = int(self.x1), int(self.y1)
+        self.width = self.x1 - self.x0
+        self.height = self.y1 - self.y0
+        
+        self.area = (self.x0,self.y0,self.x1, self.y1)
+    
+    def __call__(self, img, mask, center):
+        center_copy = copy.deepcopy(center)
+        center_copy = center_copy.reshape(-1,)
+        center_copy[0] = center_copy[0] - self.x0
+        center_copy[1] = center_copy[1] - self.y0
+        
+        img = img.crop(self.area)
+        mask = mask.crop(self.area)
+        
+        return img,mask, center_copy
+
+class PILRandomHorizontalFlip(object):
+    
+    def __init__(self, prob=0.5):
+        self.prob = prob
+        
+    def __call__(self, img, mask, center):
+        center_copy = copy.deepcopy(center)
+        center_copy = center_copy.reshape(-1,)
+        h, w= img.shape[0], img.shape[1]
+
+        if np.random.random() < self.prob:
+            img = img.transpose(PIL.Image.FLIP_LEFT_RIGHT)
+            mask = mask.transpose(PIL.Image.FLIP_LEFT_RIGHT)
+            center_copy[0] = w - center_copy[0]
+            return img,  mask, center_copy
+        
+        return img, mask, center_copy
+
