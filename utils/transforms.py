@@ -121,20 +121,6 @@ def superimpose_image(canvas, img, mask):
         img_all[:,:,i][mask > 0] = img[:,:,i][mask > 0]
     return np.uint8(img_all)
 
-def superimpose_patch_at_random_location(canvas, patch, mask):
-    if np.max(patch) <= 1:
-        img = patch * 255
-    img_all = np.empty((img.shape[0], img.shape[1], 3), dtype=np.float32)
-    img_all.fill(0)
-    
-    anti_mask = np.logical_not(mask > 0)
-    
-    for i in range(3):
-        
-        img_all[:,:,i][anti_mask] = canvas[:,:,i][anti_mask]
-        img_all[:,:,i][mask > 0] = img[:,:,i][mask > 0]
-    return np.uint8(img_all)
-
 def horizontal_flip(img, flip):
     if flip:
         if len(img.shape) < 3:
@@ -161,21 +147,14 @@ class RandomHorizontalFlip(object):
         
         return img, mask, center_copy
 
+def mask_to_PIL(pil_img):
+    pil_img[pil_img > 0] = 1
+    pil_img_3 = np.stack([pil_img]*3,axis=2)
+    pil_img_3 = 1 - pil_img_3
+    PIL_image = PIL.Image.fromarray(np.uint8(pil_img_3 * 255)).convert('RGB')
+    return PIL_image
 
 class Compose(object):
-    """
-    img: (480, 640, 3)
-    mask: (480, 640)
-    
-    Example:
-        >>> Mytransforms.Compose([
-        >>>      Mytransforms.RandomResized(),
-        >>>      Mytransforms.RandomRotate(40),
-        >>>      Mytransforms.RandomCrop(368),
-        >>>      Mytransforms.RandomHorizontalFlip(),
-        >>> ])
-    """
-
     def __init__(self, transforms):
         self.transforms = transforms
 
@@ -230,3 +209,20 @@ class PILRandomHorizontalFlip(object):
         
         return img, mask, center_copy
 
+class PILResized(object):
+    def __init__(self, width = 227, height = 227):
+        self.width = width
+        self.height = height
+        
+    
+    def __call__(self, img, mask, center):
+        center_copy = copy.deepcopy(center)
+        center_copy = center_copy.reshape(-1,)
+        h, w = img.shape[0], img.shape[1]
+        center_copy[0] *= (self.width / w)
+        center_copy[1] *= (self.height / h)
+
+        resized_mask = mask.resize((self.width,self.height))
+        resized_img = img.resize((self.width,self.height))
+        
+        return resized_img, resized_mask, center_copy

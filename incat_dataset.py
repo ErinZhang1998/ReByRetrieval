@@ -11,7 +11,7 @@ from PIL import Image
 
 import torch
 import torch.nn
-# from torchvision import transforms
+import PIL
 import utils.transforms as utrans
 
 from torch.utils.data import Dataset
@@ -30,7 +30,6 @@ class InCategoryClutterDataset(Dataset):
         self.split = split 
         self.args = args
         self.size = args.dataset_config.size 
-        self.crop_out_background = args.dataset_config.crop_out_background
         self.cropped_out_scale_max = args.dataset_config.cropped_out_scale_max
         self.cropped_out_scale_min = args.dataset_config.cropped_out_scale_min
         self.superimpose = args.dataset_config.superimpose
@@ -256,10 +255,19 @@ class InCategoryClutterDataset(Dataset):
                 sample['mask_all_objs'] = mask_all_d[f'{(cam_num):05}']
                 if self.superimpose:
                     sample['canvas_path'] = np.random.choice(self.all_canvas_path,1)[0]
-                samples[idx_i] = sample
-
-                Ai.append(idx_i)
-                idx_i += 1
+                
+                if self.split == 'test' and self.args.dataset_config.test_cropped_area_position > 3:
+                    for i in range(4):
+                        sample_cp = copy.deepcopy(sample)
+                        sample_cp['area_type'] = i
+                        samples[idx_i] = sample_cp
+                        Ai.append(idx_i)
+                        idx_i += 1
+                else:
+                    sample['area_type'] = self.args.dataset_config.test_cropped_area_position
+                    samples[idx_i] = sample
+                    Ai.append(idx_i)
+                    idx_i += 1
 
             self.object_id_to_dict_idx[object_obj_id] = Ai
 
@@ -271,49 +279,80 @@ class InCategoryClutterDataset(Dataset):
 
     def __getitem__(self, idx):
         sample = self.idx_to_data_dict[idx]
-        rgb_all = mpimg.imread(sample['rgb_all_path'])
+        rgb_all = PIL.Image.open(sample['rgb_all_path'])
         mask = mpimg.imread(sample['mask_path'])
+        mask = utrans.mask_to_PIL(mask)
         mask_all = self.compile_mask(sample['mask_all_objs'])
+        mask_all = utrans.mask_to_PIL(mask_all)
         center = copy.deepcopy(sample['object_center'].reshape(-1,))
         corners = copy.deepcopy(sample['scene_corners'])
         
-        # transform_list = []
-        # if self.crop_out_background:
-        #     transform_list.append(utrans.CropArea(corners))
-        #     if self.superimpose:
-        #         patch_size = self.size * np.random.uniform(self.cropped_out_scale_min, self.cropped_out_scale_max,1)[0]
-        #         transform_list.append(utrans.Resized(width = patch_size, height = patch_size))
-        
-        # if self.crop_out_background and not self.superimpose:
-        #     if self.split == 'train':
-        #         trans = utrans.Compose([utrans.CropArea(corners),
-        #                 utrans.Resized(width = self.size, height = self.size),
-        #                 utrans.RandomHorizontalFlip(),
-        #             ])
-        #     else:
-        #         trans = utrans.Compose([utrans.CropArea(corners),
-        #             utrans.Resized(width = self.size, height = self.size),
-        #             ])
-        # else:
-        #     if self.split == 'train':
-        #         trans = utrans.Compose([utrans.Resized(width = self.size, height = self.size),
-        #                 utrans.RandomHorizontalFlip(),
-        #             ])
-        #     else:
-        #         trans = utrans.Compose([utrans.Resized(width = self.size, height = self.size),
-        #             ])
+        if not self.superimpose:
+            if self.split == 'train':
+                trans = utrans.Compose([utrans.PILResized(width = self.size, height = self.size),
+                        utrans.PILRandomHorizontalFlip(),
+                    ])
+            else:
+                trans = utrans.Compose([utrans.PILResized(width = self.size, height = self.size),
+                    ])
+            img_rgb, img_mask, center_trans = trans(rgb_all, mask, center)
+        else:
+            canvas = PIL.Image.open(sample['canvas_path'])
+            canvas = canvas.resize((self.size,self.size))
+            cropped_obj_transform = utrans.PILCropArea(corners)
+            cropped_obj_img, cropped_mask, cropped_center = cropped_obj_transform(rgb_all, mask_all, center)
+            cropped_object_mask = mask.crop(cropped_obj_transform.area)
+            if self.split == 'train':
+                patch_size = int(self.size * np.random.uniform(self.cropped_out_scale_min,self.cropped_out_scale_max,1)[0])
+            else:
+                patch_size = int(self.size * 0.5)
+            cropped_w, cropped_h = cropped_obj_img.size
 
-        if self.superimpose:
-            canvas = mpimg.imread(sample['canvas_path'])
-            canvas = cv2.resize(canvas, (self.img_w,self.img_h), interpolation=cv2.INTER_NEAREST)
-            cropped_obj_transform = utrans.CropArea(corners)
-            cropped_obj_img, cropped_mask, cropped_center = cropped_obj_transform(rgb_all, mask, center)
-            patch_size = self.size * np.random.uniform(self.cropped_out_scale_min, self.cropped_out_scale_max,1)[0]
-            patch_size = int(patch_size)
-            cropped_obj_img_resized = utrans.Resized(width = patch_size, height = patch_size)(cropped_obj_img, cropped_mask, cropped_center)
-            rgb_all = utrans.superimpose_image(canvas, rgb_all, mask_all)
-        
-        img_rgb, img_mask, center_trans = trans(rgb_all, mask, center)
+            if self.split == 'train':
+                area_x = int(np.random.uniform(0, self.size-patch_size,1)[0])
+                area_y = int(np.random.uniform(0, self.size-patch_size,1)[0])
+            else:
+                area_type = sample['area_type']
+                if area_type == 0:
+                    area_x,area_y = 0,0
+                elif area_type == 1:
+                    area_x = int((self.size-patch_size) // 2)
+                    area_y = 0
+                elif area_type == 1:
+                    area_x = 0
+                    area_y = int((self.size-patch_size) // 2)
+                else:
+                    area_x = int((self.size-patch_size) // 2)
+                    area_y = int((self.size-patch_size) // 2)
+            area = (area_x, area_y, area_x+patch_size, area_y+patch_size)
+            
+            # On the canvas, but mask showing the place that the objects will be
+            # Produce input image
+            cropped_mask_L_resized = cropped_mask.convert('L').resize((patch_size,patch_size))
+            canvas_mask = Image.new("L", canvas.size, 255)
+            canvas_mask.paste(cropped_mask_L_resized, area)
+
+            # On the canvas, but mask showing the place that the sample object will be
+            object_canvas_mask = Image.new("L", canvas.size, 255)
+            object_canvas_mask.paste(cropped_object_mask.resize((patch_size,patch_size)), area)
+            object_canvas_mask = PIL.ImageOps.invert(object_canvas_mask)
+
+            obj_background = Image.new("RGB", canvas.size, 0)
+            cropped_obj_img_resized = cropped_obj_img.resize((patch_size,patch_size))
+            obj_background.paste(cropped_obj_img_resized, area)
+            superimposed_img = Image.composite(canvas, obj_background, canvas_mask)
+            
+            cx,cy = cropped_center
+            cx *= (patch_size) / cropped_w
+            cy *= (patch_size) / cropped_h
+            cx += area_x
+            cy += area_y
+            canvas_center = np.array([cx,cy])
+
+            if self.split == 'train':
+                flip_trans = utrans.PILRandomHorizontalFlip()
+            img_rgb, img_mask, center_trans = flip_trans(superimposed_img, object_canvas_mask, canvas_center)
+    
 
         img_mask = np.expand_dims(img_mask, axis=2)
         img_rgb = utrans.normalize(utrans.to_tensor(img_rgb), self.img_mean, self.img_std)
@@ -323,8 +362,6 @@ class InCategoryClutterDataset(Dataset):
         img = torch.cat((img_rgb, img_mask), 0)
         image = torch.FloatTensor(img)
 
-        #pose_info = np.concatenate((np.array([sample['scale']]).reshape(-1,), sample['orientation'].reshape(-1,), sample['object_center'].reshape(-1,)))
-
         scale_info = torch.FloatTensor(np.array([sample['scale']]).reshape(-1,))
         orient_info = torch.FloatTensor(sample['orientation'].reshape(-1,))
         pixel_info = torch.FloatTensor(center_trans.reshape(-1,) / self.size)
@@ -332,7 +369,6 @@ class InCategoryClutterDataset(Dataset):
         id_info = torch.FloatTensor(np.array([sample['obj_id']]).reshape(-1,))
         idx_info = torch.FloatTensor(np.array([idx]).reshape(-1,))
 
-        #return image, torch.FloatTensor(pose_info), torch.FloatTensor([sample['obj_cat']])
         return [image, scale_info, pixel_info, cat_info, id_info, idx_info]
 
 
