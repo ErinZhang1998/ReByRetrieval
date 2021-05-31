@@ -237,7 +237,6 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                 prev_bbox.append(corners)
             
             object_xyz = [object_x, object_y, object_z]
-            # prev_bbox.append(get_2d_diagonal_corners([object_xyz], [object_bounds])[0])
             
             object_height = object_bounds[1][2] - object_bounds[0][2]            
             object_max_height = max(object_max_height, object_height)
@@ -253,7 +252,7 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             object_idx_to_obj_info[object_idx] = obj_info
 
         layout_filename = os.path.join(scene_folder_path, 'layout.png')
-        draw_boundary_points_rect(prev_bbox, layout_filename)
+        # draw_boundary_points_rect(prev_bbox, layout_filename)
 
         
         scene_xml_file=os.path.join(top_dir, f'base_scene.xml')
