@@ -35,12 +35,12 @@ def eval_dataset(epoch, cnt, model, device, test_loader, loss_args, test_args, l
     with torch.no_grad():
         
         for batch_idx, data in enumerate(test_loader):
-            image = data[0]
-            scale_gt = data[1]
-            pixel_gt = data[2]
-            cat_gt = data[3]
-            id_gt = data[4]
-            dataset_indices = data[5]
+            image = data["image"]
+            scale_gt = data["scale"]
+            pixel_gt = data["center"]
+            cat_gt = data["obj_category"]
+            id_gt = data["obj_id"]
+            dataset_indices = data["idx"] 
 
             # ind = list(dataset_indices.numpy().astype(int).reshape(-1,))
             scene_names = test_dataset.idx_to_sample_id[dataset_indices.numpy().astype(int)].reshape(-1,)
@@ -76,27 +76,9 @@ def eval_dataset(epoch, cnt, model, device, test_loader, loss_args, test_args, l
 
             # print(torch.nn.MSELoss()(pixel_pred, pixel_gt).item() * loss_args.lambda_pixel)
 
-            # if batch_idx % test_args.plot_gt_image_every == 0 and batch_idx != len(test_loader)-1:
             if batch_idx in plot_batch_idx and batch_idx != len(test_loader)-1:
                 print("===> Plotting Test: ", batch_idx)
-                j_idx = np.random.choice(len(dataset_indices),1)[0]
-                # dataset_idx = dataset_indices.reshape(-1,)[j_idx].item()
-                # sample = test_dataset.idx_to_data_dict[dataset_idx]
-                # sample_id = sample['sample_id']
-                # img_plot = mpimg.imread(sample['rgb_all_path'])
-                # corners = copy.deepcopy(sample['scene_corners']).reshape(-1,)
-                # pixel_pred_idx = copy.deepcopy(pixel_pred).numpy()[j_idx].reshape(-1,)
-                # pixel_gt_idx = copy.deepcopy(sample['object_center'].reshape(-1,))
-                
-                # if test_dataset.crop_out_background:
-                #     crop_trans = utrans.CropArea(corners)
-                #     pixel_pred_idx[0] *= test_dataset.size
-                #     pixel_pred_idx[1] *= test_dataset.size
-                #     pixel_pred_idx[0] = pixel_pred_idx[0] + crop_trans.x0
-                #     pixel_pred_idx[1] = pixel_pred_idx[1] + crop_trans.y0
-                # else:
-                #     pixel_pred_idx[0] *= test_dataset.img_w
-                #     pixel_pred_idx[1] *= test_dataset.img_h
+                idx_in_batch = np.random.choice(len(dataset_indices),1)[0]
 
                 dataset_indices_np = dataset_indices.cpu().numpy().astype(int).reshape(-1,)
                     
@@ -107,15 +89,15 @@ def eval_dataset(epoch, cnt, model, device, test_loader, loss_args, test_args, l
                 pixel_pred_np = pixel_pred.cpu().detach().numpy()
                 pixel_gt_np = pixel_gt.cpu().detach().numpy()
                             
-                dataset_idx = dataset_indices_np[j_idx]
+                dataset_idx = dataset_indices_np[idx_in_batch]
                 sample_id = test_dataset.idx_to_sample_id[dataset_idx]
-                img_plot = np.uint8(image_np[j_idx])
+                img_plot = np.uint8(image_np[idx_in_batch])
 
-                pixel_pred_idx = pixel_pred_np[j_idx] * test_dataset.size
-                pixel_gt_idx = pixel_gt_np[j_idx] * test_dataset.size
+                pixel_pred_idx = pixel_pred_np[idx_in_batch] * test_dataset.size
+                pixel_gt_idx = pixel_gt_np[idx_in_batch] * test_dataset.size
 
-                scale_pred_idx = scale_pred[j_idx].item()
-                scale_gt_idx = scale_gt[j_idx].item()
+                scale_pred_idx = scale_pred[idx_in_batch].item()
+                scale_gt_idx = scale_gt[idx_in_batch].item()
                 
                 uplot.plot_predicted_image(cnt, img_plot, pixel_pred_idx, pixel_gt_idx, 'test_pixel_image', sample_id, scale_pred_idx, scale_gt_idx)
 

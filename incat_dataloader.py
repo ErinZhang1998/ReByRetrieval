@@ -24,6 +24,8 @@ class InCategoryClutterDataloader(object):
         
         vs = []
         for k,v in idx_dict.items():
+            if self.shuffle:
+                np.random.shuffle(v)
             vs.append(v)
         vs = np.hstack(vs).reshape(-1,2)
         if self.shuffle:
@@ -62,14 +64,14 @@ class InCategoryClutterDataloader(object):
             if i < 0:
                 break
             data = self.dataset[i]
-            for j in range(len(data)):
-                l = all_data.get(j,[])
-                l.append(data[j])
-                all_data[j] = l
+            for k,v in data.items():
+                l = all_data.get(k,[])
+                l.append(v)
+                all_data[k] = l
 
-        res = []
-        for l in all_data.values(): 
-            res.append(torch.stack(l, dim=0))
+        res = dict()
+        for k,l in all_data.items():
+            res[k] = torch.stack(l, dim=0)
 
         return res
 

@@ -1,11 +1,5 @@
 import numpy as np
-import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
-import wandb
-import io 
-from PIL import Image
-import PIL
-import copy
+import os 
 import time 
 import datetime
 
@@ -44,3 +38,7 @@ def get_timestamp():
     ts = time.time()                                                                                            
     timenow = datetime.datetime.fromtimestamp(ts).strftime('%Y_%m_%d_%H_%M_%S')                             
     return timenow 
+
+def create_dir(dir_path):
+    if not os.path.exists(dir_path):
+        os.mkdir(dir_path)

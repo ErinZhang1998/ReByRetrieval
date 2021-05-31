@@ -22,12 +22,11 @@ f =  open(options.config_file)
 args_dict = yaml.safe_load(f)
 default_args_dict = yaml.safe_load(open('configs/default.yaml'))
 args_dict_filled = uu.fill_in_args_from_default(args_dict, default_args_dict)
-
-if not options.only_test:
-    wandb.login()
-    wandb.init(project='erin_retrieval', entity='erin_retrieval', config=args_dict_filled)
-
 args = uu.Struct(args_dict_filled)
+if args.wandb.enable and not options.only_test:
+    wandb.login()
+    wandb.init(project=args.wandb.wandb_project_name, entity=args.wandb.wandb_project_entity, config=args_dict_filled)
+
 device = torch.device("cuda" if args.use_cuda else "cpu")
 model = resnet_pretrain.PretrainedResNet(emb_dim=args.model_config.emb_dim, pose_dim=args.model_config.pose_dim)
 optimizer = torch.optim.Adam(model.parameters(), lr=args.optimizer_config.lr)
@@ -38,7 +37,7 @@ train_loader = incat_dataloader.InCategoryClutterDataloader(train_dataset, args.
 
 test_dataset = incat_dataset.InCategoryClutterDataset('test', args)
 test_loader = incat_dataloader.InCategoryClutterDataloader(test_dataset, args.testing_config.batch_size, shuffle = False)
-
+# 
 if options.only_test:
     if args.model_config.model_path is None:
         if options.model_path == '':

@@ -256,12 +256,16 @@ class InCategoryClutterDataset(Dataset):
                 sample['mask_all_objs'] = mask_all_d[f'{(cam_num):05}']
                 
                 if self.split == 'test' and self.args.dataset_config.test_cropped_area_position > 3:
-                    for i in range(4):
-                        sample_cp = copy.deepcopy(sample)
-                        sample_cp['area_type'] = i
-                        samples[idx_i] = sample_cp
-                        Ai.append(idx_i)
-                        idx_i += 1
+                    # for i in [0,1]:
+                    #     sample_cp = copy.deepcopy(sample)
+                    #     sample_cp['area_type'] = i
+                    #     samples[idx_i] = sample_cp
+                    #     Ai.append(idx_i)
+                    #     idx_i += 1
+                    sample['area_type'] = idx_i % 4
+                    samples[idx_i] = sample
+                    Ai.append(idx_i)
+                    idx_i += 1
                 else:
                     sample['area_type'] = self.args.dataset_config.test_cropped_area_position
                     samples[idx_i] = sample
@@ -325,14 +329,14 @@ class InCategoryClutterDataset(Dataset):
                 if area_type == 0:
                     area_x,area_y = 0,0
                 elif area_type == 1:
-                    area_x = int((self.size-patch_w) // 2)
+                    area_x = min(int(self.size//2), self.size-patch_w)
                     area_y = 0
                 elif area_type == 1:
                     area_x = 0
-                    area_y = int((self.size-patch_h) // 2)
+                    area_y = min(int(self.size//2), self.size-patch_h)
                 else:
-                    area_x = int((self.size-patch_w) // 2)
-                    area_y = int((self.size-patch_h) // 2)
+                    area_x = min(int(self.size//2), self.size-patch_w)
+                    area_y = min(int(self.size//2), self.size-patch_h)
             area = (area_x, area_y, area_x+patch_w, area_y+patch_h)
             
             # On the canvas, but mask showing the place that the objects will be
@@ -361,7 +365,9 @@ class InCategoryClutterDataset(Dataset):
 
             if self.split == 'train':
                 flip_trans = utrans.PILRandomHorizontalFlip()
-            img_rgb, img_mask, center_trans = flip_trans(superimposed_img, object_canvas_mask, canvas_center)
+                img_rgb, img_mask, center_trans = flip_trans(superimposed_img, object_canvas_mask, canvas_center)
+            else:
+                img_rgb, img_mask, center_trans = superimposed_img, object_canvas_mask, canvas_center
     
 
         img_rgb = utrans.normalize(torchvision.transforms.ToTensor()(img_rgb), self.img_mean, self.img_std)
@@ -370,13 +376,23 @@ class InCategoryClutterDataset(Dataset):
         img = torch.cat((img_rgb, img_mask), 0)
         image = torch.FloatTensor(img)
 
-        scale_info = torch.FloatTensor(np.array([sample['scale']]).reshape(-1,))
-        orient_info = torch.FloatTensor(sample['orientation'].reshape(-1,))
-        pixel_info = torch.FloatTensor(center_trans.reshape(-1,) / self.size)
-        cat_info = torch.FloatTensor(np.array([sample['obj_cat']]).reshape(-1,))
-        id_info = torch.FloatTensor(np.array([sample['obj_id']]).reshape(-1,))
-        idx_info = torch.FloatTensor(np.array([idx]).reshape(-1,))
+        scale = torch.FloatTensor(np.array([sample['scale']]).reshape(-1,))
+        orientation = torch.FloatTensor(sample['orientation'].reshape(-1,))
+        center = torch.FloatTensor(center_trans.reshape(-1,) / self.size)
+        category = torch.FloatTensor(np.array([sample['obj_cat']]).reshape(-1,))
+        obj_id = torch.FloatTensor(np.array([sample['obj_id']]).reshape(-1,))
+        idx_tensor = torch.FloatTensor(np.array([idx]).reshape(-1,))
 
-        return [image, scale_info, pixel_info, cat_info, id_info, idx_info]
+        data = {
+            "image": image,
+            "scale": scale,
+            "orientation":orientation,
+            "center":center,
+            "obj_category":category,
+            "obj_id":obj_id,
+            "idx":idx_tensor,
+        }
+
+        return data
 
 
