@@ -218,9 +218,10 @@ class InCategoryClutterDataset(Dataset):
             object_cam_d = object_description['object_cam_d']
             for cam_num, object_camera_info_i in object_cam_d.items():
                 pix_left_ratio = object_camera_info_i['pix_left_ratio'] 
+                
                 if pix_left_ratio < self.args.dataset_config.ignore_input_ratio:
                     continue
-                
+                print(pix_left_ratio)
                 center = copy.deepcopy(object_camera_info_i["object_center"].reshape(-1,))
                 center[0] = cam_width - center[0]
 
@@ -245,7 +246,7 @@ class InCategoryClutterDataset(Dataset):
                 sample['obj_cat'] = object_cat_id
                 sample['obj_id'] = object_obj_id
                 sample['obj_shapenet_id'] = object_shapenet_id
-                
+                sample['pix_left_ratio'] = pix_left_ratio
 
                 rgb_all_path = object_camera_info_i['rgb_all_path'].split('/')[-2:]
                 mask_path = object_camera_info_i['mask_path'].split('/')[-2:]
