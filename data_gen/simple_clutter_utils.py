@@ -1,6 +1,5 @@
 import pybullet as p
 import numpy as np 
-import trimesh
 import os 
 from scipy.spatial.transform import Rotation as R
 import math 
@@ -14,7 +13,13 @@ from shapely.geometry import Polygon
 import matplotlib
 import matplotlib.patches as patches
 from matplotlib.collections import PatchCollection
-
+from xml.dom import minidom
+import os
+import trimesh
+import dm_control.mujoco as mujoco
+from pathlib import Path
+import numpy as np
+import shutil
 
 def determine_object_rotation(object_mesh):
     # Rotate object so that it appears upright in Mujoco
@@ -304,3 +309,41 @@ def project_2d(P, camera_tf, pt_3d):
     pixel_coord = pixel_coord / pixel_coord[-1, :]
     pixel_coord = pixel_coord[:2, :] #(2,N)
     return pixel_coord.astype('int').T
+
+
+def add_light(scene_name, directional, ambient, diffuse, specular, castshadow, pos, dir, name):
+    xmldoc = minidom.parse(scene_name)
+    world_body = xmldoc.getElementsByTagName('worldbody')[0]
+    
+    new_body=xmldoc.createElement('light')
+    new_body.setAttribute('name', name)
+    new_body.setAttribute('pos', f'{pos[0]} {pos[1]} {pos[2]}')
+    new_body.setAttribute('dir', f'{dir[0]} {dir[1]} {dir[2]}')
+    directional_s = "true" if directional else "false"
+    new_body.setAttribute('directional', directional_s)
+    new_body.setAttribute('ambient', f'{ambient[0]} {ambient[1]} {ambient[2]}')
+    new_body.setAttribute('diffuse', f'{diffuse[0]} {diffuse[1]} {diffuse[2]}')
+    new_body.setAttribute('specular', f'{specular[0]} {specular[1]} {specular[2]}')
+    castshadow_s = "true" if castshadow else "false"
+    new_body.setAttribute('castshadow', castshadow_s)
+    world_body.appendChild(new_body)
+
+    with open(scene_name, "w") as f:
+        xmldoc.writexml(f)
+
+def get_light_pos_and_dir(num_lights):
+    pos = []
+    direction = []
+    quad = (2.0*math.pi) / num_lights
+    light_angles = np.arange(num_lights) * quad
+    distance = np.random.uniform(1,1.2,1)[0]
+    for light_id in range(num_lights):
+        base_angle = light_angles[light_id]
+        theta = np.random.uniform(base_angle - math.pi/9, base_angle + math.pi/9, 1)[0] 
+        x = np.cos(theta) * distance 
+        y = np.sin(theta) * distance 
+        z = np.random.uniform(2,4,1)[0]
+        pos.append([x,y,z])
+        direction_z = np.random.uniform(-0.5,-1,1)[0]
+        direction.append([0,0,direction_z])
+    return pos, direction

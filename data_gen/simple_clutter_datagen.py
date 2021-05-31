@@ -57,7 +57,8 @@ def move_object(e, ind, pos, rot):
 REGION_LIMIT = 2*np.sqrt(0.5)
     
 #@profile
-def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_filepath, top_dir, train_or_test):
+def gen_data(scene_num, selected_objects, args):
+    shapenet_filepath, shapenet_decomp_filepath, top_dir, train_or_test = args.shapenet_filepath, args.shapenet_decomp_filepath, args.top_dir, args.train_or_test
 
     num_objects = len(selected_objects) 
     selected_colors = [ALL_COLORS[i] for i in np.random.choice(len(ALL_COLORS), num_objects+1, replace=False)]
@@ -151,15 +152,6 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             '''
             object_bounds = object_mesh.bounds
             range_max = np.max(object_bounds[1] - object_bounds[0])
-            # if obj_cat == 2876657 or obj_cat == 3593526 or obj_cat == 2946921:
-            #     random_scale = np.random.uniform(0.6,0.8,1)[0]
-            #     object_size = random_scale / range_max
-            #     print(obj_cat, random_scale, range_max)
-            # elif obj_cat == 2773838 or obj_cat == 2880940:
-            #     random_scale = np.random.uniform(0.8,1,1)[0]
-            #     object_size = random_scale / range_max
-            #     print(obj_cat, random_scale, range_max)
-            # else:
             random_scale = np.random.uniform(0.6,1,1)[0]
             object_size = random_scale / range_max
             object_bounds = object_bounds*object_size
@@ -170,15 +162,11 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             '''
             object_z = table_height + object_bottom + 0.005
             if object_idx == 0:
-                # a,b,_ = object_bounds[1] - object_bounds[0]
-                # diag_length = np.sqrt(a **2 + b**2)
-                # left_x, right_x = -diag_length/2, diag_length/2
-                # down_y, up_y = -diag_length/2, diag_length/2
-                
                 # To put at the center of the table
                 object_x = (table_bounds[1,0] + table_bounds[0,0]) / 2
                 object_y = (table_bounds[1,1] + table_bounds[0,1]) / 2
                 object_xyz = [object_x, object_y, object_z]
+                # Transforming object corners from object frame to world frame
                 lower_x, upper_x = object_bounds[:,0]
                 lower_y, upper_y = object_bounds[:,1]
                 lower_z,_ = object_bounds[:,2]
@@ -200,39 +188,8 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                 bounding_coord = bounding_coord / bounding_coord[-1, :]
                 bounding_coord = bounding_coord[:-1, :].T #(4,3)
                 corners = bounding_coord[:,:2]
-                # x_top, XMAX =  object_x+right_x, object_x+right_x+REGION_LIMIT
-                # x_bottom, XMIN = object_x+left_x, object_x+left_x-REGION_LIMIT
-                # y_top, YMAX = object_y+up_y, object_y+up_y+REGION_LIMIT
-                # y_bottom, YMIN = object_y+down_y, object_y+down_y-REGION_LIMIT
-                
-                # object_position_region = {
-                #     0: [[x_top, XMAX],[y_bottom, y_top]],
-                #     1: [[x_bottom, x_top],[y_top,YMAX]],
-                #     2: [[XMIN, x_bottom],[y_bottom, y_top]],
-                #     3: [[x_bottom, x_top],[YMIN, y_bottom]],
-                #     4: [[x_top,XMAX],[YMIN, y_bottom]],
-                #     5: [[x_top,XMAX],[y_top,YMAX]],
-                #     6: [[XMIN, x_bottom],[y_top,YMAX]],
-                #     7: [[XMIN, x_bottom],[YMIN, y_bottom]],
-                # }
                 prev_bbox.append(corners)
             else:
-                # all_corners = np.vstack(prev_bbox)
-                # assert all_corners.shape[1] == 2
-                # x_bottom, y_bottom = np.min(all_corners, axis=0)
-                # x_top, y_top = np.max(all_corners, axis=0)
-                # object_position_region = {
-                #     0: [[x_top, 1],[y_bottom, 1]],
-                #     1: [[x_bottom, 1],[y_top,1]],
-                #     2: [[x_bottom, -1],[y_bottom, 1]],
-                #     3: [[x_bottom, 1],[y_bottom, -1]],
-                #     4: [[x_top,1],[y_bottom, -1]],
-                #     6: [[x_bottom, -1],[y_top,1]],
-                #     5: [[x_top,1],[y_top,1]],
-                #     7: [[x_bottom, -1],[y_bottom, -1]],
-                # }
-
-                # object_x, object_y, probs = generate_object_xy_rect(object_bounds, prev_bbox, object_position_region, probs)
                 object_x, object_y, probs, object_tf, corners = generate_object_xy(object_rot, object_z, object_bounds, prev_bbox, object_position_region, probs, scene_folder_path)
                 prev_bbox.append(corners)
             
@@ -275,6 +232,19 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                         scene_num, \
                         add_contacts=False)
         
+        light_position, light_direction = get_light_pos_and_dir(args.num_lights)
+        ambients = np.random.uniform(0,0.05,args.num_lights*3).reshape(-1,3)
+        diffuses = np.random.uniform(0.25,0.5,args.num_lights*3).reshape(-1,3)
+        speculars = np.random.uniform(0.25,0.35,args.num_lights*3).reshape(-1,3)
+       
+        for light_id in range(args.num_lights):
+            pos = light_position[light_id]
+            light_dir = light_direction[light_id]
+            ambient = ambients[light_id]#[0,0,0]
+            diffuse = diffuses[light_id]#[0.3,0.3,0.3]
+            specular = speculars[light_id]#[0.3,0.3,0.3]
+            # print(ambient, diffuse, specular)
+            add_light(cam_temp_scene_xml_file, directional=True, ambient=ambient, diffuse=diffuse, specular=specular, castshadow=False, pos=pos, dir=light_dir, name=f'light{light_id}')
         
         e = MujocoEnv(cam_temp_scene_xml_file, 1, has_robot=False)
         e.sim.physics.forward()
@@ -293,8 +263,8 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
             original_xyz = object_idx_to_obj_info[object_idx]['xyz']
 
             if np.linalg.norm(current_xyz - original_xyz) > 0.15:
-                print("????????????????????????", current_xyz, original_xyz, np.linalg.norm(current_xyz - original_xyz))
-                print("????????????????????????",  object_idx_to_obj_info[object_idx]['obj_mesh_filename'])
+                print("WARNING: object location shifted more than 15cm: ", current_xyz, original_xyz, np.linalg.norm(current_xyz - original_xyz))
+                print("WARNING: object location shifted more than 15cm (information): ",  object_idx_to_obj_info[object_idx]['obj_mesh_filename'])
                 del object_idx_to_obj_info[object_idx]  
         
         '''
@@ -410,6 +380,11 @@ def gen_data(scene_num, selected_objects, shapenet_filepath, shapenet_decomp_fil
                 del cam_targets[cam_num]
         
         object_descriptions = dict()
+        object_descriptions['light_position'] = light_position
+        object_descriptions['light_direction'] = light_direction
+        object_descriptions['ambients'] = ambients
+        object_descriptions['speculars'] = speculars
+        object_descriptions['diffuses'] = diffuses
         plt_dict = dict()
         for object_idx in object_idx_to_obj_info.keys():
             obj_info = object_idx_to_obj_info[object_idx]
@@ -545,7 +520,7 @@ if __name__ == '__main__':
 
     for scene_num in range(args.num_scenes):
         acc_scene_num = scene_num + args.start_scene_idx
-        gen_data(acc_scene_num, selected_objects[scene_num], args.shapenet_filepath, args.shapenet_decomp_filepath, args.top_dir, args.train_or_test)
+        gen_data(acc_scene_num, selected_objects[scene_num], args)
 
     # for scene_num in range(len(df)):
     #     acc_scene_num = scene_num + args.start_scene_idx
