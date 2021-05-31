@@ -63,13 +63,20 @@ def gen_data(scene_num, selected_objects, args):
     num_objects = len(selected_objects) 
     selected_colors = [ALL_COLORS[i] for i in np.random.choice(len(ALL_COLORS), num_objects+1, replace=False)]
 
-    try:
-        scene_description=dict()
-        scene_folder_path = os.path.join(top_dir, f'{train_or_test}/scene_{scene_num:06}')
+    if not os.path.exists(args.scene_save_dir):
+        os.mkdir(args.scene_save_dir)
+    
+    output_save_dir = os.path.join(args.scene_save_dir, train_or_test)
+    if not os.path.exists(output_save_dir):
+        os.mkdir(output_save_dir)
+    
+    scene_folder_path = os.path.join(args.scene_save_dir, f'{train_or_test}/scene_{scene_num:06}')
+    if os.path.exists(scene_folder_path):
+        shutil.rmtree(scene_folder_path)
+    os.mkdir(scene_folder_path)
 
-        if os.path.exists(scene_folder_path):
-            shutil.rmtree(scene_folder_path)
-        os.mkdir(scene_folder_path)
+    try:
+        
 
         '''
         Add table
@@ -488,6 +495,7 @@ def gen_data(scene_num, selected_objects, args):
         
     except:
         print('##################################### GEN Error!')
+        shutil.rmtree(scene_folder_path)
         traceback.print_exc()
         # DANGER   
 
