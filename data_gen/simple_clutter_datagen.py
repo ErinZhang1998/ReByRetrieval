@@ -352,110 +352,6 @@ def gen_data(scene_num, selected_objects, args):
                         if pix_left_ratio > 0.95:
                             keep_rotating = False
 
-
-        # # Generate camera heights
-        # max_object_height = table_height + object_max_height
-        # xyzs = dict()
-        # heights = dict()
-        # for object_idx in object_idx_to_obj_info.keys(): 
-        #     xyzs[object_idx] = object_idx_to_obj_info[object_idx]['xyz']
-        #     heights[object_idx] = object_idx_to_obj_info[object_idx]['object_height']
-        
-        # cam_xyzs, cam_targets, cam_num_to_occlusion_target = get_camera_position_occluded(camera_distance, table_height, max_object_height, xyzs, heights)
-        # num_camera = len(cam_xyzs)
-        
-        
-        # for cam_num in cam_xyzs.keys():
-        #     camera_pos = cam_xyzs[cam_num] #[camera_pos_x[cam_num], camera_pos_y[cam_num], camera_pos_z[cam_num]]
-        #     cam_target = cam_targets[cam_num]
-        #     add_camera(cam_temp_scene_xml_file, f'gen_cam_{cam_num}', camera_pos, cam_target, cam_num)
-
-        # e = MujocoEnv(cam_temp_scene_xml_file, 1, has_robot=False)
-        # e.sim.physics.forward()
-        
-        # for _ in range(num_objects):
-        #     for _ in range(4000):
-        #         e.model.step()
-        
-        # state = e.get_env_state().copy()
-        
-        # cam_width = 640
-        # cam_height = 480
-
-        # valid_cameras = []
-        # camera_stats = dict()
-        
-        # for cam_num in cam_xyzs.keys():
-        #     cam_pix_left_ratio_d = dict()
-        #     this_cam_stats = dict()
-        #     discard_cam = False
-            
-        #     camera = Camera(physics=e.model, height=cam_height, width=cam_width, camera_id=cam_num)
-        #     segs = camera.render(segmentation=True)[:,:,0] #(480, 640, 2)
-        #     occluded_geom_id_to_seg_id = {camera.scene.geoms[geom_ind][3]: camera.scene.geoms[geom_ind][8] for geom_ind in range(camera.scene.geoms.shape[0])}
-        
-        #     for object_idx in object_idx_to_obj_info.keys():
-        #         if discard_cam:
-        #             break
-        #         target_id = e.model.model.name2id(f'gen_geom_object_{object_idx}_{scene_num}_0', "geom")
-        #         segmentation = segs == occluded_geom_id_to_seg_id[target_id]
-                
-        #         # Move all other objects far away, except the table, so that we can capture
-        #         # only one object in a scene.
-        #         for move_obj_ind in original_obj_keys:
-        #             if move_obj_ind != object_idx:
-        #                 move_object(e, move_obj_ind, [20, 20, move_obj_ind], [0,0,0,0])
-
-        #         e.sim.physics.forward()
-
-        #         unocc_target_id = e.model.model.name2id(f'gen_geom_object_{object_idx}_{scene_num}_0', "geom")
-        #         unoccluded_camera = Camera(physics=e.model, height=cam_height, width=cam_width, camera_id=cam_num)
-        #         unoccluded_segs = unoccluded_camera.render(segmentation=True)
-                
-        #         # Move other objects back onto table 
-        #         e.set_env_state(state)
-        #         e.sim.physics.forward()
-
-        #         unoccluded_geom_id_to_seg_id = {unoccluded_camera.scene.geoms[geom_ind][3]: unoccluded_camera.scene.geoms[geom_ind][8] for geom_ind in range(unoccluded_camera.scene.geoms.shape[0])}
-        #         unoccluded_segmentation = unoccluded_segs[:,:,0] == unoccluded_geom_id_to_seg_id[unocc_target_id]
-                
-        #         # If the object is not in the scene of this object 
-        #         if np.argwhere(unoccluded_segmentation).shape[0] == 0:
-        #             this_cam_stats[object_idx] = [-1, 0]
-        #             continue
-                
-        #         segmentation = np.logical_and(segmentation, unoccluded_segmentation)
-        #         pix_left_ratio = np.argwhere(segmentation).shape[0] / np.argwhere(unoccluded_segmentation).shape[0]
-                
-        #         # if object_idx == cam_num_to_occlusion_target[cam_num]:
-        #         #     if pix_left_ratio < 0.05:
-        #         #         discard_cam = True
-        #         #         continue
-                
-        #         this_cam_stats[object_idx] = [pix_left_ratio, np.argwhere(unoccluded_segmentation).shape[0]]
-        #         cv2.imwrite(os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}_{object_idx}.png'), segmentation.astype(np.uint8))
-
-        #     if discard_cam:
-        #         continue
-            
-        #     rgb=e.model.render(height=cam_height, width=cam_width, camera_id=cam_num, depth=False, segmentation=False)
-        #     cv2.imwrite(os.path.join(scene_folder_path, f'rgb_{(cam_num):05}.png'), rgb)
-
-        #     # Depth image
-        #     depth = e.model.render(height=cam_height, width=cam_width, camera_id=cam_num, depth=True, segmentation=False)
-        #     depth = (depth*1000).astype(np.uint16)
-        #     cv2.imwrite(os.path.join(scene_folder_path, f'depth_{(cam_num):05}.png'), depth)
-
-        #     cv2.imwrite(os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}.png'), segs)
-        #     valid_cameras.append(cam_num)
-        #     camera_stats[cam_num] = this_cam_stats
-
-        
-        # original_keys = list(cam_xyzs.keys())
-        # for cam_num in original_keys:
-        #     if not cam_num in valid_cameras:
-        #         del cam_xyzs[cam_num]
-        #         del cam_targets[cam_num]
         
         object_descriptions = dict()
         object_descriptions['light_position'] = light_position
@@ -463,6 +359,8 @@ def gen_data(scene_num, selected_objects, args):
         object_descriptions['ambients'] = ambients
         object_descriptions['speculars'] = speculars
         object_descriptions['diffuses'] = diffuses
+        object_descriptions["object_indices"] = list(object_idx_to_obj_info.keys())
+        object_descriptions["cam_num_to_occlusion_target"] = cam_num_to_occlusion_target
         plt_dict = dict()
         for object_idx in object_idx_to_obj_info.keys():
             obj_info = object_idx_to_obj_info[object_idx]
