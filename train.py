@@ -27,7 +27,7 @@ class Trainer(object):
     def __init__(self, all_args, model, train_loader, test_loader, optimizer, scheduler, device):
 
         self.args = all_args
-        self.wandb_enabled = self.args.wandb.enable
+        self.wandb_enabled = self.args.wandb.enable and not wandb.run is None
         self.train_args = all_args.training_config 
         self.loss_args = all_args.loss 
         self.test_args = all_args.testing_config
@@ -87,7 +87,7 @@ class Trainer(object):
         except:
             print("ERROR: Cannot save model at", model_path)
     
-    def train(self, test_only = False):
+    def train(self, test_only = False, test_only_epoch=-1):
         start_epoch = self.train_args.start_epoch
         
         if not test_only: 
@@ -98,7 +98,9 @@ class Trainer(object):
             if self.train_args.save_at_end:
                 self.save_model(self.train_args.epochs)
         
-        self.test(self.train_args.epochs, last_epoch=True)
+            self.test(self.train_args.epochs, last_epoch=True)
+        else:
+            self.test(test_only_epoch, last_epoch=True)
 
     def train_epoch(self, epoch):
 
@@ -252,6 +254,7 @@ class Trainer(object):
 
         embeds = []
         sample_ids_list = []
+        area_types = []
 
         test_dataset = self.test_loader.dataset
 
@@ -261,6 +264,7 @@ class Trainer(object):
         with torch.no_grad():
             
             for batch_idx, data in enumerate(self.test_loader):
+                # print(batch_idx)
                 image = data["image"]
                 scale_gt = data["scale"]
                 pixel_gt = data["center"]
@@ -269,6 +273,7 @@ class Trainer(object):
                 dataset_indices = data["idx"] 
                 sample_ids = test_dataset.idx_to_sample_id[dataset_indices.numpy().astype(int)].reshape(-1,)
                 sample_ids_list.append(sample_ids)
+                area_types.append(data["area_type"])
 
                 model = self.model.to(self.device)
                 image = image.to(self.device)
@@ -338,6 +343,10 @@ class Trainer(object):
             all_sample_ids = np.hstack(sample_ids_list)
             sample_ids_path = os.path.join(self.prediction_dir, '{}_sample_id.npy'.format(epoch))
             np.save(sample_ids_path, all_sample_ids)
+
+            all_area_types = np.hstack(area_types)
+            sample_ids_path = os.path.join(self.prediction_dir, '{}_area_types.npy'.format(epoch))
+            np.save(sample_ids_path, all_area_types)
 
         final_loss_cat = np.mean(loss_cat) * self.loss_args.lambda_cat
         final_loss_obj = np.mean(loss_obj) * self.loss_args.lambda_obj

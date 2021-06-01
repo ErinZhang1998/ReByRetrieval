@@ -94,6 +94,9 @@ class InCategoryClutterDataset(Dataset):
                 if not os.path.exists(scene_description_dir):
                     # print("WARNING: CANNOT FIND: ", scene_description_dir)
                     continue 
+                scene_name = subdir_path.split("/")[-1]
+                # if int(subdir_path[-3] ) < 2:
+                #     continue
                 l.append(subdir_path)
         
         if self.split == 'test':
@@ -201,6 +204,8 @@ class InCategoryClutterDataset(Dataset):
         samples = {}
         idx_i = idx
         for object_idx in object_descriptions.keys():
+            if not isinstance(object_idx, int):
+                continue
             object_description = object_descriptions[object_idx]
             
             position = object_description['position']
@@ -221,7 +226,7 @@ class InCategoryClutterDataset(Dataset):
                 
                 if pix_left_ratio < self.args.dataset_config.ignore_input_ratio:
                     continue
-                print(pix_left_ratio)
+
                 center = copy.deepcopy(object_camera_info_i["object_center"].reshape(-1,))
                 center[0] = cam_width - center[0]
 
@@ -263,7 +268,7 @@ class InCategoryClutterDataset(Dataset):
                     #     samples[idx_i] = sample_cp
                     #     Ai.append(idx_i)
                     #     idx_i += 1
-                    sample['area_type'] = idx_i % 4
+                    sample['area_type'] = hash(sample_id) % 4
                     samples[idx_i] = sample
                     Ai.append(idx_i)
                     idx_i += 1
@@ -281,6 +286,20 @@ class InCategoryClutterDataset(Dataset):
         # return len(self.idx_to_data_dict)
         return np.sum(self.total)
 
+    def determine_patch_x_y(self, area_type, patch_w, patch_h):
+        if area_type == 0:
+            area_x,area_y = 0,0
+        elif area_type == 1:
+            area_x = min(int(self.size//2), self.size-patch_w)
+            area_y = 0
+        elif area_type == 2:
+            area_x = 0
+            area_y = min(int(self.size//2), self.size-patch_h)
+        else:
+            area_x = min(int(self.size//2), self.size-patch_w)
+            area_y = min(int(self.size//2), self.size-patch_h)
+        return area_x,area_y
+    
     def __getitem__(self, idx):
         sample = self.idx_to_data_dict[idx]
         rgb_all = PIL.Image.open(sample['rgb_all_path'])
@@ -327,17 +346,7 @@ class InCategoryClutterDataset(Dataset):
                 area_y = int(np.random.uniform(0, self.size-patch_h,1)[0])
             else:
                 area_type = sample['area_type']
-                if area_type == 0:
-                    area_x,area_y = 0,0
-                elif area_type == 1:
-                    area_x = min(int(self.size//2), self.size-patch_w)
-                    area_y = 0
-                elif area_type == 1:
-                    area_x = 0
-                    area_y = min(int(self.size//2), self.size-patch_h)
-                else:
-                    area_x = min(int(self.size//2), self.size-patch_w)
-                    area_y = min(int(self.size//2), self.size-patch_h)
+                area_x, area_y = self.determine_patch_x_y(area_type, patch_w, patch_h)
             area = (area_x, area_y, area_x+patch_w, area_y+patch_h)
             
             # On the canvas, but mask showing the place that the objects will be
@@ -392,6 +401,7 @@ class InCategoryClutterDataset(Dataset):
             "obj_category":category,
             "obj_id":obj_id,
             "idx":idx_tensor,
+            "area_type": torch.FloatTensor(np.array([area_x, area_y]).reshape(-1,2)),
         }
 
         return data

@@ -14,6 +14,8 @@ import incat_dataloader
 parser = OptionParser()
 parser.add_option("--config_file", dest="config_file")
 parser.add_option("--only_test", dest="only_test", action='store_true')
+parser.add_option("--only_test_epoch", dest="only_test_epoch", type=int, default=-1)
+
 parser.add_option("--model_path", dest="model_path", default='')
 (options, args) = parser.parse_args()
 
@@ -47,4 +49,4 @@ if options.only_test:
             args.model_config.model_path = options.model_path
 
 trainer = train.Trainer(args, model, train_loader, test_loader, optimizer, scheduler, device)
-trainer.train(options.only_test)
+trainer.train(options.only_test, options.only_test_epoch)
