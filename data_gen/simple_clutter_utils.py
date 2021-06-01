@@ -80,7 +80,7 @@ def generate_object_xy(object_rot, object_z, object_bounds, prev_bbox, object_po
     try_count = 0
     while not avoid_all_squares:
         if MAX_TRY < 0:
-            raise
+            raise ValueError
         
         prev_center_idx = np.random.choice(len(prev_bbox), 1)[0]
         center_corners = prev_bbox[prev_center_idx]
@@ -194,6 +194,81 @@ def doOverlap(l1, r1, l2, r2, buf):
   
     return True
 
+def move_object(e, ind, pos, rot):
+    # ASSUME THERE IS TABLE so 7+ and 6+
+    all_poses=e.data.qpos.ravel().copy()
+    all_vels=e.data.qvel.ravel().copy()
+    
+    all_poses[7+7*ind : 7+7*ind+3]=pos
+    all_poses[7+7*ind+3 : 7+7*ind+7]=rot
+    
+    all_vels[6+6*ind : 6+6*ind+6] = 0
+    e.set_state(all_poses, all_vels)
+
+def get_camera_position_occluded_one_cam(table_height, xyz1,xyz2,height1,height2,max_dist, deg_candidate):
+    distance_away = 3
+    
+    x,y,z = xyz1
+    a,b,c = xyz2
+    xdiff = a-x
+    ydiff = b-y
+    rad = np.arctan(ydiff / xdiff) if xdiff > 0 else np.arctan(ydiff / xdiff)+np.pi
+    shifted_degree = np.random.uniform(deg_candidate[0],deg_candidate[1],1)[0]
+    #sign = np.random.choice([1,-1])
+    rad += np.deg2rad(shifted_degree)
+    
+    cam_x = np.cos(rad) * (max_dist+distance_away) + x 
+    cam_y = np.sin(rad) * (max_dist+distance_away) + y
+    
+    if height2 > height1:
+        cam_z = table_height + height2
+    else:
+        cam_z = table_height + height2 / 2
+    
+    cam_xyz = [cam_x, cam_y, cam_z]
+    jitter = [0,0,0]#np.random.uniform(0.2,0.5,2)
+    cam_target = [x+jitter[0],y+jitter[1],z+np.random.uniform(0.1,0.2,1)[0]]
+
+    return cam_xyz,cam_target
+
+def get_pixel_left_ratio(scene_num, camera, cam_num, e, object_i, all_obj_indices, cam_width, cam_height):
+    state = e.get_env_state().copy()
+    segs = camera.render(segmentation=True)[:,:,0]
+    occluded_geom_id_to_seg_id = {camera.scene.geoms[geom_ind][3]: camera.scene.geoms[geom_ind][8] for geom_ind in range(camera.scene.geoms.shape[0])}
+
+    
+    target_id = e.model.model.name2id(f'gen_geom_object_{object_i}_{scene_num}_0', "geom")
+    segmentation = segs == occluded_geom_id_to_seg_id[target_id]
+        
+    # Move all other objects far away, except the table, so that we can capture
+    # only one object in a scene.
+    for move_obj_ind in all_obj_indices:
+        if move_obj_ind != object_i:
+            move_object(e, move_obj_ind, [20, 20, move_obj_ind], [0,0,0,0])
+
+    e.sim.physics.forward()
+
+    unocc_target_id = e.model.model.name2id(f'gen_geom_object_{object_i}_{scene_num}_0', "geom")
+    unoccluded_camera = Camera(physics=e.model, height=cam_height, width=cam_width, camera_id=cam_num)
+    unoccluded_segs = unoccluded_camera.render(segmentation=True)
+
+    # Move other objects back onto table 
+    e.set_env_state(state)
+    e.sim.physics.forward()
+        
+    unoccluded_geom_id_to_seg_id = {unoccluded_camera.scene.geoms[geom_ind][3]: unoccluded_camera.scene.geoms[geom_ind][8] for geom_ind in range(unoccluded_camera.scene.geoms.shape[0])}
+    unoccluded_segmentation = unoccluded_segs[:,:,0] == unoccluded_geom_id_to_seg_id[unocc_target_id]
+    
+    onoccluded_pixel_num = np.argwhere(unoccluded_segmentation).shape[0]
+    # If the object is not in the scene of this object 
+    if onoccluded_pixel_num == 0:
+        return -1, 0, None
+    
+    segmentation = np.logical_and(segmentation, unoccluded_segmentation)
+    pix_left_ratio = np.argwhere(segmentation).shape[0] / onoccluded_pixel_num
+
+    return pix_left_ratio, onoccluded_pixel_num, segmentation
+
 def get_camera_position_occluded(camera_distance, table_height, max_object_height, xyzs, heights):
     num_angles = 6
     shifted_degree = 10
@@ -230,7 +305,7 @@ def get_camera_position_occluded(camera_distance, table_height, max_object_heigh
             rad = np.arctan(ydiff / xdiff) if xdiff > 0 else np.arctan(ydiff / xdiff)+np.pi
             # shifted_degrees = np.random.choice([5,9,13,],10)
             
-            deg_candidate = np.asarray([3,5,10,15,20,25])
+            deg_candidate = np.asarray([0,2])#np.asarray([3,5,10,15,20,25])
             shifted_degrees = []
             for degi,degj in zip(deg_candidate[:-1], deg_candidate[1:]):
                 shifted_degrees.append(np.random.uniform(degi,degj,1)[0])
@@ -255,7 +330,7 @@ def get_camera_position_occluded(camera_distance, table_height, max_object_heigh
                 cam_num += 1
     
     #bird eye view
-    num_angles = 16
+    num_angles = 8
     quad = (2.0*math.pi) / num_angles
     normal_thetas = [np.random.uniform(i*quad, (i+1.0)*quad,1)[0] for i in range(num_angles)]
     
@@ -267,7 +342,7 @@ def get_camera_position_occluded(camera_distance, table_height, max_object_heigh
     for theta in normal_thetas:
         cam_x = np.cos(theta) * (max_dist+distance_away) + center[0]
         cam_y = np.sin(theta) * (max_dist+distance_away) + center[1]
-        cam_z = max_object_height * np.random.uniform(1,2,1)[0]
+        cam_z = max_object_height * np.random.uniform(1,1.3,1)[0]
         cam_xyzs[cam_num] = [cam_x, cam_y, cam_z]
         cam_targets[cam_num] = [center[0],center[1],table_height]
 
