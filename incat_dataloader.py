@@ -7,10 +7,12 @@ class InCategoryClutterDataloader(object):
         self.dataset = dataset
         self.batch_size = batch_size
         self.shuffle = shuffle 
-        self.num_batches, self.batch_indices = self.assign_idx_to_batch()
-        self.acc = 0
+        # self.num_batches, self.batch_indices = self.assign_idx_to_batch()
+        # self.acc = 0
     
     def assign_idx_to_batch(self):
+        if self.dataset.split == "train":
+            self.dataset.reset()
         batch_size = self.batch_size
         num_batches = int(len(self.dataset) / batch_size)
 
@@ -55,6 +57,7 @@ class InCategoryClutterDataloader(object):
 
     def __iter__(self):
         self.acc = 0
+        self.num_batches, self.batch_indices = self.assign_idx_to_batch()
         return self 
     
     def compile_batch(self, indices):

@@ -3,7 +3,45 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision import models
 import matplotlib.pyplot as plt
+import numpy as np
 
+class SpatialSoftmax(torch.nn.Module):
+    def __init__(self, height, width, channel, temperature=None, data_format='NCHW'):
+        super(SpatialSoftmax, self).__init__()
+        self.data_format = data_format
+        self.height = height
+        self.width = width
+        self.channel = channel
+
+        if temperature:
+            self.temperature = Parameter(torch.ones(1)*temperature)
+        else:
+            self.temperature = 1.
+
+        pos_x, pos_y = np.meshgrid(
+                np.linspace(-1., 1., self.height),
+                np.linspace(-1., 1., self.width)
+                )
+        pos_x = torch.from_numpy(pos_x.reshape(self.height*self.width)).float()
+        pos_y = torch.from_numpy(pos_y.reshape(self.height*self.width)).float()
+        self.register_buffer('pos_x', pos_x)
+        self.register_buffer('pos_y', pos_y)
+
+    def forward(self, feature):
+        # Output:
+        #   (N, C*2) x_0 y_0 ...
+        if self.data_format == 'NHWC':
+            feature = feature.transpose(1, 3).tranpose(2, 3).view(-1, self.height*self.width)
+        else:
+            feature = feature.view(-1, self.height*self.width)
+
+        softmax_attention = F.softmax(feature, dim=-1)
+        expected_x = torch.sum(self.pos_x*softmax_attention, dim=1, keepdim=True)
+        expected_y = torch.sum(self.pos_y*softmax_attention, dim=1, keepdim=True)
+        expected_xy = torch.cat([expected_x, expected_y], 1)
+        feature_keypoints = expected_xy.view(-1, self.channel*2)
+
+        return feature_keypoints
 
 class PretrainedResNet(nn.Module):
     def __init__(self, emb_dim = 128, pose_dim = 3):
@@ -27,26 +65,3 @@ class PretrainedResNet(nn.Module):
         emb = self.emb_fc(flat_x)
         pose = self.pose_fc(flat_x)
         return emb, pose
-
-# class RetrieveResnet(nn.Module):
-#   def __init__(self):
-#     super(RetrieveResnet, self).__init__()
-
-#     self.res1 = models.resnet50(pretrained=True)
-#     self.res2 = models.resnet50(pretrained=True)
-
-#     self.res1.fc = nn.Linear(self.res1.fc.in_features, len(VOCDataset.CLASS_NAMES))
-#         nn.init.xavier_normal_(ResNet.fc.weight)
-
-#     self.conv = nn.Conv2d( ... )  # set up your layer here
-#     self.fc1 = nn.Linear( ... )  # set up first FC layer
-#     self.fc2 = nn.Linear( ... )  # set up the other FC layer
-
-#   def forward(self, input1, input2):
-#     c = self.conv(input1)
-#     f = self.fc1(input2)
-#     # now we can reshape `c` and `f` to 2D and concat them
-#     combined = torch.cat((c.view(c.size(0), -1),
-#                           f.view(f.size(0), -1)), dim=1)
-#     out = self.fc2(combined)
-#     return out

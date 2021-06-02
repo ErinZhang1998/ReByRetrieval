@@ -30,10 +30,13 @@ class InCategoryClutterDataset(Dataset):
 
         self.split = split 
         self.args = args
-        self.size = args.dataset_config.size 
+        # self.size = args.dataset_config.size 
+        self.size_w = args.dataset_config.size_w
+        self.size_h = args.dataset_config.size_h
         self.cropped_out_scale_max = args.dataset_config.cropped_out_scale_max
         self.cropped_out_scale_min = args.dataset_config.cropped_out_scale_min
         self.superimpose = args.dataset_config.superimpose
+        self.num_area_range =  args.dataset_config.superimpose_num_area_range
         if split == 'train':
             self.scene_dir = args.files.training_scene_dir
         else:
@@ -51,9 +54,14 @@ class InCategoryClutterDataset(Dataset):
             # print(self.all_canvas_path)
             file_ptr.close()
         
-        self.object_id_to_dict_idx = {}
+        
         self.generate_object_category_information()
 
+        self.reset()
+        self.determine_imge_dim()
+    
+    def reset(self):
+        self.object_id_to_dict_idx = {}
         self.idx_to_data_dict = dict()
         idx = 0
         for dir_path in self.dir_list:
@@ -75,9 +83,6 @@ class InCategoryClutterDataset(Dataset):
         self.total = []
         for k,v in self.object_id_to_dict_idx.items():
             self.total.append(len(v))
-        
-        self.determine_imge_dim()
-
 
     def determine_imge_dim(self):
         sample = self.idx_to_data_dict[0]
@@ -148,27 +153,6 @@ class InCategoryClutterDataset(Dataset):
         cam_num = int(cam_num)
         return scene_name, cam_num, object_idx
     
-    def load_sample_img_mask(self, sample_id):
-        # scene_000953_00022_0
-        scene_name, cam_num, object_idx = self.parse_sample_id(sample_id)
-        dir_path = os.path.join(self.scene_dir, scene_name)
-
-        root_name = f'_{(cam_num):05}'
-        obj_name = f'_{(cam_num):05}_{object_idx}'
-
-        rgb_all_path = os.path.join(dir_path, 'rgb{}.png'.format(root_name))
-        segmentation_filename = os.path.join(dir_path, 'segmentation{}.png'.format(obj_name))
-        
-        rgb_all = mpimg.imread(rgb_all_path)
-        mask = mpimg.imread(segmentation_filename)
-
-        object_descriptions = pickle.load(open(os.path.join(dir_path, 'scene_description.p'), 'rb'))
-        center = object_descriptions[object_idx]['object_cam_d'][cam_num]["object_center"]
-        center_rev = copy.deepcopy(center.reshape(-1,))
-        center_rev[0] = rgb_all.shape[1] - center_rev[0]
-    
-        return rgb_all, mask, center_rev
-    
     def compile_mask_files(self, dir_path):
         '''
         Dictionary mapping from camera index (in str form, e.g. '00039') to files of individual
@@ -203,6 +187,18 @@ class InCategoryClutterDataset(Dataset):
         
         samples = {}
         idx_i = idx
+        # all_object_idx = object_descriptions["object_indices"]
+        # cam_num_to_occlusion_target = object_descriptions["cam_num_to_occlusion_target"]
+        # cam_num_to_selected_objects = dict()
+        # if self.split == "train":
+        #     for cam_num, occlude_object_idx in cam_num_to_occlusion_target.item():
+        #         b = all_object_idx[:]
+        #         b.remote(occlude_object_idx)
+        #         cam_num_to_selected_objects[cam_num] = [occlude_object_idx, np.random.choice(b,1,replace=False)[0]]
+        # else:
+        #     for cam_num, _ in cam_num_to_occlusion_target.item():
+        #         cam_num_to_selected_objects[cam_num] = all_object_idx
+        
         for object_idx in object_descriptions.keys():
             if not isinstance(object_idx, int):
                 continue
@@ -226,6 +222,9 @@ class InCategoryClutterDataset(Dataset):
                 
                 if pix_left_ratio < self.args.dataset_config.ignore_input_ratio:
                     continue
+                # selected_objs = cam_num_to_selected_objects.get(cam_num, all_object_idx)
+                # if not object_idx in selected_objs:
+                #     continue
 
                 center = copy.deepcopy(object_camera_info_i["object_center"].reshape(-1,))
                 center[0] = cam_width - center[0]
@@ -252,6 +251,7 @@ class InCategoryClutterDataset(Dataset):
                 sample['obj_id'] = object_obj_id
                 sample['obj_shapenet_id'] = object_shapenet_id
                 sample['pix_left_ratio'] = pix_left_ratio
+                sample['total_pixel_in_scene'] = object_camera_info_i['total_pixel_in_scene']
 
                 rgb_all_path = object_camera_info_i['rgb_all_path'].split('/')[-2:]
                 mask_path = object_camera_info_i['mask_path'].split('/')[-2:]
@@ -290,60 +290,84 @@ class InCategoryClutterDataset(Dataset):
         if area_type == 0:
             area_x,area_y = 0,0
         elif area_type == 1:
-            area_x = min(int(self.size//2), self.size-patch_w)
+            area_x = min(int(self.size_w//2), self.size_w-patch_w)
             area_y = 0
         elif area_type == 2:
             area_x = 0
-            area_y = min(int(self.size//2), self.size-patch_h)
+            area_y = min(int(self.size_h//2), self.size_h-patch_h)
         else:
-            area_x = min(int(self.size//2), self.size-patch_w)
-            area_y = min(int(self.size//2), self.size-patch_h)
+            area_x = min(int(self.size_w//2), self.size_w-patch_w)
+            area_y = min(int(self.size_h//2), self.size_h-patch_h)
         return area_x,area_y
     
     def __getitem__(self, idx):
         sample = self.idx_to_data_dict[idx]
         rgb_all = PIL.Image.open(sample['rgb_all_path'])
         mask = mpimg.imread(sample['mask_path'])
+        original_h, original_w = mask.shape
+        shape_ratio = sample['total_pixel_in_scene'] / (original_h * original_w)
         mask = utrans.mask_to_PIL(mask)
         mask_all = self.compile_mask(sample['mask_all_objs'])
         mask_all = utrans.mask_to_PIL(mask_all)
+
+        # mask_all = mpimg.imread(sample['mask_all_path'])
+        # mask_all = utrans.mask_to_PIL(mask_all)
+
         center = copy.deepcopy(sample['object_center'].reshape(-1,))
         corners = copy.deepcopy(sample['scene_corners'])
         
         if not self.superimpose:
             if self.split == 'train':
-                trans = utrans.Compose([utrans.PILResized(width = self.size, height = self.size),
+                trans = utrans.Compose([utrans.PILResized(width = self.size_w, height = self.size_h),
                         utrans.PILRandomHorizontalFlip(),
                     ])
             else:
-                trans = utrans.Compose([utrans.PILResized(width = self.size, height = self.size),
+                trans = utrans.Compose([utrans.PILResized(width = self.size_w, height = self.size_h),
                     ])
             img_rgb, img_mask, center_trans = trans(rgb_all, mask, center)
         else:
             canvas_path = np.random.choice(self.all_canvas_path,1)[0]
             canvas = PIL.Image.open(canvas_path)
-            canvas = canvas.resize((self.size,self.size))
+            canvas = canvas.resize((self.size_w, self.size_h))
             cropped_obj_transform = utrans.PILCropArea(corners)
             cropped_obj_img, cropped_mask, cropped_center = cropped_obj_transform(rgb_all, mask_all, center)
             cropped_object_mask = mask.crop(cropped_obj_transform.area)
-            if self.split == 'train':
-                patch_size = int(self.size * np.random.uniform(self.cropped_out_scale_min,self.cropped_out_scale_max,1)[0])
-            else:
-                patch_size = int(self.size * 0.5)
             cropped_w, cropped_h = cropped_obj_img.size
-            if cropped_w > cropped_h:
-                patch_w = patch_size
-                patch_h = patch_size * (cropped_h / cropped_w)
-            else:
-                patch_h = patch_size
-                patch_w = patch_size * (cropped_w / cropped_h)
+            
+            # if self.split == 'train':
+            #     patch_size = int(self.size * np.random.uniform(self.cropped_out_scale_min,self.cropped_out_scale_max,1)[0])
+            # else:
+            #     patch_size = int(self.size * 0.5)
+            # 
+            # if cropped_w > cropped_h:
+            #     patch_w = patch_size
+            #     patch_h = patch_size * (cropped_h / cropped_w)
+            # else:
+            #     patch_h = patch_size
+            #     patch_w = patch_size * (cropped_w / cropped_h)
 
-            patch_w = int(patch_w)
-            patch_h = int(patch_h)
+            # patch_w = int(patch_w)
+            # patch_h = int(patch_h)
+
+            if self.split == "train":
+                sampled_ratio = np.random.uniform(0.0015, 0.005, 1)[0]
+            else:
+                sampled_ratio = 0.002
+
+            patch_ratio = (sampled_ratio * (self.size_w * self.size_h)) / (shape_ratio)
+            if cropped_w > cropped_h:
+                patch_w = np.sqrt(patch_ratio * (cropped_w / cropped_h))
+                patch_h = patch_w * (cropped_h / cropped_w)
+            else:
+                patch_h = np.sqrt(patch_ratio * (cropped_h / cropped_w))
+                patch_w = patch_h * (cropped_w / cropped_h)
+            patch_w, patch_h = int(patch_w), int(patch_h)
 
             if self.split == 'train':
-                area_x = int(np.random.uniform(0, self.size-patch_w,1)[0])
-                area_y = int(np.random.uniform(0, self.size-patch_h,1)[0])
+                area_range_w,area_range_h = np.random.choice(np.arange(self.num_area_range),2)
+                area_step_w, area_step_h = (self.size_w - patch_w)/ self.num_area_range , (self.size_h - patch_h)/ self.num_area_range 
+                area_x = int(np.random.uniform(area_step_w*area_range_w, area_step_w*(area_range_w+1),1)[0])
+                area_y = int(np.random.uniform(area_step_h*area_range_h, area_step_h*(area_range_h+1),1)[0])
             else:
                 area_type = sample['area_type']
                 area_x, area_y = self.determine_patch_x_y(area_type, patch_w, patch_h)
@@ -386,9 +410,13 @@ class InCategoryClutterDataset(Dataset):
         img = torch.cat((img_rgb, img_mask), 0)
         image = torch.FloatTensor(img)
 
+        cx,cy = center_trans.reshape(-1,)
+        cx /= self.size_w
+        cy /= self.size_h
+
         scale = torch.FloatTensor(np.array([sample['scale']]).reshape(-1,))
         orientation = torch.FloatTensor(sample['orientation'].reshape(-1,))
-        center = torch.FloatTensor(center_trans.reshape(-1,) / self.size)
+        center = torch.FloatTensor(np.array([cx,cy]))
         category = torch.FloatTensor(np.array([sample['obj_cat']]).reshape(-1,))
         obj_id = torch.FloatTensor(np.array([sample['obj_id']]).reshape(-1,))
         idx_tensor = torch.FloatTensor(np.array([idx]).reshape(-1,))
