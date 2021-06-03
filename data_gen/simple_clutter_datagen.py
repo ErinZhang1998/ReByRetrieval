@@ -7,7 +7,7 @@ import multiprocessing
 from multiprocessing.dummy import Pool as ThreadPool
 import matplotlib.image as mpimg
 
-from trajopt.envs.mujoco_env import MujocoEnv
+from mujoco_env import MujocoEnv
 import trimesh
 import shutil
 import random
@@ -20,13 +20,12 @@ import pybullet as p
 from dm_control.mujoco.engine import Camera
 
 from functools import partial
-from trajopt.mujoco_utils import add_camera, add_objects
+# from trajopt.mujoco_utils import add_objects
 from scipy.spatial.transform import Rotation as R
 import matplotlib.colors as mcolors
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from PIL import Image 
-from mpl_toolkits.mplot3d import Axes3D  # noqa: F401 unused import
 
 from data_gen_args import *
 from simple_clutter_utils import *
@@ -213,7 +212,7 @@ def gen_data(scene_num, selected_objects, args):
         cam_temp_scene_xml_file=os.path.join(top_dir, f'{train_or_test}_xml/cam_temp_data_gen_scene_{scene_num}.xml')
         shutil.copyfile(scene_xml_file, cam_temp_scene_xml_file)
 
-        add_objects(cam_temp_scene_xml_file, 'table', [stl_table_mesh_filename], table_xyz, table_size, table_color, table_orientation, scene_num, add_contacts=False)
+        add_objects(cam_temp_scene_xml_file, 'table', [stl_table_mesh_filename], table_xyz, table_size, table_color, table_orientation, scene_num)
         
         # scene_name, object_name, mesh_names, pos, size, color, rot, run_id, contact_geom_list=None, add_ind=-1, add_contacts=True
         for object_idx in object_idx_to_obj_info.keys():
@@ -226,8 +225,7 @@ def gen_data(scene_num, selected_objects, args):
                         obj_info['scale'], \
                         obj_info['color'], \
                         obj_info['rotation'], \
-                        scene_num, \
-                        add_contacts=False)
+                        scene_num)
         
         light_position, light_direction = get_light_pos_and_dir(args.num_lights)
         ambients = np.random.uniform(0,0.05,args.num_lights*3).reshape(-1,3)

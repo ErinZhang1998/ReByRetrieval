@@ -422,3 +422,81 @@ def get_light_pos_and_dir(num_lights):
         direction_z = np.random.uniform(-0.5,-1,1)[0]
         direction.append([0,0,direction_z])
     return pos, direction
+
+def add_camera(scene_name, cam_name, cam_pos, cam_target, cam_id):
+    xmldoc = minidom.parse(scene_name)
+    world_body = xmldoc.getElementsByTagName('worldbody')[0]
+    
+    new_body=xmldoc.createElement('camera')
+    new_body.setAttribute('name', cam_name)
+    new_body.setAttribute('mode', 'targetbody')
+    new_body.setAttribute('pos', f'{cam_pos[0]} {cam_pos[1]} {cam_pos[2]}')
+    new_body.setAttribute('target', f'added_cam_target_{cam_id}')
+    world_body.appendChild(new_body)
+    
+    new_body=xmldoc.createElement('body')
+    new_body.setAttribute('name', f'added_cam_target_{cam_id}')
+    new_body.setAttribute('pos', f'{cam_target[0]} {cam_target[1]} {cam_target[2]}')
+    new_geom=xmldoc.createElement('geom')
+    geom_name=f'added_cam_target_geom_{cam_id}'
+    new_geom.setAttribute('name', geom_name)
+    new_geom.setAttribute('class', '/')
+    new_geom.setAttribute('type', 'box')
+    new_geom.setAttribute('contype', '0')
+    new_geom.setAttribute('conaffinity', '0')
+    new_geom.setAttribute('group', '1')
+    new_geom.setAttribute('size', "1 1 1")
+    new_geom.setAttribute('rgba', f'0 0 0 0')
+    new_body.appendChild(new_geom)
+    world_body.appendChild(new_body)
+    
+    with open(scene_name, "w") as f:
+        xmldoc.writexml(f)
+
+def add_objects(scene_name, object_name, mesh_names, pos, size, color, rot, run_id):
+    xmldoc = minidom.parse(scene_name)
+    # import pdb; pdb.set_trace()
+    
+    assets = xmldoc.getElementsByTagName('asset')[0]
+    for mesh_ind in range(len(mesh_names)):
+        new_mesh=xmldoc.createElement('mesh')
+        new_mesh.setAttribute('name', f'gen_mesh_{object_name}_{mesh_ind}')
+        new_mesh.setAttribute('class', 'geom0')
+        # new_mesh.setAttribute('class', 'geom')
+        new_mesh.setAttribute('scale', f'{size} {size} {size}')
+        new_mesh.setAttribute('file', mesh_names[mesh_ind])
+        assets.appendChild(new_mesh)
+    
+    world_body = xmldoc.getElementsByTagName('worldbody')[0]
+    
+    new_body=xmldoc.createElement('body')
+    body_name=f'gen_body_{object_name}'
+    new_body.setAttribute('name', body_name)
+    new_body.setAttribute('pos', f'{pos[0]} {pos[1]} {pos[2]}')
+    new_body.setAttribute('euler', f'{rot[0]} {rot[1]} {rot[2]}')
+    
+    geom_names=[]
+    for geom_ind in range(len(mesh_names)):
+        new_geom=xmldoc.createElement('geom')
+        geom_name=f'gen_geom_{object_name}_{geom_ind}'
+        geom_names.append(geom_name)
+        new_geom.setAttribute('name', geom_name)
+        new_geom.setAttribute('class', '/')
+        new_geom.setAttribute('type', 'mesh')
+        new_geom.setAttribute('rgba', f'{color[0]} {color[1]} {color[2]} 1')
+        new_geom.setAttribute('mesh', f'gen_mesh_{object_name}_{geom_ind}')
+        new_body.appendChild(new_geom)
+    
+    new_joint=xmldoc.createElement('joint')
+    new_joint.setAttribute('name', f'gen_joint_{object_name}')
+    new_joint.setAttribute('class', '/')
+    new_joint.setAttribute('type', 'free')
+    #new_joint.setAttribute('damping', '0.001')
+    new_body.appendChild(new_joint)
+    world_body.appendChild(new_body)
+  
+    
+    with open(scene_name, "w") as f:
+        xmldoc.writexml(f)
+    
+    return body_name, geom_names
