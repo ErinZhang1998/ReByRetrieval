@@ -187,17 +187,17 @@ class InCategoryClutterDataset(Dataset):
         
         samples = {}
         idx_i = idx
-        # all_object_idx = object_descriptions["object_indices"]
-        # cam_num_to_occlusion_target = object_descriptions["cam_num_to_occlusion_target"]
-        # cam_num_to_selected_objects = dict()
-        # if self.split == "train":
-        #     for cam_num, occlude_object_idx in cam_num_to_occlusion_target.item():
-        #         b = all_object_idx[:]
-        #         b.remote(occlude_object_idx)
-        #         cam_num_to_selected_objects[cam_num] = [occlude_object_idx, np.random.choice(b,1,replace=False)[0]]
-        # else:
-        #     for cam_num, _ in cam_num_to_occlusion_target.item():
-        #         cam_num_to_selected_objects[cam_num] = all_object_idx
+        all_object_idx = object_descriptions["object_indices"]
+        cam_num_to_occlusion_target = object_descriptions["cam_num_to_occlusion_target"]
+        cam_num_to_selected_objects = dict()
+        if self.split == "train":
+            for cam_num, occlude_object_idx in cam_num_to_occlusion_target.items():
+                b = all_object_idx[:]
+                b.remove(occlude_object_idx)
+                cam_num_to_selected_objects[cam_num] = [occlude_object_idx, np.random.choice(b,1,replace=False)[0]]
+        else:
+            for cam_num, _ in cam_num_to_occlusion_target.items():
+                cam_num_to_selected_objects[cam_num] = all_object_idx
         
         for object_idx in object_descriptions.keys():
             if not isinstance(object_idx, int):
@@ -222,9 +222,9 @@ class InCategoryClutterDataset(Dataset):
                 
                 if pix_left_ratio < self.args.dataset_config.ignore_input_ratio:
                     continue
-                # selected_objs = cam_num_to_selected_objects.get(cam_num, all_object_idx)
-                # if not object_idx in selected_objs:
-                #     continue
+                selected_objs = cam_num_to_selected_objects.get(cam_num, all_object_idx)
+                if not object_idx in selected_objs:
+                    continue
 
                 center = copy.deepcopy(object_camera_info_i["object_center"].reshape(-1,))
                 center[0] = cam_width - center[0]
@@ -414,7 +414,7 @@ class InCategoryClutterDataset(Dataset):
         cx /= self.size_w
         cy /= self.size_h
 
-        scale = torch.FloatTensor(np.array([sample['scale']]).reshape(-1,))
+        scale = torch.FloatTensor(np.array([sample['scale']]).reshape(-1,3))
         orientation = torch.FloatTensor(sample['orientation'].reshape(-1,))
         center = torch.FloatTensor(np.array([cx,cy]))
         category = torch.FloatTensor(np.array([sample['obj_cat']]).reshape(-1,))
