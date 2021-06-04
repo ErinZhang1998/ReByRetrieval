@@ -30,6 +30,80 @@ def determine_object_rotation(object_mesh):
     
     return rot_vec, upright_mat 
 
+def determine_object_scale(obj_cat, mesh):
+    object_bounds = mesh.bounds
+    a,b,c = object_bounds[1] - object_bounds[0]
+    len_x,len_y,len_z = None,None,None
+    # import pdb; pdb.set_trace()
+    if obj_cat == 2773838:
+        # bag
+        len_x = np.random.uniform(1,4,1)[0]
+        len_y = np.random.uniform(1,4,1)[0]
+        len_z = np.random.uniform(1,2,1)[0]
+    elif obj_cat == 2876657:
+        # bottle
+        # maintain the neck part for wine-bottles
+        len_x = np.random.uniform(1,4,1)[0]
+        len_y = len_x * np.random.uniform(1.5,5,1)[0]
+        len_z = len_x * np.random.uniform(0.8,1.7,1)[0]
+    elif obj_cat == 2880940:
+        # bowl
+        # want to distinguish it from a cup 
+        len_x = np.random.uniform(1,4,1)[0]
+        len_y = len_x * np.random.uniform(0.1,0.8,1)[0]
+        len_z = len_x *  np.random.uniform(0.8,1.7,1)[0]
+    elif obj_cat == 2946921:
+        # can
+        # maintain the neck part for wine-bottles
+        len_x = np.random.uniform(1,4,1)[0]
+        len_y = len_x * np.random.uniform(1.5,5,1)[0]
+        len_z = len_x * np.random.uniform(0.8,1.7,1)[0]
+    elif obj_cat == 3046257:
+        # clock
+        # x,y cannot differ by too much
+        # z gt is half
+        len_x = np.random.uniform(1,4,1)[0]
+        len_y = len_x * np.random.uniform(0.8,1.5,1)[0]
+        len_z = len_x * np.random.uniform(0.4,1.5,1)[0]
+    elif obj_cat == 3593526:
+        # vase
+        # similar to bottle
+        len_x = np.random.uniform(1,4,1)[0]
+        len_y = len_x * np.random.uniform(1.2,4,1)[0]
+        len_z = len_x * np.random.uniform(0.8,1.7,1)[0]
+    elif obj_cat == 3642806:
+        # laptop
+        # y and z should not be too different from x
+        len_x = np.random.uniform(1,4,1)[0]
+        len_y = len_x * np.random.uniform(0.8,1.5,1)[0]
+        len_z = len_x * np.random.uniform(0.8,2,1)[0]
+    elif obj_cat == 2942699:
+        # cameras
+        # x,y should be rectangular
+        # z controls the length of the lens
+        len_x = np.random.uniform(1,4,1)[0]
+        len_y = len_x * np.random.uniform(0.8,2,1)[0]
+        len_z = len_x * np.random.uniform(0.5,2,1)[0]
+    elif obj_cat == 3797390:
+        # mug 
+        len_x = np.random.uniform(1,4,1)[0]
+        len_y = len_x * np.random.uniform(1,2.5,1)[0]
+        len_z = len_x * np.random.uniform(0.8,1.7,1)[0]
+    elif obj_cat == 2801938:
+        len_x = np.random.uniform(1,4,1)[0]
+        len_y = len_x * np.random.uniform(0.5,2.5,1)[0]
+        len_z = len_x * np.random.uniform(0.8,1.7,1)[0]
+    # print(obj_cat, len_x, len_y, len_z)                
+    scale_x = len_x / a
+    scale_y = len_y / b
+    scale_z = len_z / c
+    scale_vec = [scale_x, scale_y, scale_z]
+    matrix = np.eye(4)
+    matrix[:3, :3] *= scale_vec
+    return scale_vec, matrix
+    
+
+
 def draw_boundary_points_rect(corners4s, layout_filename=None):
     fig, ax = plt.subplots()
     for corners4 in corners4s:
@@ -463,7 +537,7 @@ def add_objects(scene_name, object_name, mesh_names, pos, size, color, rot, run_
         new_mesh.setAttribute('name', f'gen_mesh_{object_name}_{mesh_ind}')
         new_mesh.setAttribute('class', 'geom0')
         # new_mesh.setAttribute('class', 'geom')
-        new_mesh.setAttribute('scale', f'{size} {size} {size}')
+        new_mesh.setAttribute('scale', f'{size[0]} {size[1]} {size[2]}')
         new_mesh.setAttribute('file', mesh_names[mesh_ind])
         assets.appendChild(new_mesh)
     

@@ -86,6 +86,7 @@ def gen_data(scene_num, selected_objects, args):
         
         table_xyz_range = np.min(table_bounds[1,:] - table_bounds[0,:])
         table_size = (camera_distance*2)/table_xyz_range
+        table_scale = [table_size,table_size,table_size]
         # Export table mesh as .stl file
         stl_table_mesh_filename=os.path.join(top_dir, f'assets/table_{scene_num}.stl')
         f = open(stl_table_mesh_filename, "w+")
@@ -93,7 +94,7 @@ def gen_data(scene_num, selected_objects, args):
         table_mesh.export(stl_table_mesh_filename)
 
         table_color = selected_colors[0] #np.random.uniform(size=3)
-        table_bounds = table_bounds*table_size
+        table_bounds = table_bounds*np.array([table_scale,table_scale])
         table_bottom = -table_bounds[0][2]
         table_height = table_bounds[1][2] - table_bounds[0][2]
         # Move table above floor
@@ -120,10 +121,43 @@ def gen_data(scene_num, selected_objects, args):
             obj_info = dict()
             obj_info['obj_cat'] = obj_cat
             obj_info['obj_id'] = obj_id
-            
+            # print(obj_cat, obj_id)
             obj_mesh_filename = os.path.join(shapenet_filepath,'0{}/{}/models/model_normalized.obj'.format(obj_cat, obj_id))
             object_mesh = trimesh.load(obj_mesh_filename, force='mesh')
             old_bound = object_mesh.bounds 
+            '''
+            Determine object color
+            '''
+            object_color = selected_colors[object_idx+1] #np.random.uniform(size=3)
+            '''
+            Determine object size
+            '''
+            # object_bounds = object_mesh.bounds
+            # scale_vec, scale_matrix = determine_object_scale(obj_cat, object_mesh)
+            # #object_mesh.apply_transform(scale_matrix)
+            # object_bounds = object_bounds * np.array([scale_vec,scale_vec]) 
+            
+            # range_max = np.max(object_bounds[1] - object_bounds[0])
+            # object_size = 1 / range_max
+            # normalize_vec = [object_size, object_size, object_size]
+            # object_bounds = object_bounds * np.array([normalize_vec,normalize_vec]) 
+            # object_bottom = -object_bounds[0][2]
+
+            # obj_scale_vec = np.array(scale_vec) * np.array(normalize_vec)
+            
+            object_bounds = object_mesh.bounds
+            scale_vec, scale_matrix = determine_object_scale(obj_cat, object_mesh)
+            object_mesh.apply_transform(scale_matrix)
+            object_bounds = object_mesh.bounds
+            # print(object_bounds[1] - object_bounds[0])
+            
+            range_max = np.max(object_bounds[1] - object_bounds[0])
+            object_size = 1 / range_max
+            normalize_vec = [object_size, object_size, object_size]
+            normalize_matrix = np.eye(4)
+            normalize_matrix[:3, :3] *= normalize_vec
+            object_mesh.apply_transform(normalize_matrix)
+            obj_scale_vec = [1,1,1]
             '''
             Determine object rotation
             '''
@@ -139,20 +173,10 @@ def gen_data(scene_num, selected_objects, args):
             # Rotate object to face different directions
             z_rot = np.random.uniform(0,2*np.pi,1)[0]
             object_rot = [0,0,z_rot]
-            '''
-            Determine object color
-            '''
-            object_color = selected_colors[object_idx+1] #np.random.uniform(size=3)
-            '''
-            Determine object size
-            '''
             object_bounds = object_mesh.bounds
-            range_max = np.max(object_bounds[1] - object_bounds[0])
-            random_scale = np.random.uniform(0.6,1,1)[0]
-            object_size = random_scale / range_max
-            object_bounds = object_bounds*object_size
+            # print(object_bounds[1] - object_bounds[0])
             object_bottom = -object_bounds[0][2]
-
+            obj_scale_vec = [1,1,1]
             '''
             Determine object position
             '''
@@ -195,7 +219,7 @@ def gen_data(scene_num, selected_objects, args):
             object_max_height = max(object_max_height, object_height)
 
             obj_info['xyz'] = np.asarray(object_xyz)
-            obj_info['scale'] = object_size
+            obj_info['scale'] = obj_scale_vec
             obj_info['color'] = selected_colors[object_idx+1]
             obj_info['rotation'] = object_rot
             obj_info['obj_mesh_filename'] = obj_mesh_filename
@@ -212,7 +236,7 @@ def gen_data(scene_num, selected_objects, args):
         cam_temp_scene_xml_file=os.path.join(top_dir, f'{train_or_test}_xml/cam_temp_data_gen_scene_{scene_num}.xml')
         shutil.copyfile(scene_xml_file, cam_temp_scene_xml_file)
 
-        add_objects(cam_temp_scene_xml_file, 'table', [stl_table_mesh_filename], table_xyz, table_size, table_color, table_orientation, scene_num)
+        add_objects(cam_temp_scene_xml_file, 'table', [stl_table_mesh_filename], table_xyz, table_scale, table_color, table_orientation, scene_num)
         
         # scene_name, object_name, mesh_names, pos, size, color, rot, run_id, contact_geom_list=None, add_ind=-1, add_contacts=True
         for object_idx in object_idx_to_obj_info.keys():
@@ -252,6 +276,7 @@ def gen_data(scene_num, selected_objects, args):
 
         stable = True
         all_poses=e.data.qpos.ravel().copy()
+        # import pdb; pdb.set_trace()
         original_obj_keys = list(object_idx_to_obj_info.keys())
         for object_idx in original_obj_keys:
             current_xyz = all_poses[7+7*object_idx : 7+7*object_idx+3]
@@ -375,7 +400,7 @@ def gen_data(scene_num, selected_objects, args):
             object_description['table']={'mesh_filename':table_mesh_filename, \
                     'position': e.data.qpos.ravel()[0:3].copy(), \
                     'orientation': e.data.qpos.ravel()[3:7].copy(), \
-                    'scale': table_size}
+                    'scale': table_scale}
             object_description['cam_height'] = cam_height
             object_description['cam_width'] = cam_width
 
