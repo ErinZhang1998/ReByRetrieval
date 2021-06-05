@@ -36,7 +36,13 @@ np.set_printoptions(precision=4, suppress=True)
 #Color of objects:
 all_colors_dict = mcolors.CSS4_COLORS #TABLEAU_COLORS #
 ALL_COLORS = []
+excluded_color_names = ['black', 'midnightblue', 'darkslategray','darkslategrey','dimgray','dimgrey']
 for name, color in all_colors_dict.items():
+    c = mcolors.to_rgb(color)
+    if c[0] > 0.8 and c[1] > 0.8 and c[2] > 0.8:
+        continue 
+    if name in excluded_color_names:
+        continue
     ALL_COLORS.append(np.asarray(mcolors.to_rgb(color)))
 
 
@@ -132,24 +138,9 @@ def gen_data(scene_num, selected_objects, args):
             '''
             Determine object size
             '''
-            # object_bounds = object_mesh.bounds
-            # scale_vec, scale_matrix = determine_object_scale(obj_cat, object_mesh)
-            # #object_mesh.apply_transform(scale_matrix)
-            # object_bounds = object_bounds * np.array([scale_vec,scale_vec]) 
-            
-            # range_max = np.max(object_bounds[1] - object_bounds[0])
-            # object_size = 1 / range_max
-            # normalize_vec = [object_size, object_size, object_size]
-            # object_bounds = object_bounds * np.array([normalize_vec,normalize_vec]) 
-            # object_bottom = -object_bounds[0][2]
-
-            # obj_scale_vec = np.array(scale_vec) * np.array(normalize_vec)
-            
-            object_bounds = object_mesh.bounds
             scale_vec, scale_matrix = determine_object_scale(obj_cat, object_mesh)
             object_mesh.apply_transform(scale_matrix)
             object_bounds = object_mesh.bounds
-            # print(object_bounds[1] - object_bounds[0])
             
             range_max = np.max(object_bounds[1] - object_bounds[0])
             object_size = 1 / range_max
@@ -157,7 +148,7 @@ def gen_data(scene_num, selected_objects, args):
             normalize_matrix = np.eye(4)
             normalize_matrix[:3, :3] *= normalize_vec
             object_mesh.apply_transform(normalize_matrix)
-            obj_scale_vec = [1,1,1]
+            obj_scale_vec = np.array(scale_vec) * np.array(normalize_vec)
             '''
             Determine object rotation
             '''
@@ -170,13 +161,9 @@ def gen_data(scene_num, selected_objects, args):
             f = open(stl_obj_mesh_filename, "w+")
             f.close()
             object_mesh.export(stl_obj_mesh_filename)
-            # Rotate object to face different directions
-            z_rot = np.random.uniform(0,2*np.pi,1)[0]
             object_rot = [0,0,z_rot]
             object_bounds = object_mesh.bounds
-            # print(object_bounds[1] - object_bounds[0])
             object_bottom = -object_bounds[0][2]
-            obj_scale_vec = [1,1,1]
             '''
             Determine object position
             '''
@@ -236,7 +223,11 @@ def gen_data(scene_num, selected_objects, args):
         cam_temp_scene_xml_file=os.path.join(top_dir, f'{train_or_test}_xml/cam_temp_data_gen_scene_{scene_num}.xml')
         shutil.copyfile(scene_xml_file, cam_temp_scene_xml_file)
 
-        add_objects(cam_temp_scene_xml_file, 'table', [stl_table_mesh_filename], table_xyz, table_scale, table_color, table_orientation, scene_num)
+        all_textures = os.listdir(os.path.join(top_dir, 'table_texture'))
+        texture_file = np.random.choice(all_textures, 1)[0]
+        texture_name = texture_file.split(".")[0]
+        add_texture(cam_temp_scene_xml_file, texture_name, os.path.join(top_dir, 'table_texture', texture_file), texture_type="cube")
+        add_objects(cam_temp_scene_xml_file, 'table', [stl_table_mesh_filename], table_xyz, table_scale, table_color, table_orientation, scene_num, material_name=texture_name)
         
         # scene_name, object_name, mesh_names, pos, size, color, rot, run_id, contact_geom_list=None, add_ind=-1, add_contacts=True
         for object_idx in object_idx_to_obj_info.keys():
@@ -246,7 +237,7 @@ def gen_data(scene_num, selected_objects, args):
                         f'object_{object_idx}_{scene_num}', \
                         mesh_names, \
                         obj_info['xyz'], \
-                        obj_info['scale'], \
+                        [1,1,1], \
                         obj_info['color'], \
                         obj_info['rotation'], \
                         scene_num)
@@ -282,9 +273,9 @@ def gen_data(scene_num, selected_objects, args):
             current_xyz = all_poses[7+7*object_idx : 7+7*object_idx+3]
             original_xyz = object_idx_to_obj_info[object_idx]['xyz']
 
-            if np.linalg.norm(current_xyz - original_xyz) > 0.15:
-                print("WARNING: object location shifted more than 15cm: ", current_xyz, original_xyz, np.linalg.norm(current_xyz - original_xyz))
-                print("WARNING: object location shifted more than 15cm (information): ",  object_idx_to_obj_info[object_idx]['obj_mesh_filename'])
+            if np.linalg.norm(current_xyz - original_xyz) > 0.2:
+                print("WARNING: object location shifted more than 20cm: ", current_xyz, original_xyz, np.linalg.norm(current_xyz - original_xyz))
+                print("WARNING: object location shifted more than 20cm (information): ",  object_idx_to_obj_info[object_idx]['obj_mesh_filename'])
                 del object_idx_to_obj_info[object_idx]  
         
         '''
@@ -308,8 +299,8 @@ def gen_data(scene_num, selected_objects, args):
         cam_num_to_occlusion_target = dict()
         camera_objects = dict()
 
-        num_rotates = 3
-        step_deg = 7
+        num_rotates = 1
+        step_deg = 10
         for object_i in object_idx_to_obj_info.keys(): 
             xyz1 = object_idx_to_obj_info[object_i]['xyz']
             height1 = object_idx_to_obj_info[object_i]['object_height']
@@ -331,50 +322,89 @@ def gen_data(scene_num, selected_objects, args):
                             break
                         low_deg = deg_i*step_deg*sign
                         high_deg = (deg_i+1)*step_deg*sign
-                        cam_xyz,cam_target = get_camera_position_occluded_one_cam(table_height, xyz1,xyz2,height1,height2,max_dist,[low_deg,high_deg])
-                        add_camera(cam_temp_scene_xml_file, f'gen_cam_{cam_num}', cam_xyz, cam_target, cam_num)
+                        cam_xyz1,cam_target,cam_xyz2 = get_camera_position_occluded_one_cam(table_height, xyz1,xyz2,height1,height2,max_dist,[low_deg,high_deg])
+                        
+                        for cam_i,cam_xyz in enumerate([cam_xyz1, cam_xyz2]):
+                            if cam_i == 2:
+                                if not np.random.binomial(n=1, p=(1/5), size=1)[0]:
+                                    continue
 
-                        mujoco_env_test = MujocoEnv(cam_temp_scene_xml_file, 1, has_robot=False)
-                        mujoco_env_test.sim.physics.forward()
-
-                        camera = Camera(physics=mujoco_env_test.model, height=cam_height, width=cam_width, camera_id=cam_num)
-                        segs = camera.render(segmentation=True)[:,:,0] #(480, 640, 2)
-                        pix_left_ratio, onoccluded_pixel_num, segmentation = get_pixel_left_ratio(scene_num, camera, cam_num, mujoco_env_test, object_i, original_obj_keys, cam_width, cam_height)
-                        if pix_left_ratio >= 0.05 and onoccluded_pixel_num > 0:
+                            add_camera(cam_temp_scene_xml_file, f'gen_cam_{cam_num}', cam_xyz, cam_target, cam_num)
 
                             cam_xyzs[cam_num] = cam_xyz
                             cam_targets[cam_num] = cam_target
                             cam_num_to_occlusion_target[cam_num] = object_i
-                            camera_objects[cam_num] = camera
 
-                            valid_cameras.append(cam_num)
-                            
-                            this_cam_stats = dict()
-                            this_cam_stats[object_i] = [pix_left_ratio, onoccluded_pixel_num]
-                            cv2.imwrite(os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}_{object_i}.png'), segmentation.astype(np.uint8))
-                            for object_idx in object_idx_to_obj_info.keys(): 
-                                if object_idx == object_i:
-                                    continue 
-                                pix_left_ratio_idx, onoccluded_pixel_num_idx, segmentation_idx = get_pixel_left_ratio(scene_num, camera, cam_num, mujoco_env_test, object_idx, original_obj_keys, cam_width, cam_height)
-                                this_cam_stats[object_idx] = [pix_left_ratio_idx, onoccluded_pixel_num_idx]
-                                if not segmentation_idx is None:
-                                    cv2.imwrite(os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}_{object_idx}.png'), segmentation_idx.astype(np.uint8))
-                            rgb=mujoco_env_test.model.render(height=cam_height, width=cam_width, camera_id=cam_num, depth=False, segmentation=False)
-                            cv2.imwrite(os.path.join(scene_folder_path, f'rgb_{(cam_num):05}.png'), rgb)
+                            # mujoco_env_test = MujocoEnv(cam_temp_scene_xml_file, 1, has_robot=False)
+                            # mujoco_env_test.sim.physics.forward()
 
-                            # Depth image
-                            depth = mujoco_env_test.model.render(height=cam_height, width=cam_width, camera_id=cam_num, depth=True, segmentation=False)
-                            depth = (depth*1000).astype(np.uint16)
-                            cv2.imwrite(os.path.join(scene_folder_path, f'depth_{(cam_num):05}.png'), depth)
+                            # camera = Camera(physics=mujoco_env_test.model, height=cam_height, width=cam_width, camera_id=cam_num)
+                            # segs = camera.render(segmentation=True)[:,:,0] #(480, 640, 2)
+                            # pix_left_ratio, onoccluded_pixel_num, segmentation = get_pixel_left_ratio(scene_num, camera, cam_num, mujoco_env_test, object_i, original_obj_keys, cam_width, cam_height)
+                            # if pix_left_ratio >= 0.05 and onoccluded_pixel_num > 0:
 
-                            cv2.imwrite(os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}.png'), segs)
-                            valid_cameras.append(cam_num)
-                            camera_stats[cam_num] = this_cam_stats
+                            #     cam_xyzs[cam_num] = cam_xyz
+                            #     cam_targets[cam_num] = cam_target
+                            #     cam_num_to_occlusion_target[cam_num] = object_i
+                            #     camera_objects[cam_num] = camera
+
+                            #     valid_cameras.append(cam_num)
+                                
+                            #     this_cam_stats = dict()
+                            #     this_cam_stats[object_i] = [pix_left_ratio, onoccluded_pixel_num]
+                            #     cv2.imwrite(os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}_{object_i}.png'), segmentation.astype(np.uint8))
+                            #     for object_idx in object_idx_to_obj_info.keys(): 
+                            #         if object_idx == object_i:
+                            #             continue 
+                            #         pix_left_ratio_idx, onoccluded_pixel_num_idx, segmentation_idx = get_pixel_left_ratio(scene_num, camera, cam_num, mujoco_env_test, object_idx, original_obj_keys, cam_width, cam_height)
+                            #         this_cam_stats[object_idx] = [pix_left_ratio_idx, onoccluded_pixel_num_idx]
+                            #         if not segmentation_idx is None:
+                            #             cv2.imwrite(os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}_{object_idx}.png'), segmentation_idx.astype(np.uint8))
+                            #     rgb=mujoco_env_test.model.render(height=cam_height, width=cam_width, camera_id=cam_num, depth=False, segmentation=False)
+                            #     cv2.imwrite(os.path.join(scene_folder_path, f'rgb_{(cam_num):05}.png'), rgb)
+
+                            #     # Depth image
+                            #     depth = mujoco_env_test.model.render(height=cam_height, width=cam_width, camera_id=cam_num, depth=True, segmentation=False)
+                            #     depth = (depth*1000).astype(np.uint16)
+                            #     cv2.imwrite(os.path.join(scene_folder_path, f'depth_{(cam_num):05}.png'), depth)
+
+                            #     cv2.imwrite(os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}.png'), segs)
+                            #     camera_stats[cam_num] = this_cam_stats
                         
-                        cam_num += 1
-                        if pix_left_ratio > 0.95:
-                            keep_rotating = False
+                            cam_num += 1
+                            # if cam_i==0 and pix_left_ratio > 0.95:
+                            #     keep_rotating = False
+        
+        print(len(original_obj_keys), len(cam_xyzs))
+        mujoco_env_test = MujocoEnv(cam_temp_scene_xml_file, 1, has_robot=False)
+        mujoco_env_test.sim.physics.forward()
 
+        for cam_num in cam_xyzs.keys():
+            object_i = cam_num_to_occlusion_target[cam_num]
+            camera = Camera(physics=mujoco_env_test.model, height=cam_height, width=cam_width, camera_id=cam_num)
+            segs = camera.render(segmentation=True)[:,:,0] #(480, 640, 2)
+            pix_left_ratio, onoccluded_pixel_num, segmentation = get_pixel_left_ratio(scene_num, camera, cam_num, mujoco_env_test, object_i, original_obj_keys, cam_width, cam_height)
+            if pix_left_ratio >= 0.05 and onoccluded_pixel_num > 0:
+                camera_objects[cam_num] = camera
+                valid_cameras.append(cam_num)
+                
+                this_cam_stats = dict()
+                
+                for object_idx in object_idx_to_obj_info.keys(): 
+                    pix_left_ratio_idx, onoccluded_pixel_num_idx, segmentation_idx = get_pixel_left_ratio(scene_num, camera, cam_num, mujoco_env_test, object_idx, original_obj_keys, cam_width, cam_height)
+                    this_cam_stats[object_idx] = [pix_left_ratio_idx, onoccluded_pixel_num_idx]
+                    if not segmentation_idx is None:
+                        cv2.imwrite(os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}_{object_idx}.png'), segmentation_idx.astype(np.uint8))
+                rgb=mujoco_env_test.model.render(height=cam_height, width=cam_width, camera_id=cam_num, depth=False, segmentation=False)
+                cv2.imwrite(os.path.join(scene_folder_path, f'rgb_{(cam_num):05}.png'), rgb)
+
+                # Depth image
+                depth = mujoco_env_test.model.render(height=cam_height, width=cam_width, camera_id=cam_num, depth=True, segmentation=False)
+                depth = (depth*1000).astype(np.uint16)
+                cv2.imwrite(os.path.join(scene_folder_path, f'depth_{(cam_num):05}.png'), depth)
+
+                cv2.imwrite(os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}.png'), segs)
+                camera_stats[cam_num] = this_cam_stats
         
         object_descriptions = dict()
         object_descriptions['light_position'] = light_position
@@ -488,6 +518,7 @@ def gen_data(scene_num, selected_objects, args):
     except:
         print('##################################### GEN Error!')
         shutil.rmtree(scene_folder_path)
+        print(selected_objects)
         traceback.print_exc()
         # DANGER   
 

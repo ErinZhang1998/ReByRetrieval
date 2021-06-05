@@ -223,7 +223,7 @@ class InCategoryClutterDataset(Dataset):
                 if pix_left_ratio < self.args.dataset_config.ignore_input_ratio:
                     continue
                 selected_objs = cam_num_to_selected_objects.get(cam_num, all_object_idx)
-                if not object_idx in selected_objs:
+                if (not object_idx in selected_objs) or pix_left_ratio > 0.9:
                     continue
 
                 center = copy.deepcopy(object_camera_info_i["object_center"].reshape(-1,))

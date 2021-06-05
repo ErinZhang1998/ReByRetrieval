@@ -303,7 +303,9 @@ def get_camera_position_occluded_one_cam(table_height, xyz1,xyz2,height1,height2
     jitter = [0,0,0]#np.random.uniform(0.2,0.5,2)
     cam_target = [x+jitter[0],y+jitter[1],z+np.random.uniform(0.1,0.2,1)[0]]
 
-    return cam_xyz,cam_target
+    cam_xyz2 = [cam_x, cam_y, np.random.uniform(table_height + height2*2,table_height + height2*3,1)[0]]
+
+    return cam_xyz,cam_target,cam_xyz2
 
 def get_pixel_left_ratio(scene_num, camera, cam_num, e, object_i, all_obj_indices, cam_width, cam_height):
     state = e.get_env_state().copy()
@@ -342,6 +344,8 @@ def get_pixel_left_ratio(scene_num, camera, cam_num, e, object_i, all_obj_indice
     pix_left_ratio = np.argwhere(segmentation).shape[0] / onoccluded_pixel_num
 
     return pix_left_ratio, onoccluded_pixel_num, segmentation
+
+
 
 def get_camera_position_occluded(camera_distance, table_height, max_object_height, xyzs, heights):
     num_angles = 6
@@ -527,7 +531,7 @@ def add_camera(scene_name, cam_name, cam_pos, cam_target, cam_id):
     with open(scene_name, "w") as f:
         xmldoc.writexml(f)
 
-def add_objects(scene_name, object_name, mesh_names, pos, size, color, rot, run_id):
+def add_objects(scene_name, object_name, mesh_names, pos, size, color, rot, run_id, material_name=None):
     xmldoc = minidom.parse(scene_name)
     # import pdb; pdb.set_trace()
     
@@ -557,7 +561,10 @@ def add_objects(scene_name, object_name, mesh_names, pos, size, color, rot, run_
         new_geom.setAttribute('name', geom_name)
         new_geom.setAttribute('class', '/')
         new_geom.setAttribute('type', 'mesh')
-        new_geom.setAttribute('rgba', f'{color[0]} {color[1]} {color[2]} 1')
+        if not material_name is None:
+            new_geom.setAttribute('material', material_name)
+        if material_name is None:
+            new_geom.setAttribute('rgba', f'{color[0]} {color[1]} {color[2]} 1')
         new_geom.setAttribute('mesh', f'gen_mesh_{object_name}_{geom_ind}')
         new_body.appendChild(new_geom)
     
@@ -574,3 +581,30 @@ def add_objects(scene_name, object_name, mesh_names, pos, size, color, rot, run_
         xmldoc.writexml(f)
     
     return body_name, geom_names
+
+
+def add_texture(scene_name, texture_name, filename, texture_type="cube"):
+    '''
+    <texture name="concretecube" type="cube" file="concrete-7baa937dd9eb091794feb091c728eb4f234150ae.png"/>
+    <material name="concrete_2d" class="/" texture="concrete_2d" reflectance="0.3" rgba="0.8 0.8 0.8 1"/>
+    '''
+    xmldoc = minidom.parse(scene_name)
+    
+    assets = xmldoc.getElementsByTagName('asset')[0]
+    
+    new_texture=xmldoc.createElement('texture')
+    new_texture.setAttribute('name', texture_name)
+    new_texture.setAttribute('type', texture_type)
+    new_texture.setAttribute('file', filename)
+    assets.appendChild(new_texture)
+
+    new_material=xmldoc.createElement('material')
+    new_material.setAttribute('name', texture_name)
+    new_material.setAttribute('class', "/")
+    new_material.setAttribute('texture', texture_name)
+    # new_material.setAttribute('reflectance', "0.5")
+    # new_material.setAttribute('rgba', "1 1 1 1")
+    assets.appendChild(new_material)
+
+    with open(scene_name, "w") as f:
+        xmldoc.writexml(f)
