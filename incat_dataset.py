@@ -251,12 +251,14 @@ class InCategoryClutterDataset(Dataset):
                 sample['obj_shapenet_id'] = object_shapenet_id
                 sample['pix_left_ratio'] = pix_left_ratio
                 sample['total_pixel_in_scene'] = object_camera_info_i['total_pixel_in_scene']
+                sample['world_to_camera_mat'] = object_camera_info_i['world_to_camera_mat']
 
                 rgb_all_path = object_camera_info_i['rgb_all_path'].split('/')[-2:]
+                depth_all_path = object_camera_info_i['depth_all_path'].split('/')[-2:]
                 mask_path = object_camera_info_i['mask_path'].split('/')[-2:]
                 sample['rgb_all_path'] = os.path.join(self.scene_dir, *rgb_all_path)
                 sample['mask_path'] = os.path.join(self.scene_dir, *mask_path)
-                
+                sample['depth_all_path'] = os.path.join(self.scene_dir, *depth_all_path)
                 sample['mask_all_path'] = os.path.join(dir_path, f'segmentation_{(cam_num):05}.png')
                 sample['mask_all_objs'] = mask_all_d[f'{(cam_num):05}']
                 
