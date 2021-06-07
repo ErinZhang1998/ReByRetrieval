@@ -22,6 +22,7 @@ import pandas as pd
 import torchvision
 import numpy as np
 from torch.utils.data.sampler import Sampler
+import torch.distributed as dist
 
 
 class InCategoryClutterDataset(Dataset):
@@ -44,14 +45,13 @@ class InCategoryClutterDataset(Dataset):
         self.canvas_file_path = args.files.canvas_file_path
         self.csv_file_path = args.files.csv_file_path
         self.shapenet_filepath = args.files.shapenet_filepath
-        self.img_mean = [0.5,0.5,0.5]
-        self.img_std = [0.5,0.5,0.5]
+        self.img_mean = args.dataset_config.img_mean#[0.5,0.5,0.5]
+        self.img_std = args.dataset_config.img_std#[0.5,0.5,0.5]
 
         self.dir_list = self.data_dir_list(self.scene_dir)
         if self.superimpose:
             file_ptr = open(self.canvas_file_path, 'r')
             self.all_canvas_path = file_ptr.read().split('\n')[:-1]
-            # print(self.all_canvas_path)
             file_ptr.close()
         
         
@@ -60,7 +60,8 @@ class InCategoryClutterDataset(Dataset):
         self.reset()
         self.determine_imge_dim()
     
-    def reset(self):
+    def reset(self, seed=0):
+        np.random.seed(seed)
         self.object_id_to_dict_idx = {}
         self.idx_to_data_dict = dict()
         idx = 0
@@ -95,9 +96,7 @@ class InCategoryClutterDataset(Dataset):
             if subdir.startswith('scene_'):
                 subdir_path = os.path.join(root_dir, subdir)
                 scene_description_dir = os.path.join(subdir_path, 'scene_description.p')
-                # print(scene_description_dir)
                 if not os.path.exists(scene_description_dir):
-                    # print("WARNING: CANNOT FIND: ", scene_description_dir)
                     continue 
                 scene_name = subdir_path.split("/")[-1]
                 # if int(subdir_path[-3] ) < 2:
@@ -194,6 +193,8 @@ class InCategoryClutterDataset(Dataset):
             for cam_num, occlude_object_idx in cam_num_to_occlusion_target.items():
                 b = all_object_idx[:]
                 b.remove(occlude_object_idx)
+                if idx == 0:
+                    print(dist.get_rank(), np.random.choice(b,1,replace=False)[0])
                 cam_num_to_selected_objects[cam_num] = [occlude_object_idx, np.random.choice(b,1,replace=False)[0]]
         else:
             for cam_num, _ in cam_num_to_occlusion_target.items():
@@ -223,7 +224,7 @@ class InCategoryClutterDataset(Dataset):
                 if pix_left_ratio < self.args.dataset_config.ignore_input_ratio:
                     continue
                 selected_objs = cam_num_to_selected_objects.get(cam_num, all_object_idx)
-                if (not object_idx in selected_objs) or pix_left_ratio > 0.9:
+                if (not object_idx in selected_objs) and (pix_left_ratio > 0.9):
                     continue
 
                 center = copy.deepcopy(object_camera_info_i["object_center"].reshape(-1,))
@@ -240,7 +241,7 @@ class InCategoryClutterDataset(Dataset):
                 root_name = f'_{(cam_num):05}'
                 obj_name = f'_{(cam_num):05}_{object_idx}'
                 sample_id = scene_name + f'_{cam_num}_{object_idx}'
-                sample = {'sample_id': sample_id}
+                sample = {'sample_id': sample_id, 'sample_id_int': [int(scene_name.split("_")[-1]),cam_num, object_idx]}
                 sample['object_center'] = center
                 sample['scene_corners'] = corners
 
@@ -350,7 +351,8 @@ class InCategoryClutterDataset(Dataset):
             # patch_h = int(patch_h)
 
             if self.split == "train":
-                sampled_ratio = np.random.uniform(0.0015, 0.005, 1)[0]
+                # sampled_ratio = np.random.uniform(0.0015, 0.005, 1)[0]
+                sampled_ratio = np.random.uniform(0.001, 0.003, 1)[0]
             else:
                 sampled_ratio = 0.002
 
@@ -414,12 +416,13 @@ class InCategoryClutterDataset(Dataset):
         cx /= self.size_w
         cy /= self.size_h
 
-        scale = torch.FloatTensor(np.array([sample['scale']]).reshape(-1,3))
+        scale = torch.FloatTensor(np.array([sample['scale']]).reshape(-1,))
         orientation = torch.FloatTensor(sample['orientation'].reshape(-1,))
         center = torch.FloatTensor(np.array([cx,cy]))
         category = torch.FloatTensor(np.array([sample['obj_cat']]).reshape(-1,))
         obj_id = torch.FloatTensor(np.array([sample['obj_id']]).reshape(-1,))
         idx_tensor = torch.FloatTensor(np.array([idx]).reshape(-1,))
+        sample_id = torch.FloatTensor(np.array(sample['sample_id_int']))
 
         data = {
             "image": image,
@@ -429,6 +432,7 @@ class InCategoryClutterDataset(Dataset):
             "obj_category":category,
             "obj_id":obj_id,
             "idx":idx_tensor,
+            "sample_id":sample_id,
             "area_type": torch.FloatTensor(np.array([area_x, area_y]).reshape(-1,2)),
         }
 

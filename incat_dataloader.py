@@ -1,18 +1,40 @@
 import numpy as np
 import copy 
 import torch 
+import torch.distributed as dist
 
 class InCategoryClutterDataloader(object):
-    def __init__(self, dataset, batch_size, shuffle = True):
+    def __init__(self, dataset, args, shuffle = True):
+        self.args = args
         self.dataset = dataset
-        self.batch_size = batch_size
+        self.batch_size = args.training_config.batch_size
         self.shuffle = shuffle 
-        # self.num_batches, self.batch_indices = self.assign_idx_to_batch()
-        # self.acc = 0
+        
+        self.acc = 0
+        self.seed = args.training_config.seed
+        self.epoch = 0
+
+        if args.num_gpus > 1:
+            self.num_replicas = dist.get_world_size()
+            self.rank = dist.get_rank()
+            if self.rank >= self.num_replicas or self.rank < 0:
+                raise ValueError(
+                    "Invalid rank {}, rank should be in the interval"
+                    " [0, {}]".format(self.rank, self.num_replicas - 1))
+        self.dataset = dataset
+        self.epoch = 0
+        self.drop_last = True
+
+        self.num_batches, self.batch_indices = self.assign_idx_to_batch()
+    
+    def set_epoch(self, epoch):
+        self.epoch = epoch
     
     def assign_idx_to_batch(self):
+        np.random.seed(self.epoch + self.seed)
+
         if self.dataset.split == "train":
-            self.dataset.reset()
+            self.dataset.reset(self.epoch + self.seed)
         batch_size = self.batch_size
         num_batches = int(len(self.dataset) / batch_size)
 
@@ -23,6 +45,7 @@ class InCategoryClutterDataloader(object):
         if self.shuffle:
             np.random.shuffle(l)
         l = l.reshape(num_batches, batch_size//2)
+        print(self.rank, l[0])
         
         vs = []
         for k,v in idx_dict.items():
@@ -49,6 +72,18 @@ class InCategoryClutterDataloader(object):
         if self.shuffle:
             for i in range(num_batches):
                 np.random.shuffle(batch_indices[i])
+        
+        if self.args.num_gpus > 1:
+            per_replica = num_batches // self.num_replicas
+            start_idx = per_replica * self.rank
+            if self.rank == self.num_replicas-1:
+                end_idx = num_batches
+                num_batches = num_batches - per_replica * (self.num_replicas-1)
+                
+            else:
+                num_batches = per_replica
+                end_idx = per_replica * (self.rank+1)
+            batch_indices = batch_indices[start_idx : end_idx]
                 
         return num_batches, batch_indices
     
@@ -86,54 +121,3 @@ class InCategoryClutterDataloader(object):
             return data
         else:
             raise StopIteration
-
-
-
-
-
-
-# # available = np.full((num_batches, batch_size), True, dtype=bool)
-# # available[-1, last_batch_size:] = False 
-# batch_indices = np.ones((num_batches, batch_size)).astype('int') * -1
-# all_keys = np.array(list(dataset.object_id_to_dict_idx.keys()))
-# all_keys = np.random.permutation(all_keys)
-
-# available_keys = np.full(len(dataset.object_id_to_dict_idx[k]), True, dtype=bool)
-# available_dict = {}
-# for k in all_keys:
-#     available_dict[k] = np.full(len(dataset.object_id_to_dict_idx[k]), True, dtype=bool)
-
-# for bi in range(num_batches):
-#     if bi == num_batches-1:
-#         times = last_batch_size // 2
-#     else:
-#         times = batch_size // 2
-#     for j in range(times):
-#         done = False 
-#         while not done:
-#             select_k = np.random.choice(all_keys, 1)[0]
-#             available_arr = available_dict[select_k]
-#             available_indices = np.where(available_arr)[0]
-#             if len(available_indices) == 1:
-#                 print(select_k, bi, j)
-#                 assert False
-#             if len(available_indices) == 0:
-#                 continue
-#             i1,i2 = np.random.choice(available_indices, 2, replace=False)
-#             batch_indices[2*j] = i1 
-#             batch_indices[2*j+1] = i2  
-#             available_arr[i1] = False 
-#             available_arr[i2] = False 
-#             available_dict[select_k] = available_arr
-#             done = True 
-
-# # for k in all_keys:
-# #     v = dataset.object_id_to_dict_idx[k]
-# #     b = len(v) // 2
-# #     for j in range(b):
-# #         done = False
-# #         while not done:
-# #             batch_choice = np.random.choice(len(available), 1)[0]
-# #             if np.sum(available[batch_choice]) <= batch_size-2:
-# #                 continue
-# #             batch_indices

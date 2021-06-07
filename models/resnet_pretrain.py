@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from torchvision import models
 import matplotlib.pyplot as plt
 import numpy as np
+from .build import MODEL_REGISTRY
 
 class SpatialSoftmax(torch.nn.Module):
     def __init__(self, height, width, channel, temperature=None, data_format='NCHW'):
@@ -12,11 +13,6 @@ class SpatialSoftmax(torch.nn.Module):
         self.height = height
         self.width = width
         self.channel = channel
-
-        if temperature:
-            self.temperature = Parameter(torch.ones(1)*temperature)
-        else:
-            self.temperature = 1.
 
         pos_x, pos_y = np.meshgrid(
                 np.linspace(-1., 1., self.height),
@@ -42,21 +38,41 @@ class SpatialSoftmax(torch.nn.Module):
         feature_keypoints = expected_xy.view(-1, self.channel*2)
 
         return feature_keypoints
+        
+@MODEL_REGISTRY.register()
+class PretrainedResNetSpatialSoftmax(nn.Module):
+    def __init__(self, args):
+        super(PretrainedResNetSpatialSoftmax, self).__init__()
+        self.emb_dim=args.model_config.emb_dim
+        self.pose_dim=args.model_config.pose_dim
+        res50 = models.resnet50(pretrained=True)
+        res50.conv1 = nn.Conv2d(4, 64, kernel_size=(7, 7), stride=(2, 2), padding=(0, 0), bias=False)
+        self.res50_no_fc = nn.Sequential(*list(res50.children())[:-2])
 
+        self.spatial_softmax = SpatialSoftmax(9,12,2048)
+        
+        self.emb_fc = nn.Linear(res50.fc.in_features*2, self.emb_dim)
+        self.pose_fc = nn.Linear(res50.fc.in_features*2, self.pose_dim)
+    
+    def forward(self, x):
+        batch_size = x.size(0)
+        x = self.res50_no_fc(x)
+        x = self.spatial_softmax(x)
+        emb = self.emb_fc(x)
+        pose = self.pose_fc(x)
+        return emb, pose
+
+@MODEL_REGISTRY.register()
 class PretrainedResNet(nn.Module):
-    def __init__(self, emb_dim = 128, pose_dim = 3):
-        super().__init__()
+    def __init__(self, args):
+        super(PretrainedResNet, self).__init__()
+        self.emb_dim=args.model_config.emb_dim
         res50 = models.resnet50(pretrained=True)
         res50.conv1 = nn.Conv2d(4, 64, kernel_size=(7, 7), stride=(2, 2), padding=(0, 0), bias=False)
         self.res50_no_fc = nn.Sequential(*list(res50.children())[:-1])
-        # self.emb_fc = nn.Sequential( 
-        #               nn.Linear(res50.fc.in_features, 1024), 
-        #               nn.BatchNorm2d(1024),
-        #               nn.ReLU(),
-        #               nn.Linear(1024, emb_dim)) 
         self.flat_dim = res50.fc.in_features
-        self.emb_fc = nn.Linear(res50.fc.in_features, emb_dim)
-        self.pose_fc = nn.Linear(res50.fc.in_features, pose_dim)
+        self.emb_fc = nn.Linear(res50.fc.in_features, self.emb_dim)
+        self.pose_fc = nn.Linear(res50.fc.in_features, self.pose_dim)
     
     def forward(self, x):
         batch_size = x.size(0)
