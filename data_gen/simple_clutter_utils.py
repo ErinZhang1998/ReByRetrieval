@@ -448,7 +448,6 @@ def get_camera_matrix(camera):
 
     return P,camera_tf
 
-
 def project_2d(P, camera_tf, pt_3d):
     '''
     pt_3d: (N,3)
