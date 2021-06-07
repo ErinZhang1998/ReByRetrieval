@@ -193,8 +193,6 @@ class InCategoryClutterDataset(Dataset):
             for cam_num, occlude_object_idx in cam_num_to_occlusion_target.items():
                 b = all_object_idx[:]
                 b.remove(occlude_object_idx)
-                if idx == 0:
-                    print(dist.get_rank(), np.random.choice(b,1,replace=False)[0])
                 cam_num_to_selected_objects[cam_num] = [occlude_object_idx, np.random.choice(b,1,replace=False)[0]]
         else:
             for cam_num, _ in cam_num_to_occlusion_target.items():

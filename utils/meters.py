@@ -35,7 +35,7 @@ class TestMeter(object):
         self.loss_obj += iter_data['loss_obj']
         self.count += 1
 
-        for k,v in self.iter_data.items():
+        for k,v in iter_data.items():
             l = self.acc_dict.get(v, [])
             l.append(v)
             self.acc_dict[k] = l
@@ -66,8 +66,9 @@ class TestMeter(object):
             image_tensor = image[:,:3,:,:]
             image_tensor = utrans.denormalize(image_tensor, self.args.dataset_config.img_mean, self.args.dataset_config.img_std)
             image_PIL = torchvision.transforms.ToPILImage()(image_tensor[idx_in_batch])
-
-            this_sample_id = '_'.join(list(iter_data['sample_id'][idx_in_batch].numpy()))
+            
+            this_sample_id = [str(int(ele)) for ele in iter_data['sample_id'][idx_in_batch].numpy()]
+            this_sample_id = '_'.join(this_sample_id)
             
             uplot.plot_predicted_image(cnt, image_PIL, pixel_pred_idx, pixel_gt_idx, enable_wandb = wandb_enabled, image_type_name='test_pixel_image', image_dir = image_dir, sample_id=this_sample_id, scale_pred_idx = scale_pred_idx, scale_gt_idx = scale_gt_idx)
 
@@ -105,7 +106,7 @@ class TestMeter(object):
 
             wandb.log(wandb_dict, step=cnt)
                 
-        if epoch == self.args.training_config.epochs: #or epoch % test_args.save_prediction_every == 0:
+        if epoch == self.args.training_config.epochs or epoch % self.args.testing_config.save_prediction_every == 0 or (not self.args.training_config.train):
             all_pose = torch.cat([all_scale_pred, all_pixel_pred, all_scale_gt, all_pixel_gt], dim=1)
             pose_path = os.path.join(prediction_dir, '{}_pose.npy'.format(epoch))
             np.save(pose_path, all_pose)

@@ -55,7 +55,6 @@ class PretrainedResNetSpatialSoftmax(nn.Module):
         self.pose_fc = nn.Linear(res50.fc.in_features*2, self.pose_dim)
     
     def forward(self, x):
-        batch_size = x.size(0)
         x = self.res50_no_fc(x)
         x = self.spatial_softmax(x)
         emb = self.emb_fc(x)

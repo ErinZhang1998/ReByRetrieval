@@ -9,8 +9,6 @@ import utils.multiprocessing as mpu
 import utils.utils as uu
 import train
 import utils.distributed as du
-import incat_dataset
-import incat_dataloader
 
 parser = OptionParser()
 parser.add_option("--config_file", dest="config_file")
@@ -34,6 +32,13 @@ def main():
     default_args_dict = yaml.safe_load(open('configs/default.yaml'))
     args_dict_filled = uu.fill_in_args_from_default(args_dict, default_args_dict)
     args = uu.Struct(args_dict_filled)
+
+    if options.model_path != '':
+        args.model_config.model_path = options.model_path
+    if options.only_test_epoch > 0:
+        args.training_config.epochs = options.only_test_epoch
+    if options.only_test:
+        args.training_config.train = False
 
     if args.num_gpus > 1:
         torch.multiprocessing.spawn(

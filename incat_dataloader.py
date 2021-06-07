@@ -45,7 +45,6 @@ class InCategoryClutterDataloader(object):
         if self.shuffle:
             np.random.shuffle(l)
         l = l.reshape(num_batches, batch_size//2)
-        print(self.rank, l[0])
         
         vs = []
         for k,v in idx_dict.items():
@@ -74,16 +73,11 @@ class InCategoryClutterDataloader(object):
                 np.random.shuffle(batch_indices[i])
         
         if self.args.num_gpus > 1:
-            per_replica = num_batches // self.num_replicas
+            per_replica = batch_size // self.num_replicas
             start_idx = per_replica * self.rank
-            if self.rank == self.num_replicas-1:
-                end_idx = num_batches
-                num_batches = num_batches - per_replica * (self.num_replicas-1)
-                
-            else:
-                num_batches = per_replica
-                end_idx = per_replica * (self.rank+1)
-            batch_indices = batch_indices[start_idx : end_idx]
+            end_idx = per_replica * (self.rank+1)
+            batch_indices = batch_indices[:, start_idx : end_idx]
+            # self.batch_size = end_idx - start_idx
                 
         return num_batches, batch_indices
     

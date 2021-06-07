@@ -32,7 +32,7 @@ def all_gather(tensors):
     return output_tensor
 
 
-def all_reduce(tensors, average=False):
+def all_reduce(tensors, average=True):
     """
     All reduce the provided tensors from all processes across machines.
     Args:

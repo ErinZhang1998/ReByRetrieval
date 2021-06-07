@@ -45,18 +45,15 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
             img_embed /= img_embed.max(1, keepdim=True)[0]
 
             _,c_loss = loss.batch_all_triplet_loss(labels=cat_gt, embeddings=img_embed, margin=args.loss.margin, squared=False) #.cpu()
-            _,o_loss = loss.batch_all_triplet_loss(labels=id_gt, embeddings=img_embed, margin=args.loss.margin, squared=False) #.cpu()
-
-            pixel_pred = pose_pred[:,:2]
-            scale_pred = pose_pred[:,2:]            
+            _,o_loss = loss.batch_all_triplet_loss(labels=id_gt, embeddings=img_embed, margin=args.loss.margin, squared=False) #.cpu()  
 
             if args.num_gpus > 1:
                 c_loss, o_loss = du.all_reduce(
                     [c_loss, o_loss]
                 )
 
-                image, img_embed, pixel_pred, scale_pred = du.all_gather(
-                    [image, img_embed, pixel_pred, scale_pred]
+                image, img_embed, pose_pred = du.all_gather(
+                    [image, img_embed, pose_pred]
                 )
 
                 dataset_indices = torch.cat(du.all_gather_unaligned(dataset_indices), dim=0)
@@ -65,6 +62,8 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
                 sample_id = torch.cat(du.all_gather_unaligned(sample_id), dim=0)
                 area_type = torch.cat(du.all_gather_unaligned(area_type), dim=0)
             
+            pixel_pred = pose_pred[:,:2]
+            scale_pred = pose_pred[:,2:]          
             
             iter_data = {
                 'loss_cat': c_loss.item(),

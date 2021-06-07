@@ -39,7 +39,7 @@ def load_model_from(args, model, data_parallel=False):
         checkpoint = torch.load(model_path)
         ms.load_state_dict(checkpoint['model_state_dict'])
 
-def save_model(model, model_dir, epoch):
+def save_model(epoch, model, model_dir):
     model_path = os.path.join(model_dir, '{}.pth'.format(epoch))
     try:
         torch.save({
@@ -51,6 +51,7 @@ def save_model(model, model_dir, epoch):
 
 def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None, wandb_enabled=False):
     model.train()
+    
     for batch_idx, data in enumerate(train_loader):
         optimizer.zero_grad()
 
@@ -109,8 +110,6 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
                 'train/learning_rate': optimizer.param_groups[0]['lr']}
 
                 wandb.log(wandb_dict, step=cnt)
-
-            # Log info
             if cnt % args.training_config.log_every == 0:
                 print('Train Epoch: {} [{} ({:.0f}%)]\tTotal Loss={:.6f}, Triplet_Loss_Category ({}) = {:.6f}, Triplet_Loss_Object ({}) = {:.6f}, Object_Scale_Loss ({}) = {:.6f}, Object_2D_Center_Loss ({}) = {:.6f}'.format(
                     epoch, cnt, 100. * batch_idx / len(train_loader), total_loss.item(), \
@@ -156,7 +155,6 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
                         else:
                             
                             image_path = os.path.join(image_dir, "{}_{}.png".format(mask_name, image_name))
-                            print("image_path: ", image_path)
                             plt.savefig(image_path)
                         plt.close()
             
@@ -197,19 +195,25 @@ def train(args):
         wandb_run_name = uu.get_timestamp()
     
     if du.is_master_proc(num_gpus=args.num_gpus):
-        experiment_save_dir = args.training_config.experiment_save_dir
-        uu.create_dir(experiment_save_dir)
-        this_experiment_dir = os.path.join(experiment_save_dir, wandb_run_name)
-        uu.create_dir(this_experiment_dir)
+        if args.training_config.experiment_save_dir is None:
+            experiment_save_dir_default = args.training_config.experiment_save_dir_default
+            uu.create_dir(experiment_save_dir_default)
+            this_experiment_dir = os.path.join(experiment_save_dir_default, wandb_run_name)
+            uu.create_dir(this_experiment_dir)
 
-        model_dir = os.path.join(this_experiment_dir, "models")
-        uu.create_dir(model_dir)
-        
-        image_dir = os.path.join(this_experiment_dir, "images")
-        uu.create_dir(image_dir)
+            model_dir = os.path.join(this_experiment_dir, "models")
+            uu.create_dir(model_dir)
+            
+            image_dir = os.path.join(this_experiment_dir, "images")
+            uu.create_dir(image_dir)
 
-        prediction_dir = os.path.join(this_experiment_dir, "predictions")
-        uu.create_dir(prediction_dir)
+            prediction_dir = os.path.join(this_experiment_dir, "predictions")
+            uu.create_dir(prediction_dir)
+        else:
+            this_experiment_dir = args.training_config.experiment_save_dir
+            model_dir = os.path.join(this_experiment_dir, "models")            
+            image_dir = os.path.join(this_experiment_dir, "images")
+            prediction_dir = os.path.join(this_experiment_dir, "predictions")
     else:
         image_dir,model_dir,prediction_dir = None,None,None
 
@@ -236,7 +240,7 @@ def train(args):
         if args.training_config.save_at_end:
             save_model(args.training_config.epochs, model, model_dir)
 
-    # test.test(args.training_config.epochs, last_epoch=True)
+    # test.test(args, test_loader, test_meter, model, args.training_config.epochs, cnt, image_dir, prediction_dir, wandb_enabled)
 
 
 
@@ -271,9 +275,9 @@ class Trainer(object):
         else:
             self.wandb_run_name = uu.get_timestamp()
         
-        experiment_save_dir = self.train_args.experiment_save_dir
-        uu.create_dir(experiment_save_dir)
-        self.this_experiment_dir = os.path.join(experiment_save_dir, self.wandb_run_name)
+        experiment_save_dir_default = self.train_args.experiment_save_dir_default
+        uu.create_dir(experiment_save_dir_default)
+        self.this_experiment_dir = os.path.join(experiment_save_dir_default, self.wandb_run_name)
         uu.create_dir(self.this_experiment_dir)
 
         self.model_dir = os.path.join(self.this_experiment_dir, "models")
