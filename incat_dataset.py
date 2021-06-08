@@ -1,29 +1,21 @@
 import pickle 
 import os 
+import copy
 import numpy as np
-import torch
-import cv2
-
-import imageio
-import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
-from PIL import Image
+import pandas as pd
 
 import torch
 import torch.nn
-import PIL
-import utils.transforms as utrans
-
-from torch.utils.data import Dataset
-import copy
-
-import json
-import pandas as pd
-import torchvision
-import numpy as np
-from torch.utils.data.sampler import Sampler
 import torch.distributed as dist
+from torch.utils.data import Dataset
 
+from PIL import Image
+import cv2
+import matplotlib.image as mpimg
+import utils.transforms as utrans
+import PIL
+import torchvision
+import utils.pointcloud as pc
 
 class InCategoryClutterDataset(Dataset):
     
@@ -34,8 +26,8 @@ class InCategoryClutterDataset(Dataset):
         # self.size = args.dataset_config.size 
         self.size_w = args.dataset_config.size_w
         self.size_h = args.dataset_config.size_h
-        self.cropped_out_scale_max = args.dataset_config.cropped_out_scale_max
-        self.cropped_out_scale_min = args.dataset_config.cropped_out_scale_min
+        self.area_ratio_max = args.dataset_config.area_ratio_max
+        self.area_ratio_min = args.dataset_config.area_ratio_min
         self.superimpose = args.dataset_config.superimpose
         self.num_area_range =  args.dataset_config.superimpose_num_area_range
         if split == 'train':
@@ -253,15 +245,31 @@ class InCategoryClutterDataset(Dataset):
                 sample['total_pixel_in_scene'] = object_camera_info_i['total_pixel_in_scene']
                 sample['world_to_camera_mat'] = object_camera_info_i['world_to_camera_mat']
 
-                rgb_all_path = object_camera_info_i['rgb_all_path'].split('/')[-2:]
-                depth_all_path = object_camera_info_i['depth_all_path'].split('/')[-2:]
-                mask_path = object_camera_info_i['mask_path'].split('/')[-2:]
-                sample['rgb_all_path'] = os.path.join(self.scene_dir, *rgb_all_path)
-                sample['mask_path'] = os.path.join(self.scene_dir, *mask_path)
-                sample['depth_all_path'] = os.path.join(self.scene_dir, *depth_all_path)
+                rgb_all_path = object_camera_info_i['rgb_all_path'].split('/')[-1:]
+                depth_all_path = object_camera_info_i['depth_all_path'].split('/')[-1:]
+                mask_path = object_camera_info_i['mask_path'].split('/')[-1:]
+                sample['rgb_all_path'] = os.path.join(dir_path, *rgb_all_path)
+                sample['mask_path'] = os.path.join(dir_path, *mask_path)
+                sample['depth_all_path'] = os.path.join(dir_path, *depth_all_path)
                 sample['mask_all_path'] = os.path.join(dir_path, f'segmentation_{(cam_num):05}.png')
                 sample['mask_all_objs'] = mask_all_d[f'{(cam_num):05}']
+
+                rgb_all = PIL.Image.open(sample['rgb_all_path'])
+                mask = mpimg.imread(sample['mask_path'])
+                mask = utrans.mask_to_PIL(mask)
+                mask_all = self.compile_mask(sample['mask_all_objs'])
+                mask_all = utrans.mask_to_PIL(mask_all)
+                # sample["rgb_all"] = rgb_all
+                # sample["mask"] = mask
+                # sample["mask_all"] = mask_all
                 
+                # depth_all = PIL.Image.open(sample['depth_all_path'])
+                # _, rot = pc.from_world_to_camera_mat_to_tf(sample['world_to_camera_mat'])
+                # obj_pt, obj_pt_features = self.get_pointcloud(rgb_all, depth_all, mask, mask_all, rot)
+                # sample["obj_pt"] = obj_pt
+                # sample["obj_pt_features"] = obj_pt_features
+                
+                    
                 if self.split == 'test' and self.args.dataset_config.test_cropped_area_position > 3:
                     # for i in [0,1]:
                     #     sample_cp = copy.deepcopy(sample)
@@ -301,12 +309,35 @@ class InCategoryClutterDataset(Dataset):
             area_y = min(int(self.size_h//2), self.size_h-patch_h)
         return area_x,area_y
     
+    def get_pointcloud(self, rgb_all, depth_all, mask, mask_all, rot):
+        '''
+        depth_all: PIL image of the entire scene
+        mask: PIL image of the object's mask
+        mask_all: PIL image of all objects' masks
+        '''
+        depth = np.asarray(depth_all)
+        obj_label = 255 - np.asarray(mask)[:,:,0]
+        # all_labels = 255 - np.asarray(mask_all)[:,:,0]
+
+        obj_points_inds = np.where(obj_label, depth, 0.0).flatten().nonzero()[0]
+        #all_obj_points_inds = np.where(all_labels, depth, 0.0).flatten().nonzero()[0]
+        all_ptcld = pc.make_pointcloud(depth)
+
+        obj_points, obj_mask = pc.process_pointcloud(all_ptcld, obj_points_inds, rot)
+        #all_obj_points, all_obj_mask = pc.process_pointcloud(all_ptcld, all_obj_points_inds, rot)
+        
+        img_rgb = utrans.normalize(torchvision.transforms.ToTensor()(rgb_all), self.img_mean, self.img_std)
+        x_ind, y_ind = np.unravel_index(obj_points_inds[obj_mask], (480, 640))
+        obj_points_features = img_rgb.permute(1,2,0)[x_ind, y_ind]
+
+        return obj_points, obj_points_features
+
+    
     def __getitem__(self, idx):
         sample = self.idx_to_data_dict[idx]
         rgb_all = PIL.Image.open(sample['rgb_all_path'])
         mask = mpimg.imread(sample['mask_path'])
         original_h, original_w = mask.shape
-        shape_ratio = sample['total_pixel_in_scene'] / (original_h * original_w)
         mask = utrans.mask_to_PIL(mask)
         mask_all = self.compile_mask(sample['mask_all_objs'])
         mask_all = utrans.mask_to_PIL(mask_all)
@@ -334,29 +365,16 @@ class InCategoryClutterDataset(Dataset):
             cropped_obj_img, cropped_mask, cropped_center = cropped_obj_transform(rgb_all, mask_all, center)
             cropped_object_mask = mask.crop(cropped_obj_transform.area)
             cropped_w, cropped_h = cropped_obj_img.size
+
+            shape_ratio = sample['total_pixel_in_scene'] / (cropped_h * cropped_w)
             
-            # if self.split == 'train':
-            #     patch_size = int(self.size * np.random.uniform(self.cropped_out_scale_min,self.cropped_out_scale_max,1)[0])
-            # else:
-            #     patch_size = int(self.size * 0.5)
-            # 
-            # if cropped_w > cropped_h:
-            #     patch_w = patch_size
-            #     patch_h = patch_size * (cropped_h / cropped_w)
-            # else:
-            #     patch_h = patch_size
-            #     patch_w = patch_size * (cropped_w / cropped_h)
-
-            # patch_w = int(patch_w)
-            # patch_h = int(patch_h)
-
             if self.split == "train":
                 # sampled_ratio = np.random.uniform(0.0015, 0.005, 1)[0]
-                sampled_ratio = np.random.uniform(0.001, 0.003, 1)[0]
+                sampled_ratio = np.random.uniform(1/9, 1/4, 1)[0]
             else:
-                sampled_ratio = 0.002
+                sampled_ratio = 1/5
 
-            patch_ratio = (sampled_ratio * (self.size_w * self.size_h)) / (shape_ratio)
+            patch_ratio = (sampled_ratio * (self.size_w * self.size_h)) #/ (shape_ratio)
             if cropped_w > cropped_h:
                 patch_w = np.sqrt(patch_ratio * (cropped_w / cropped_h))
                 patch_h = patch_w * (cropped_h / cropped_w)
@@ -424,17 +442,39 @@ class InCategoryClutterDataset(Dataset):
         idx_tensor = torch.FloatTensor(np.array([idx]).reshape(-1,))
         sample_id = torch.FloatTensor(np.array(sample['sample_id_int']))
 
-        data = {
-            "image": image,
-            "scale": scale,
-            "orientation":orientation,
-            "center":center,
-            "obj_category":category,
-            "obj_id":obj_id,
-            "idx":idx_tensor,
-            "sample_id":sample_id,
-            "area_type": torch.FloatTensor(np.array([area_x, area_y]).reshape(-1,2)),
-        }
+        if self.args.use_pc:
+            # depth_all = PIL.Image.open(sample['depth_all_path'])
+            # _, rot = pc.from_world_to_camera_mat_to_tf(sample['world_to_camera_mat'])
+            # obj_pt, obj_pt_features = self.get_pointcloud(rgb_all, depth_all, mask, mask_all, rot)
+            obj_pt = sample["obj_pt"]
+            obj_pt_features = sample["obj_pt_features"]
+            obj_pt = torch.FloatTensor(obj_pt)
+            obj_pt_features = torch.FloatTensor(obj_pt_features).transpose(0,1)
+            data = {
+                "image": image,
+                "scale": scale,
+                "orientation":orientation,
+                "center":center,
+                "obj_category":category,
+                "obj_id":obj_id,
+                "idx":idx_tensor,
+                "sample_id":sample_id,
+                "area_type": torch.FloatTensor(np.array([area_x, area_y]).reshape(-1,2)),
+                "obj_points": obj_pt,
+                "obj_points_features" : obj_pt_features,
+            }
+        else:
+            data = {
+                "image": image,
+                "scale": scale,
+                "orientation":orientation,
+                "center":center,
+                "obj_category":category,
+                "obj_id":obj_id,
+                "idx":idx_tensor,
+                "sample_id":sample_id,
+                "area_type": torch.FloatTensor(np.array([area_x, area_y]).reshape(-1,2)),
+            }
 
         return data
 

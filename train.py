@@ -53,6 +53,7 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
     model.train()
     
     for batch_idx, data in enumerate(train_loader):
+        print(batch_idx)
         optimizer.zero_grad()
 
         image = data["image"]
@@ -68,8 +69,12 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
         pixel_gt = pixel_gt.cuda(non_blocking=True)
         cat_gt = cat_gt.cuda(non_blocking=True)
         id_gt = id_gt.cuda(non_blocking=True)
-        
-        img_embed, pose_pred = model(image)
+        if args.use_pc:
+            pts = data["obj_points"].cuda(non_blocking=True)
+            feats = data["obj_points_features"].cuda(non_blocking=True)
+            img_embed, pose_pred = model([image, pts, feats])
+        else:
+            img_embed, pose_pred = model(image)
         # Position prediction 
         pixel_pred = pose_pred[:,:2]
         scale_pred = pose_pred[:,2:]

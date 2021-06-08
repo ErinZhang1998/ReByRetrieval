@@ -6,8 +6,10 @@ def from_world_to_camera_mat_to_tf(world_to_camera_mat):
     return translation, rot
 
 def make_pointcloud(depth_image, cam_cx=320.0, cam_cy=240.0, fx=579.411255, fy=579.411255, cam_scale=1.0, upsample=1):
-    xmap = np.array([[j for i in range(int(upsample*640))] for j in range(int(upsample*480))])
-    ymap = np.array([[i for i in range(int(upsample*640))] for j in range(int(upsample*480))])
+    img_width = int(2*cam_cx)
+    img_height = int(2*cam_cy)
+    xmap = np.array([[j for i in range(int(upsample*img_width))] for j in range(int(upsample*img_height))])
+    ymap = np.array([[i for i in range(int(upsample*img_width))] for j in range(int(upsample*img_height))])
     
     depth_masked = depth_image.flatten()[:, np.newaxis].astype(np.float32)
     xmap_masked = xmap.flatten()[:, np.newaxis].astype(np.float32)
@@ -33,6 +35,7 @@ def process_pointcloud(cloud, obj_points_inds, rot):
 
     low=np.array([-0.5,-0.5,-0.5])
     hi=np.array([0.5,0.5,0.5])
-    obj_pointcloud=obj_pointcloud[np.argwhere(np.all(np.logical_and(obj_pointcloud>=low, obj_pointcloud<=hi), axis=1))][:,0,:]
+    cloud_mask = np.argwhere(np.all(np.logical_and(obj_pointcloud>=low, obj_pointcloud<=hi), axis=1))
+    obj_pointcloud=obj_pointcloud[cloud_mask][:,0,:] + 0.5
 
-    return obj_pointcloud+0.5
+    return obj_pointcloud, cloud_mask.flatten()

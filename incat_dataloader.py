@@ -89,6 +89,23 @@ class InCategoryClutterDataloader(object):
         self.num_batches, self.batch_indices = self.assign_idx_to_batch()
         return self 
     
+    def compile_pts(self, pts_l, feats_l):
+        lens = [pts.shape[0] for pts in pts_l]
+        max_len = np.max(lens)
+        for i in range(len(pts_l)):
+            if max_len - lens[i] == 0:
+                continue 
+            pts = pts_l[i]
+            pts_pad = torch.stack([pts[-1]]*(max_len - lens[i]))
+            pts_new = torch.cat([pts, pts_pad])
+            pts_l[i] = pts_new.contiguous()
+
+            feats = feats_l[i]
+            feats_pad = torch.stack([feats[:,-1]]*(max_len - lens[i])).T
+            feats_new = torch.cat([feats, feats_pad], dim=1)
+            feats_l[i] = feats_new.contiguous()
+        return pts_l, feats_l
+
     def compile_batch(self, indices):
         all_data = {}
 
@@ -102,6 +119,10 @@ class InCategoryClutterDataloader(object):
                 all_data[k] = l
 
         res = dict()
+        if "obj_points" in all_data.keys():
+            pts_l, feats_l = self.compile_pts(all_data["obj_points"], all_data["obj_points_features"])
+            all_data["obj_points"] = pts_l
+            all_data["obj_points_features"] = feats_l
         for k,l in all_data.items():
             res[k] = torch.stack(l, dim=0)
 

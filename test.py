@@ -34,7 +34,12 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
             area_type = data["area_type"]
             
             # Send model and data to CUDA
-            image = image.cuda(non_blocking=True)
+            if args.use_pc:
+                pts = data["obj_points"].cuda(non_blocking=True)
+                feats = data["obj_points_features"].cuda(non_blocking=True)
+                img_embed, pose_pred = model([image, pts, feats])
+            else:
+                img_embed, pose_pred = model(image)
            
             cat_gt = cat_gt.cuda(non_blocking=True)
             id_gt = id_gt.cuda(non_blocking=True)

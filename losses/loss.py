@@ -21,7 +21,8 @@ def pariwise_distances(embeddings, squared=False):
     dot_product = torch.matmul(embeddings, torch.transpose(embeddings, 0, 1))
     squared_norm = torch.diagonal(dot_product)
     distances = torch.unsqueeze(squared_norm, 0) - 2.0 * dot_product + torch.unsqueeze(squared_norm, 1)
-    distances = torch.maximum(distances, torch.zeros_like(distances))
+    # distances = torch.maximum(distances, torch.zeros_like(distances))
+    distances = torch.max(distances, torch.zeros_like(distances))
     if not squared:
         mask = torch.isclose(distances, torch.zeros_like(distances), rtol=0).float()
         distances = distances + mask * 1e-16
