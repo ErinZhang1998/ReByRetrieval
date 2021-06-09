@@ -1,4 +1,6 @@
 import numpy as np
+import utils.transforms as utrans
+import torchvision
 
 def from_world_to_camera_mat_to_tf(world_to_camera_mat):
     rot = world_to_camera_mat[:3,:3].T
@@ -39,3 +41,27 @@ def process_pointcloud(cloud, obj_points_inds, rot):
     obj_pointcloud=obj_pointcloud[cloud_mask][:,0,:] + 0.5
 
     return obj_pointcloud, cloud_mask.flatten()
+
+def get_pointcloud(rgb_all, depth_all, mask, mask_all, rot, img_mean, img_std):
+    '''
+    depth_all: PIL image of the entire scene
+    mask: PIL image of the object's mask
+    mask_all: PIL image of all objects' masks
+    '''
+    depth = np.asarray(depth_all)
+    height, width = depth.shape
+    obj_label = 255 - np.asarray(mask)[:,:,0]
+    # all_labels = 255 - np.asarray(mask_all)[:,:,0]
+
+    obj_points_inds = np.where(obj_label, depth, 0.0).flatten().nonzero()[0]
+    #all_obj_points_inds = np.where(all_labels, depth, 0.0).flatten().nonzero()[0]
+    all_ptcld = make_pointcloud(depth)
+
+    obj_points, obj_mask = process_pointcloud(all_ptcld, obj_points_inds, rot)
+    #all_obj_points, all_obj_mask = pc.process_pointcloud(all_ptcld, all_obj_points_inds, rot)
+    
+    img_rgb = utrans.normalize(torchvision.transforms.ToTensor()(rgb_all), img_mean, img_std)
+    x_ind, y_ind = np.unravel_index(obj_points_inds[obj_mask], (height, width))
+    obj_points_features = img_rgb.permute(1,2,0)[x_ind, y_ind].numpy()
+
+    return obj_points, obj_points_features

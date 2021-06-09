@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision import models
+# from torchvision import models
+from .resnet import resnet18, resnet50
 import matplotlib.pyplot as plt
 import numpy as np
 from .build import MODEL_REGISTRY
@@ -49,14 +50,15 @@ class PretrainedResNetSpatialSoftmax(nn.Module):
         super(PretrainedResNetSpatialSoftmax, self).__init__()
         self.emb_dim=args.model_config.emb_dim
         self.pose_dim=args.model_config.pose_dim
-        res50 = models.resnet50(pretrained=True)
+        res50 = resnet18(pretrained=True)
         res50.conv1 = nn.Conv2d(4, 64, kernel_size=(7, 7), stride=(2, 2), padding=(0, 0), bias=False)
         self.res50_no_fc = nn.Sequential(*list(res50.children())[:-2])
 
-        self.spatial_softmax = SpatialSoftmax(9,12,2048)
+        self.ss = args.model_config.spatial_softmax
+        self.spatial_softmax = SpatialSoftmax(self.ss.height, self.ss.width, self.ss.channel)
         
-        self.emb_fc = nn.Linear(res50.fc.in_features*2, self.emb_dim)
-        self.pose_fc = nn.Linear(res50.fc.in_features*2, self.pose_dim)
+        self.emb_fc = nn.Linear(self.ss.channel*2, self.emb_dim)
+        self.pose_fc = nn.Linear(self.ss.channel*2, self.pose_dim)
     
     def forward(self, xs):
         x = xs[0]
@@ -150,7 +152,6 @@ class ResNetPointNet(nn.Module):
         for module in self.SA_modules:
             xyz, features = module(xyz, features)
         features = features.squeeze(-1)
-
         x = self.res50_no_fc(image)
         x = self.spatial_softmax(x)
         

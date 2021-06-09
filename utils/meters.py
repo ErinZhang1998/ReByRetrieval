@@ -30,11 +30,18 @@ class TestMeter(object):
         for k,v in self.acc_dict.items():
             self.acc_dict[k] = []
 
-    def update_stats(self, iter_data):
+    def update_stats(self, iter_data, cnt):
+        
         self.loss_cat += iter_data['loss_cat']
         self.loss_obj += iter_data['loss_obj']
         self.count += 1
-
+        # if du.is_master_proc(num_gpus=self.args.num_gpus):
+        #     final_loss_cat = (self.loss_cat / self.count) * self.args.loss.lambda_cat
+        #     final_loss_obj = (self.loss_obj / self.count) * self.args.loss.lambda_cat
+        #     print('Validate Iteration: {}\tTriplet_Loss_Category ({}) = {:.6f}, Triplet_Loss_Object ({}) = {:.6f}'.format(
+        #         cnt, \
+        #         self.args.loss.lambda_cat, final_loss_cat, \
+        #         self.args.loss.lambda_obj, final_loss_obj))
         for k,v in iter_data.items():
             l = self.acc_dict.get(v, [])
             l.append(v)
@@ -72,7 +79,7 @@ class TestMeter(object):
             
             uplot.plot_predicted_image(cnt, image_PIL, pixel_pred_idx, pixel_gt_idx, enable_wandb = wandb_enabled, image_type_name='test_pixel_image', image_dir = image_dir, sample_id=this_sample_id, scale_pred_idx = scale_pred_idx, scale_gt_idx = scale_gt_idx)
 
-        self.update_stats(iter_data)
+        self.update_stats(iter_data, cnt)
 
     def finalize_metrics(self, epoch, cnt, prediction_dir):
         if not du.is_master_proc(num_gpus=self.args.num_gpus):

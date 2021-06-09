@@ -3,10 +3,9 @@ from __future__ import print_function
 import torch
 import numpy as np
 import os
+from collections import OrderedDict
 import torchvision
 import PIL
-import torchvision.utils as vutils
-from tensorboardX import SummaryWriter
 import wandb
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
@@ -18,7 +17,6 @@ import utils.distributed as du
 from utils.meters import TestMeter
 
 import losses.loss as loss
-from optparse import OptionParser
 
 from models.build import build_model
 import incat_dataset
@@ -31,13 +29,33 @@ def save_this_epoch(args, epoch):
         return False 
     return epoch % args.save_freq == 0
 
+def remove_module_key_transform(key):
+    parts = key.split(".")
+    if parts[0] == 'module':
+        return ".".join(parts[1:])
+    return key
+
+def rename_state_dict_keys(ckp_path, key_transformation):
+    state_dict = torch.load(ckp_path)['model_state_dict']
+    new_state_dict = OrderedDict()
+
+    for key, value in state_dict.items():
+        new_key = key_transformation(key)
+        new_state_dict[new_key] = value
+
+    return new_state_dict
+
 def load_model_from(args, model, data_parallel=False):
     ms = model.module if data_parallel else model
     if args.model_config.model_path is not None:
         print("=> Loading model file from: ", args.model_config.model_path)
-        model_path = os.path.join(args.model_config.model_path)
-        checkpoint = torch.load(model_path)
-        ms.load_state_dict(checkpoint['model_state_dict'])
+        ckp_path = os.path.join(args.model_config.model_path)
+        checkpoint = torch.load(ckp_path)
+        try:
+            ms.load_state_dict(checkpoint['model_state_dict'])
+        except:
+            state_dict = rename_state_dict_keys(ckp_path, remove_module_key_transform)
+            ms.load_state_dict(state_dict)
 
 def save_model(epoch, model, model_dir):
     model_path = os.path.join(model_dir, '{}.pth'.format(epoch))
@@ -53,7 +71,7 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
     model.train()
     
     for batch_idx, data in enumerate(train_loader):
-        print(batch_idx)
+        
         optimizer.zero_grad()
 
         image = data["image"]
@@ -64,24 +82,30 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
         dataset_indices = data["idx"]  
         
         # Send model and data to CUDA
-        image = image.cuda(non_blocking=True)
-        scale_gt = scale_gt.cuda(non_blocking=True)
-        pixel_gt = pixel_gt.cuda(non_blocking=True)
-        cat_gt = cat_gt.cuda(non_blocking=True)
-        id_gt = id_gt.cuda(non_blocking=True)
+        image = image.cuda(non_blocking=args.cuda_non_blocking)
+        scale_gt = scale_gt.cuda(non_blocking=args.cuda_non_blocking)
+        pixel_gt = pixel_gt.cuda(non_blocking=args.cuda_non_blocking)
+        cat_gt = cat_gt.cuda(non_blocking=args.cuda_non_blocking)
+        id_gt = id_gt.cuda(non_blocking=args.cuda_non_blocking)
+        import pdb; pdb.set_trace()
         if args.use_pc:
-            pts = data["obj_points"].cuda(non_blocking=True)
-            feats = data["obj_points_features"].cuda(non_blocking=True)
+            pts = data["obj_points"].cuda(non_blocking=args.cuda_non_blocking)
+            feats = data["obj_points_features"].cuda(non_blocking=args.cuda_non_blocking)
+            
             img_embed, pose_pred = model([image, pts, feats])
         else:
-            img_embed, pose_pred = model(image)
+            img_embed, pose_pred = model([image])
         # Position prediction 
         pixel_pred = pose_pred[:,:2]
         scale_pred = pose_pred[:,2:]
         # Normalize embedding
         img_embed -= img_embed.min(1, keepdim=True)[0]
         img_embed /= img_embed.max(1, keepdim=True)[0]
-
+        import pdb; pdb.set_trace()
+        '''
+        mem_params = sum([param.nelement()*param.element_size() for param in model.parameters()])
+        mem_bufs = sum([buf.nelement()*buf.element_size() for buf in model.buffers()])
+        '''
         mask_cat, loss_cat = loss.batch_all_triplet_loss(labels=cat_gt, embeddings=img_embed, margin=args.loss.margin, squared=False)
         mask_id, loss_obj = loss.batch_all_triplet_loss(labels=id_gt, embeddings=img_embed, margin=args.loss.margin, squared=False)
         
@@ -182,11 +206,12 @@ def train(args):
         if args.wandb.enable and args.training_config.train:
             wandb.login()
             wandb.init(project=args.wandb.wandb_project_name, entity=args.wandb.wandb_project_entity, config=args.obj_dict)
-
+    
     model = build_model(args)
+    load_model_from(args, model, data_parallel=args.num_gpus>1)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.optimizer_config.lr)
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.scheduler_config.step, gamma=args.scheduler_config.gamma)
-
+    
     train_dataset = incat_dataset.InCategoryClutterDataset('train', args)
     train_loader = incat_dataloader.InCategoryClutterDataloader(train_dataset, args, shuffle = True)
 
@@ -222,12 +247,13 @@ def train(args):
     else:
         image_dir,model_dir,prediction_dir = None,None,None
 
-    load_model_from(args, model, data_parallel=args.num_gpus>1)
-
     test_meter = TestMeter(args)
         
     cnt = 0
     for epoch in range(args.training_config.start_epoch, args.training_config.epochs):
+        # test_loader.set_epoch(epoch)
+        # test.test(args, test_loader, test_meter, model, epoch, cnt, image_dir, prediction_dir, wandb_enabled)
+
         train_loader.set_epoch(epoch)
         cnt = train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir, wandb_enabled)
 

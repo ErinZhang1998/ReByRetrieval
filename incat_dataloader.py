@@ -76,7 +76,8 @@ class InCategoryClutterDataloader(object):
             per_replica = batch_size // self.num_replicas
             start_idx = per_replica * self.rank
             end_idx = per_replica * (self.rank+1)
-            batch_indices = batch_indices[:, start_idx : end_idx]
+            chosen_idx = list(range(self.rank*2, batch_size-1, self.num_replicas*2)) + list(range(self.rank*2+1, batch_size, self.num_replicas*2))
+            batch_indices = batch_indices[:, chosen_idx]
             # self.batch_size = end_idx - start_idx
                 
         return num_batches, batch_indices

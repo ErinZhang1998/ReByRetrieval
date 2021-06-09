@@ -17,6 +17,8 @@ import PIL
 import torchvision
 import utils.pointcloud as pc
 
+import utils.dataset_utils as data_utils
+
 class InCategoryClutterDataset(Dataset):
     
     def __init__(self, split, args):
@@ -40,7 +42,7 @@ class InCategoryClutterDataset(Dataset):
         self.img_mean = args.dataset_config.img_mean#[0.5,0.5,0.5]
         self.img_std = args.dataset_config.img_std#[0.5,0.5,0.5]
 
-        self.dir_list = self.data_dir_list(self.scene_dir)
+        self.dir_list = data_utils.data_dir_list(self.scene_dir)
         if self.superimpose:
             file_ptr = open(self.canvas_file_path, 'r')
             self.all_canvas_path = file_ptr.read().split('\n')[:-1]
@@ -80,25 +82,7 @@ class InCategoryClutterDataset(Dataset):
     def determine_imge_dim(self):
         sample = self.idx_to_data_dict[0]
         rgb_all = mpimg.imread(sample['rgb_all_path'])
-        self.img_h, self.img_w, _ = rgb_all.shape
-
-    def data_dir_list(self, root_dir):
-        l = []
-        for subdir in os.listdir(root_dir):
-            if subdir.startswith('scene_'):
-                subdir_path = os.path.join(root_dir, subdir)
-                scene_description_dir = os.path.join(subdir_path, 'scene_description.p')
-                if not os.path.exists(scene_description_dir):
-                    continue 
-                scene_name = subdir_path.split("/")[-1]
-                # if int(subdir_path[-3] ) < 2:
-                #     continue
-                l.append(subdir_path)
-        
-        if self.split == 'test':
-            return l[:300]
-
-        return l 
+        self.img_h, self.img_w, _ = rgb_all.shape 
     
     def generate_object_category_information(self):
         df = pd.read_csv(self.csv_file_path)
@@ -144,29 +128,6 @@ class InCategoryClutterDataset(Dataset):
         cam_num = int(cam_num)
         return scene_name, cam_num, object_idx
     
-    def compile_mask_files(self, dir_path):
-        '''
-        Dictionary mapping from camera index (in str form, e.g. '00039') to files of individual
-        object segmentation capture by the given camera
-        '''
-        mask_all_d = dict()
-        for seg_path in os.listdir(dir_path):
-            seg_path_pre = seg_path.split('.')[0]
-            l = seg_path_pre.rsplit('_')
-            if len(l) == 3 and l[0] == 'segmentation':
-                other_obj_masks = mask_all_d.get(l[1], [])
-                other_obj_masks.append(os.path.join(dir_path, seg_path))
-                mask_all_d[l[1]] = other_obj_masks
-        return mask_all_d
-    
-    def compile_mask(self, mask_path_lists):
-        masks = []
-        for mask_path in mask_path_lists:
-            mask = mpimg.imread(mask_path)
-            masks.append(mask)
-        
-        return np.sum(np.stack(masks), axis=0)
-    
     def load_sample(self, dir_path, idx):
         scene_name = dir_path.split("/")[-1]
         scene_description_path = os.path.join(dir_path, 'scene_description.p')
@@ -174,7 +135,7 @@ class InCategoryClutterDataset(Dataset):
             return {}, idx
         object_descriptions = pickle.load(open(scene_description_path, 'rb'))
 
-        mask_all_d = self.compile_mask_files(dir_path)
+        mask_all_d = data_utils.compile_mask_files(dir_path)
         
         samples = {}
         idx_i = idx
@@ -216,6 +177,11 @@ class InCategoryClutterDataset(Dataset):
                 selected_objs = cam_num_to_selected_objects.get(cam_num, all_object_idx)
                 if (not object_idx in selected_objs) and (pix_left_ratio > 0.9):
                     continue
+                    
+                obj_pt_fname = os.path.join(dir_path, f'pc_{(cam_num):05}_{object_idx}.npy')
+                obj_pt_feat_fname = os.path.join(dir_path, f'pc_feat_{(cam_num):05}_{object_idx}.npy')
+                if not (os.path.exists(obj_pt_fname) and os.path.exists(obj_pt_feat_fname)):
+                    continue
 
                 center = copy.deepcopy(object_camera_info_i["object_center"].reshape(-1,))
                 center[0] = cam_width - center[0]
@@ -253,23 +219,9 @@ class InCategoryClutterDataset(Dataset):
                 sample['depth_all_path'] = os.path.join(dir_path, *depth_all_path)
                 sample['mask_all_path'] = os.path.join(dir_path, f'segmentation_{(cam_num):05}.png')
                 sample['mask_all_objs'] = mask_all_d[f'{(cam_num):05}']
+                sample['obj_pt'] = obj_pt_fname 
+                sample['obj_pt_features'] = obj_pt_feat_fname 
 
-                rgb_all = PIL.Image.open(sample['rgb_all_path'])
-                mask = mpimg.imread(sample['mask_path'])
-                mask = utrans.mask_to_PIL(mask)
-                mask_all = self.compile_mask(sample['mask_all_objs'])
-                mask_all = utrans.mask_to_PIL(mask_all)
-                # sample["rgb_all"] = rgb_all
-                # sample["mask"] = mask
-                # sample["mask_all"] = mask_all
-                
-                # depth_all = PIL.Image.open(sample['depth_all_path'])
-                # _, rot = pc.from_world_to_camera_mat_to_tf(sample['world_to_camera_mat'])
-                # obj_pt, obj_pt_features = self.get_pointcloud(rgb_all, depth_all, mask, mask_all, rot)
-                # sample["obj_pt"] = obj_pt
-                # sample["obj_pt_features"] = obj_pt_features
-                
-                    
                 if self.split == 'test' and self.args.dataset_config.test_cropped_area_position > 3:
                     # for i in [0,1]:
                     #     sample_cp = copy.deepcopy(sample)
@@ -309,37 +261,13 @@ class InCategoryClutterDataset(Dataset):
             area_y = min(int(self.size_h//2), self.size_h-patch_h)
         return area_x,area_y
     
-    def get_pointcloud(self, rgb_all, depth_all, mask, mask_all, rot):
-        '''
-        depth_all: PIL image of the entire scene
-        mask: PIL image of the object's mask
-        mask_all: PIL image of all objects' masks
-        '''
-        depth = np.asarray(depth_all)
-        obj_label = 255 - np.asarray(mask)[:,:,0]
-        # all_labels = 255 - np.asarray(mask_all)[:,:,0]
-
-        obj_points_inds = np.where(obj_label, depth, 0.0).flatten().nonzero()[0]
-        #all_obj_points_inds = np.where(all_labels, depth, 0.0).flatten().nonzero()[0]
-        all_ptcld = pc.make_pointcloud(depth)
-
-        obj_points, obj_mask = pc.process_pointcloud(all_ptcld, obj_points_inds, rot)
-        #all_obj_points, all_obj_mask = pc.process_pointcloud(all_ptcld, all_obj_points_inds, rot)
-        
-        img_rgb = utrans.normalize(torchvision.transforms.ToTensor()(rgb_all), self.img_mean, self.img_std)
-        x_ind, y_ind = np.unravel_index(obj_points_inds[obj_mask], (480, 640))
-        obj_points_features = img_rgb.permute(1,2,0)[x_ind, y_ind]
-
-        return obj_points, obj_points_features
-
-    
     def __getitem__(self, idx):
         sample = self.idx_to_data_dict[idx]
         rgb_all = PIL.Image.open(sample['rgb_all_path'])
         mask = mpimg.imread(sample['mask_path'])
         original_h, original_w = mask.shape
         mask = utrans.mask_to_PIL(mask)
-        mask_all = self.compile_mask(sample['mask_all_objs'])
+        mask_all = data_utils.compile_mask(sample['mask_all_objs'])
         mask_all = utrans.mask_to_PIL(mask_all)
 
         # mask_all = mpimg.imread(sample['mask_all_path'])
@@ -446,8 +374,8 @@ class InCategoryClutterDataset(Dataset):
             # depth_all = PIL.Image.open(sample['depth_all_path'])
             # _, rot = pc.from_world_to_camera_mat_to_tf(sample['world_to_camera_mat'])
             # obj_pt, obj_pt_features = self.get_pointcloud(rgb_all, depth_all, mask, mask_all, rot)
-            obj_pt = sample["obj_pt"]
-            obj_pt_features = sample["obj_pt_features"]
+            obj_pt = np.load(sample["obj_pt"]) 
+            obj_pt_features = np.load(sample["obj_pt_features"]) 
             obj_pt = torch.FloatTensor(obj_pt)
             obj_pt_features = torch.FloatTensor(obj_pt_features).transpose(0,1)
             data = {

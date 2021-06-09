@@ -34,24 +34,24 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
             area_type = data["area_type"]
             
             # Send model and data to CUDA
+            image = image.cuda(non_blocking=args.cuda_non_blocking)
             if args.use_pc:
-                pts = data["obj_points"].cuda(non_blocking=True)
-                feats = data["obj_points_features"].cuda(non_blocking=True)
+                pts = data["obj_points"].cuda(non_blocking=args.cuda_non_blocking)
+                feats = data["obj_points_features"].cuda(non_blocking=args.cuda_non_blocking)
                 img_embed, pose_pred = model([image, pts, feats])
             else:
                 img_embed, pose_pred = model(image)
            
-            cat_gt = cat_gt.cuda(non_blocking=True)
-            id_gt = id_gt.cuda(non_blocking=True)
+            cat_gt = cat_gt.cuda(non_blocking=args.cuda_non_blocking)
+            id_gt = id_gt.cuda(non_blocking=args.cuda_non_blocking)
 
-            img_embed, pose_pred = model(image)
             # Normalize the image embedding
             img_embed -= img_embed.min(1, keepdim=True)[0]
             img_embed /= img_embed.max(1, keepdim=True)[0]
-
+            
             _,c_loss = loss.batch_all_triplet_loss(labels=cat_gt, embeddings=img_embed, margin=args.loss.margin, squared=False) #.cpu()
             _,o_loss = loss.batch_all_triplet_loss(labels=id_gt, embeddings=img_embed, margin=args.loss.margin, squared=False) #.cpu()  
-
+            
             if args.num_gpus > 1:
                 c_loss, o_loss = du.all_reduce(
                     [c_loss, o_loss]
