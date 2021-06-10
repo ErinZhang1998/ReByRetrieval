@@ -357,7 +357,6 @@ def gen_data(scene_num, selected_objects, args):
                 this_cam_stats = dict()
                 this_cam_mask_files = dict()
                 this_cam_pc_files = dict()
-                pc_cam_stats = dict()
 
                 rgb=mujoco_env_test.model.render(height=cam_height, width=cam_width, camera_id=cam_num, depth=False, segmentation=False)
                 cv2.imwrite(os.path.join(scene_folder_path, f'rgb_{(cam_num):05}.png'), rgb)
@@ -379,29 +378,29 @@ def gen_data(scene_num, selected_objects, args):
                     this_cam_stats[object_idx] = [pix_left_ratio_idx, onoccluded_pixel_num_idx]
                     
                     if segmentation_idx is None:
-                        pc_cam_stats[object_idx] = False
                         continue 
                     segmentation_idx_path = os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}_{object_idx}.png')
                     obj_mask = segmentation_idx.astype(np.uint8)
                     cv2.imwrite(segmentation_idx_path, obj_mask)
-                    this_cam_mask_files[object_idx] = segmentation_idx_path
+                    this_cam_mask_files[object_idx] = f'segmentation_{(cam_num):05}_{object_idx}.png'
 
                     # Save pointcloud for each object 
                     object_output = get_pointcloud(obj_mask, depth, all_ptcld, camera_res['rot'], cam_height, cam_width)
                     if len(object_output) == 0:
-                        pc_cam_stats[object_idx] = False 
                         continue
-                    else:
-                        pc_cam_stats[object_idx] = True 
+                    
                     
                     obj_pt_fname = os.path.join(scene_folder_path, f'pc_{(cam_num):05}_{object_idx}.pkl')
                     with open(obj_pt_fname, 'wb+') as f:
                         pickle.dump(object_output, f)
-                    this_cam_pc_files[object_idx] = obj_pt_fname
+                    this_cam_pc_files[object_idx] = f'pc_{(cam_num):05}_{object_idx}.pkl'
 
                 
                 # Compile all masks, save
-                all_objects_mask = compile_mask(list(this_cam_mask_files.values())).astype(bool).astype(np.uint8) #(height, width)
+                mask_files_full = [os.path.join(scene_folder_path, partial_path)
+                    for partial_path in list(this_cam_mask_files.values())
+                ]
+                all_objects_mask = compile_mask(mask_files_full).astype(bool).astype(np.uint8) #(height, width)
                 cv2.imwrite(os.path.join(scene_folder_path, f'segmentation_all_objects_{(cam_num):05}.png'), all_objects_mask)
                 
                 # Save pointcloud for the entire scene (without table)
@@ -435,16 +434,15 @@ def gen_data(scene_num, selected_objects, args):
                     'occlusion_target' : object_i,
                     'target' : cam_targets[cam_num],
                     'objects_left_ratio' : this_cam_stats,
-                    'has_object_pointcloud' : pc_cam_stats,
-                    'object_mask_files' : this_cam_mask_files,
-                    'object_pc_files' : this_cam_pc_files,
+                    'all_segmentation_file' : f'segmentation_{(cam_num):05}.png',
+                    'all_object_segmentation_file' : f'segmentation_all_objects_{(cam_num):05}.png',
+                    'object_segmentation_files' : this_cam_mask_files,
                     'all_pc_file' : f'pc_all_{(cam_num):05}.pkl',
                     'with_table_pc_file' : f'pc_with_table_{(cam_num):05}.pkl',
                     'no_table_pc_file' : f'pc_no_table_{(cam_num):05}.pkl',
-                    'all_object_segmentation_file' : f'segmentation_all_objects_{(cam_num):05}.png',
+                    'object_pc_files' : this_cam_pc_files,
                     'rgb_file' : f'rgb_{(cam_num):05}.png',
                     'depth_file' : f'depth_{(cam_num):05}.png',
-                    'all_segmentation_file' : f'segmentation_{(cam_num):05}.png',
                 })
                 cam_information[cam_num] = camera_res
                 
@@ -583,7 +581,7 @@ def gen_data(scene_num, selected_objects, args):
             #         ax.scatter(i,j,   marker=".", c='r', s=100)
             # fig.savefig(img_path, dpi=fig.dpi)
             # plt.close()
-        import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
         object_descriptions['cam_information'] = cam_information
         
         
