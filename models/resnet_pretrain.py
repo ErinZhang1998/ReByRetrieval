@@ -50,19 +50,23 @@ class PretrainedResNetSpatialSoftmax(nn.Module):
         super(PretrainedResNetSpatialSoftmax, self).__init__()
         self.emb_dim=args.model_config.emb_dim
         self.pose_dim=args.model_config.pose_dim
-        res50 = resnet18(pretrained=True)
-        res50.conv1 = nn.Conv2d(4, 64, kernel_size=(7, 7), stride=(2, 2), padding=(0, 0), bias=False)
-        self.res50_no_fc = nn.Sequential(*list(res50.children())[:-2])
+        if args.model_config.resnet_type == 'resnet18':
+            resnet = resnet18(pretrained=True)
+        elif args.model_config.resnet_type == 'resnet50':
+            resnet = resnet50(pretrained=True)
+        self.resnet_out_channel = resnet.fc.in_features
+        resnet.conv1 = nn.Conv2d(4, 64, kernel_size=(7, 7), stride=(2, 2), padding=(0, 0), bias=False)
+        self.resnet_no_fc = resnet #nn.Sequential(*list(resnet.children())[:-2])
 
         self.ss = args.model_config.spatial_softmax
-        self.spatial_softmax = SpatialSoftmax(self.ss.height, self.ss.width, self.ss.channel)
+        self.spatial_softmax = SpatialSoftmax(self.ss.height, self.ss.width, self.resnet_out_channel)
         
-        self.emb_fc = nn.Linear(self.ss.channel*2, self.emb_dim)
-        self.pose_fc = nn.Linear(self.ss.channel*2, self.pose_dim)
+        self.emb_fc = nn.Linear(self.resnet_out_channel*2, self.emb_dim)
+        self.pose_fc = nn.Linear(self.resnet_out_channel*2, self.pose_dim)
     
     def forward(self, xs):
         x = xs[0]
-        x = self.res50_no_fc(x)
+        x = self.resnet_no_fc(x)
         x = self.spatial_softmax(x)
         emb = self.emb_fc(x)
         pose = self.pose_fc(x)
@@ -73,17 +77,20 @@ class PretrainedResNet(nn.Module):
     def __init__(self, args):
         super(PretrainedResNet, self).__init__()
         self.emb_dim=args.model_config.emb_dim
-        res50 = models.resnet50(pretrained=True)
-        res50.conv1 = nn.Conv2d(4, 64, kernel_size=(7, 7), stride=(2, 2), padding=(0, 0), bias=False)
-        self.res50_no_fc = nn.Sequential(*list(res50.children())[:-1])
-        self.flat_dim = res50.fc.in_features
-        self.emb_fc = nn.Linear(res50.fc.in_features, self.emb_dim)
-        self.pose_fc = nn.Linear(res50.fc.in_features, self.pose_dim)
+        if args.model_config.resnet_type == 'resnet18':
+            resnet = resnet18(pretrained=True)
+        elif args.model_config.resnet_type == 'resnet50':
+            resnet = resnet50(pretrained=True)
+        resnet.conv1 = nn.Conv2d(4, 64, kernel_size=(7, 7), stride=(2, 2), padding=(0, 0), bias=False)
+        self.resnet_no_fc = nn.Sequential(*list(resnet.children())[:-1])
+        self.flat_dim = resnet.fc.in_features
+        self.emb_fc = nn.Linear(resnet.fc.in_features, self.emb_dim)
+        self.pose_fc = nn.Linear(resnet.fc.in_features, self.pose_dim)
     
     def forward(self, xs):
         x = xs[0]
         batch_size = x.size(0)
-        x = self.res50_no_fc(x)
+        x = self.resnet_no_fc(x)
         flat_x = x.view(batch_size, self.flat_dim)
         emb = self.emb_fc(flat_x)
         pose = self.pose_fc(flat_x)
@@ -95,12 +102,16 @@ class ResNetPointNet(nn.Module):
         super(ResNetPointNet, self).__init__()
         self.emb_dim=args.model_config.emb_dim
         self.pose_dim=args.model_config.pose_dim
-        res50 = models.resnet50(pretrained=True)
-        res50.conv1 = nn.Conv2d(4, 64, kernel_size=(7, 7), stride=(2, 2), padding=(0, 0), bias=False)
-        self.res50_no_fc = nn.Sequential(*list(res50.children())[:-2])
+        if args.model_config.resnet_type == 'resnet18':
+            resnet = resnet18(pretrained=True)
+        elif args.model_config.resnet_type == 'resnet50':
+            resnet = resnet50(pretrained=True)
+        self.resnet_out_channel = resnet.fc.in_features
+        resnet.conv1 = nn.Conv2d(4, 64, kernel_size=(7, 7), stride=(2, 2), padding=(0, 0), bias=False)
+        self.resnet_no_fc = resnet#nn.Sequential(*list(resnet.children())[:-2])
         
         self.ss = args.model_config.spatial_softmax
-        self.spatial_softmax = SpatialSoftmax(self.ss.height, self.ss.width, self.ss.channel)
+        self.spatial_softmax = SpatialSoftmax(self.ss.height, self.ss.width, self.resnet_out_channel)
 
         self.pc_points_per_obj = args.model_config.pointnet.pc_points_per_obj
         self.msgmodules = args.model_config.pointnet.msgmodules
@@ -132,8 +143,8 @@ class ResNetPointNet(nn.Module):
             )
         )
         
-        self.emb_fc = nn.Linear(self.ss.channel*2 + mlp_shape[-1], self.emb_dim)
-        self.pose_fc = nn.Linear(self.ss.channel*2 + mlp_shape[-1], self.pose_dim)
+        self.emb_fc = nn.Linear(self.resnet_out_channel*2 + mlp_shape[-1], self.emb_dim)
+        self.pose_fc = nn.Linear(self.resnet_out_channel*2 + mlp_shape[-1], self.pose_dim)
     
     def forward(self, xs):
         '''
@@ -152,7 +163,7 @@ class ResNetPointNet(nn.Module):
         for module in self.SA_modules:
             xyz, features = module(xyz, features)
         features = features.squeeze(-1)
-        x = self.res50_no_fc(image)
+        x = self.resnet_no_fc(image)
         x = self.spatial_softmax(x)
         
         x_cat = torch.cat([x,features], dim=1)

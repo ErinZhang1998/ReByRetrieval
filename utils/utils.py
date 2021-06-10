@@ -3,6 +3,7 @@ import os
 import time 
 import datetime
 
+
 class Struct:
     '''The recursive class for building and representing objects with.'''
     def __init__(self, obj):

@@ -2,10 +2,13 @@ import csv
 import pandas as pd
 from sklearn.model_selection import train_test_split
 import os 
+import trimesh
+import pickle
 from optparse import OptionParser
 
 parser = OptionParser()
 parser.add_option("--csv_file_dir", dest="csv_file_dir")
+parser.add_option("--shapenet_filepath", dest="shapenet_filepath")
 
 (args, argss) = parser.parse_args()
 '''
@@ -632,7 +635,19 @@ def output_selected(csv_file, selected_l):
 if not os.path.exists(args.csv_file_dir):
     os.mkdir(args.csv_file_dir)
 csv_file = os.path.join(args.csv_file_dir, "preselect_table_top.csv")
-write_to_csv(csv_file, dict_data, csv_columns)
+# write_to_csv(csv_file, dict_data, csv_columns)
+
+
+new_dict = dict()
+for row in dict_data:
+    obj_cat = int(row["synsetId"])
+    obj_id = row["ShapeNetModelId"]
+    obj_mesh_filename = os.path.join(args.shapenet_filepath,'0{}/{}/models/model_normalized.obj'.format(obj_cat, \
+                                                                                                   obj_id))
+    object_mesh = trimesh.load(obj_mesh_filename, force='mesh')
+    new_dict[(obj_cat, obj_id)] = object_mesh.bounds 
+with open(os.path.join(args.csv_file_dir, "object_bounds.pkl"), 'wb+') as handle:
+    pickle.dump(new_dict, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
 df_1 = pd.read_csv(csv_file)
 for test_id in test_only_ids:
@@ -648,7 +663,5 @@ train,test = train_test_split(train_test_data, test_size=0.3)
 train_csv_file_path = os.path.join(args.csv_file_dir, "preselect_table_top_train.csv")
 test_csv_file_path = os.path.join(args.csv_file_dir, "preselect_table_top_test.csv")
 
-write_to_csv(train_csv_file_path, train, csv_columns)
-write_to_csv(test_csv_file_path, test+test_data, csv_columns)
-# df_train = pd.read_csv(train_csv_file_path)
-# df_test = pd.read_csv(test_csv_file_path)
+# write_to_csv(train_csv_file_path, train, csv_columns)
+# write_to_csv(test_csv_file_path, test+test_data, csv_columns)

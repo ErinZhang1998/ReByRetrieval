@@ -87,7 +87,7 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
         pixel_gt = pixel_gt.cuda(non_blocking=args.cuda_non_blocking)
         cat_gt = cat_gt.cuda(non_blocking=args.cuda_non_blocking)
         id_gt = id_gt.cuda(non_blocking=args.cuda_non_blocking)
-        import pdb; pdb.set_trace()
+
         if args.use_pc:
             pts = data["obj_points"].cuda(non_blocking=args.cuda_non_blocking)
             feats = data["obj_points_features"].cuda(non_blocking=args.cuda_non_blocking)
@@ -101,7 +101,6 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
         # Normalize embedding
         img_embed -= img_embed.min(1, keepdim=True)[0]
         img_embed /= img_embed.max(1, keepdim=True)[0]
-        import pdb; pdb.set_trace()
         '''
         mem_params = sum([param.nelement()*param.element_size() for param in model.parameters()])
         mem_bufs = sum([buf.nelement()*buf.element_size() for buf in model.buffers()])
@@ -206,7 +205,7 @@ def train(args):
         if args.wandb.enable and args.training_config.train:
             wandb.login()
             wandb.init(project=args.wandb.wandb_project_name, entity=args.wandb.wandb_project_entity, config=args.obj_dict)
-    
+    # import pdb; pdb.set_trace()
     model = build_model(args)
     load_model_from(args, model, data_parallel=args.num_gpus>1)
     optimizer = torch.optim.Adam(model.parameters(), lr=args.optimizer_config.lr)

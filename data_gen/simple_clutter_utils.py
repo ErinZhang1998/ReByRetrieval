@@ -448,19 +448,23 @@ def get_camera_matrix(camera):
 
     return P,camera_tf
 
-def project_2d(P, camera_tf, pt_3d):
-    '''
-    pt_3d: (N,3)
-    '''
+def project_2d_mat(P, world_to_camera_tf_mat, pt_3d):
     N = len(pt_3d)
-    world_to_camera_tf_mat = camera_tf.inverse().matrix #(4,4)
     pt_3d_homo = np.append(pt_3d.T, np.ones(N).astype('int').reshape(1,-1), axis=0) #(4,N)
     pt_3d_camera = world_to_camera_tf_mat @ pt_3d_homo #(4,N)
     assert np.all(np.abs(pt_3d_camera[-1] - 1) < 1e-6)
     pixel_coord = P @ (pt_3d_camera[:-1, :])
     pixel_coord = pixel_coord / pixel_coord[-1, :]
     pixel_coord = pixel_coord[:2, :] #(2,N)
-    return pixel_coord.astype('int').T
+    pixel_coord = pixel_coord.astype('int').T
+    return pixel_coord
+
+def project_2d(P, camera_tf, pt_3d):
+    '''
+    pt_3d: (N,3)
+    '''
+    world_to_camera_tf_mat = camera_tf.inverse().matrix #(4,4)
+    return project_2d_mat(P, world_to_camera_tf_mat, pt_3d)
 
 
 def add_light(scene_name, directional, ambient, diffuse, specular, castshadow, pos, dir, name):

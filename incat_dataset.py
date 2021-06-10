@@ -57,6 +57,7 @@ class InCategoryClutterDataset(Dataset):
     def reset(self, seed=0):
         np.random.seed(seed)
         self.object_id_to_dict_idx = {}
+        self.scene_id_to_cam_info = {}
         self.idx_to_data_dict = dict()
         idx = 0
         for dir_path in self.dir_list:
@@ -130,16 +131,21 @@ class InCategoryClutterDataset(Dataset):
     
     def load_sample(self, dir_path, idx):
         scene_name = dir_path.split("/")[-1]
+        scene_id = int(scene_name.split("_")[-1])
         scene_description_path = os.path.join(dir_path, 'scene_description.p')
         if not os.path.exists(scene_description_path):
             return {}, idx
         object_descriptions = pickle.load(open(scene_description_path, 'rb'))
-
+        all_object_idx = object_descriptions["object_indices"]
+        if len(all_object_idx) < 1:
+            return {}, idx
         mask_all_d = data_utils.compile_mask_files(dir_path)
-        
+        cam_d = data_utils.compile_camera_info(object_descriptions)
+        self.scene_id_to_cam_info[scene_id] = cam_d
+
         samples = {}
         idx_i = idx
-        all_object_idx = object_descriptions["object_indices"]
+        
         cam_num_to_occlusion_target = object_descriptions["cam_num_to_occlusion_target"]
         cam_num_to_selected_objects = dict()
         if self.split == "train":
@@ -166,6 +172,7 @@ class InCategoryClutterDataset(Dataset):
             cam_height = object_description['cam_height'] 
             cam_width = object_description['cam_width']
 
+            
             Ai = self.object_id_to_dict_idx.get(object_obj_id, [])
 
             object_cam_d = object_description['object_cam_d']
@@ -197,7 +204,7 @@ class InCategoryClutterDataset(Dataset):
                 root_name = f'_{(cam_num):05}'
                 obj_name = f'_{(cam_num):05}_{object_idx}'
                 sample_id = scene_name + f'_{cam_num}_{object_idx}'
-                sample = {'sample_id': sample_id, 'sample_id_int': [int(scene_name.split("_")[-1]),cam_num, object_idx]}
+                sample = {'sample_id': sample_id, 'sample_id_int': [scene_id, cam_num, object_idx]}
                 sample['object_center'] = center
                 sample['scene_corners'] = corners
 
@@ -210,6 +217,10 @@ class InCategoryClutterDataset(Dataset):
                 sample['pix_left_ratio'] = pix_left_ratio
                 sample['total_pixel_in_scene'] = object_camera_info_i['total_pixel_in_scene']
                 sample['world_to_camera_mat'] = object_camera_info_i['world_to_camera_mat']
+                sample['intrinsics'] = object_camera_info_i['intrinsics']
+                object_bounds = object_camera_info_i["object_bounds"]
+                object_bounds[:,0] = cam_width - object_bounds[:,0]
+                sample['object_bounds'] = object_bounds
 
                 rgb_all_path = object_camera_info_i['rgb_all_path'].split('/')[-1:]
                 depth_all_path = object_camera_info_i['depth_all_path'].split('/')[-1:]

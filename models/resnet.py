@@ -24,7 +24,8 @@ model_urls = {
 }
 
 model_paths = {
-    'resnet18' : 'resnet18-f37072fd.pth'
+    'resnet18' : 'models/pretrained_resnet18.pth',
+    'resnet50' : 'models/pretrained_resnet50.pth',
 }
 
 
@@ -244,15 +245,15 @@ class ResNet(nn.Module):
         x = self.layer3(x)
         x = self.layer4(x)
 
-        x = self.avgpool(x)
-        x = torch.flatten(x, 1)
-        x = self.fc(x)
+
+        # x = self.avgpool(x)
+        # x = torch.flatten(x, 1)
+        # x = self.fc(x)
 
         return x
 
     def forward(self, x: Tensor) -> Tensor:
         return self._forward_impl(x)
-
 
 def _resnet(
     arch: str,
@@ -264,8 +265,9 @@ def _resnet(
 ) -> ResNet:
     model = ResNet(block, layers, **kwargs)
     if pretrained:
-        state_dict = load_state_dict_from_url(model_urls[arch],
-                                              progress=progress)
+        # state_dict = load_state_dict_from_url(model_urls[arch],
+        #                                       progress=progress)
+        state_dict = torch.load(model_paths[arch])
         model.load_state_dict(state_dict)
     return model
 

@@ -40,3 +40,48 @@ def compile_mask(mask_path_lists):
         masks.append(mask)
     
     return np.sum(np.stack(masks), axis=0)
+
+def project_back_3d(P, world_to_camera_tf_mat, pt_2d, mult):
+    '''
+    pt_2d : (N, 2)
+    muly : (N, )
+    '''
+    N = len(pt_2d)
+    center_pad = np.append(pt_2d.T, np.ones(N).astype('int').reshape(1,-1), axis=0)
+    center_pad = center_pad * mult
+
+    pt_3d_camera_pre = np.linalg.inv(P) @ center_pad
+    pt_3d_camera = np.append(pt_3d_camera_pre, np.ones(len(pt_2d)).astype('int').reshape(1,-1), axis=0)
+
+    pt_3d_homo = np.linalg.inv(world_to_camera_tf_mat) @ pt_3d_camera
+    pt_3d_homo = pt_3d_homo / pt_3d_homo[-1,:]
+    pt_3d_homo = pt_3d_homo[:-1].T
+    return pt_3d_homo
+
+def get_mult(P, world_to_camera_tf_mat, pt_3d):
+    N = len(pt_3d)
+    pt_3d_homo = np.append(pt_3d.T, np.ones(N).astype('int').reshape(1,-1), axis=0) #(4,N)
+    pt_3d_camera = world_to_camera_tf_mat @ pt_3d_homo #(4,N)
+    pixel_coord = P @ (pt_3d_camera[:-1, :])
+    mult = pixel_coord[-1, :]
+    return mult 
+
+def compile_camera_info(object_descriptions):
+    object_indices = object_descriptions['object_indices']
+    cam_info = object_descriptions[object_indices[0]]['object_cam_d']
+    cam_d = dict()
+    for cam_num, v in cam_info.items():
+        cam_d_cam_num = dict()
+        cam_d_cam_num['P'] = v['intrinsics']
+        cam_d_cam_num['world_to_camera_mat'] = v['world_to_camera_mat']
+        cam_d[cam_num] = cam_d_cam_num
+    
+    positions = []
+    for obj_idx in object_indices:
+        positions.append(object_descriptions[obj_idx]['position'])
+    all_position = np.stack(positions)
+    for cam_num, v in cam_d.items():
+        mult = get_mult(v['P'], v['world_to_camera_mat'], all_position)
+        v['mult'] = dict(zip(object_indices, mult)) 
+        cam_d[cam_num] = v
+    return cam_d

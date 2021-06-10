@@ -40,7 +40,7 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
                 feats = data["obj_points_features"].cuda(non_blocking=args.cuda_non_blocking)
                 img_embed, pose_pred = model([image, pts, feats])
             else:
-                img_embed, pose_pred = model(image)
+                img_embed, pose_pred = model([image])
            
             cat_gt = cat_gt.cuda(non_blocking=args.cuda_non_blocking)
             id_gt = id_gt.cuda(non_blocking=args.cuda_non_blocking)

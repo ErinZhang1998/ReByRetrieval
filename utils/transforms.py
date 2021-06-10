@@ -180,11 +180,15 @@ class PILCropArea(object):
         
         self.area = (self.x0,self.y0,self.x1, self.y1)
     
-    def __call__(self, img, mask, center):
+    def modify_center(self, center):
         center_copy = copy.deepcopy(center)
         center_copy = center_copy.reshape(-1,)
         center_copy[0] = center_copy[0] - self.x0
         center_copy[1] = center_copy[1] - self.y0
+        return center_copy
+
+    def __call__(self, img, mask, center):
+        center_copy = self.modify_center(center)
         
         img = img.crop(self.area)
         mask = mask.crop(self.area)
