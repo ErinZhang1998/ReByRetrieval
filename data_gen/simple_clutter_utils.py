@@ -1,10 +1,11 @@
 import pybullet as p
 import numpy as np 
-import os 
+import pickle
 from scipy.spatial.transform import Rotation as R
 import math 
 from dm_control.mujoco.engine import Camera
 import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
 
 
 import autolab_core
@@ -19,7 +20,22 @@ import trimesh
 import dm_control.mujoco as mujoco
 from pathlib import Path
 import numpy as np
-import shutil
+import open3d as o3d
+
+
+def bounds_xyz_to_corners(bounds):
+    '''
+    bounds : (2,3)
+
+    bbox: (8,3)
+    '''
+    lower,upper = bounds
+    x0,y0,z0 = lower
+    x1,y1,z1 = upper 
+    
+    bbox = np.array(np.meshgrid([x0,x1],[y0,y1],[z0,z1])).reshape(3,-1).T
+    return bbox
+
 
 def determine_object_rotation(object_mesh):
     # Rotate object so that it appears upright in Mujoco
@@ -446,14 +462,27 @@ def get_camera_matrix(camera):
 
     assert np.all(np.abs(camera_tf.matrix @ np.array([0, 0, 0, 1]).reshape(4,-1) - np.array([[pos[0],pos[1],pos[2],1]]).reshape(4,-1)) < 1e-5)
 
-    return P,camera_tf
+    res = {
+        'P' : P,
+        'pos' : pos, 
+        'rot' : rot, 
+        'fov' : fov,
+        'focal_scaling' : focal_scaling,
+        'camera_frame_to_world_frame_mat' : camera_tf.matrix,
+        'world_frame_to_camera_frame_mat' : camera_tf.inverse().matrix,
+    }
+    return camera_id,camera_tf,res
 
 def project_2d_mat(P, world_to_camera_tf_mat, pt_3d):
+    '''
+    pt_3d: (N,3)
+    '''
     N = len(pt_3d)
-    pt_3d_homo = np.append(pt_3d.T, np.ones(N).astype('int').reshape(1,-1), axis=0) #(4,N)
-    pt_3d_camera = world_to_camera_tf_mat @ pt_3d_homo #(4,N)
+    pt_3d_pad = np.append(pt_3d.T, np.ones(N).astype('int').reshape(1,-1), axis=0) #(4,N)
+    pt_3d_camera = world_to_camera_tf_mat @ pt_3d_pad #(4,N)
     assert np.all(np.abs(pt_3d_camera[-1] - 1) < 1e-6)
     pixel_coord = P @ (pt_3d_camera[:-1, :])
+    mult = pixel_coord[-1, :]
     pixel_coord = pixel_coord / pixel_coord[-1, :]
     pixel_coord = pixel_coord[:2, :] #(2,N)
     pixel_coord = pixel_coord.astype('int').T
@@ -466,7 +495,35 @@ def project_2d(P, camera_tf, pt_3d):
     world_to_camera_tf_mat = camera_tf.inverse().matrix #(4,4)
     return project_2d_mat(P, world_to_camera_tf_mat, pt_3d)
 
+def transform_3d_frame(mat, pts):
+    '''
+    pts : (N,3)
+    mat : (4,4)
+    '''
+    pts_pad = np.append(pts.T, np.ones(len(pts)).astype('int').reshape(1,-1), axis=0) #(4,N)
+    pts_other_frame = mat @ pts_pad 
+    pts_other_frame = pts_other_frame / pts_other_frame[-1, :]
+    pts_other_frame = pts_other_frame[:-1, :] #(3,N)
+    pts_other_frame = pts_other_frame.T #(N,3)
+    return pts_other_frame
 
+def object_bounds_scaled_rotated(bounds, scale, rot=None):
+    '''
+    bounds : (2,3) directly loaded from ShapeNet, default bounds
+    scale : (3,)
+
+    '''
+    _, basic_rot = determine_object_rotation(None)
+    bounds = bounds * np.array([scale, scale])
+    bounds_rotated = transform_3d_frame(basic_rot, bounds)
+    if not rot is None: 
+        r = R.from_quat(rot)
+        rotation_mat = np.eye(4)
+        rotation_mat[0:3,0:3] = r.as_matrix()
+        bounds_rotated = transform_3d_frame(rotation_mat, bounds)
+    return bounds_rotated
+
+##############################################################################################################
 def add_light(scene_name, directional, ambient, diffuse, specular, castshadow, pos, dir, name):
     xmldoc = minidom.parse(scene_name)
     world_body = xmldoc.getElementsByTagName('worldbody')[0]
@@ -611,3 +668,72 @@ def add_texture(scene_name, texture_name, filename, texture_type="cube"):
 
     with open(scene_name, "w") as f:
         xmldoc.writexml(f)
+
+##############################################################################################################
+
+def compile_mask(mask_path_lists):
+    masks = []
+    for mask_path in mask_path_lists:
+        mask = mpimg.imread(mask_path)
+        masks.append(mask)
+    
+    return np.sum(np.stack(masks), axis=0)
+
+def from_depth_img_to_pc(depth_image, cam_cx, cam_cy, fx, fy, cam_scale=1.0, upsample=1):
+    img_width = int(2*cam_cx)
+    img_height = int(2*cam_cy)
+    xmap = np.array([[j for i in range(int(upsample*img_width))] for j in range(int(upsample*img_height))])
+    ymap = np.array([[i for i in range(int(upsample*img_width))] for j in range(int(upsample*img_height))])
+    
+    depth_masked = depth_image.flatten()[:, np.newaxis].astype(np.float32)
+    xmap_masked = xmap.flatten()[:, np.newaxis].astype(np.float32)
+    ymap_masked = ymap.flatten()[:, np.newaxis].astype(np.float32)
+    
+    pt2 = depth_masked / cam_scale
+    pt0 = (ymap_masked/upsample - cam_cx) * pt2 / (fx)
+    pt1 = (xmap_masked/upsample - cam_cy) * pt2 / (fy)
+    cloud = np.concatenate((pt0, -pt1, -pt2), axis=1)
+    return cloud  
+
+def process_pointcloud(cloud, obj_points_inds, rot):
+    obs_ptcld = cloud/1000.0
+    obj_pointcloud = obs_ptcld[obj_points_inds]
+    pc_mean=np.mean(obj_pointcloud, axis=0)
+
+    obs_ptcld_min = np.amin(obj_pointcloud, axis=0)
+    obs_ptcld_max = np.amax(obj_pointcloud, axis=0)
+    scale = 4.0*float(np.max(obs_ptcld_max-obs_ptcld_min))
+
+    obj_pointcloud = (obj_pointcloud - pc_mean) / scale
+    obj_pointcloud = rot.dot(obj_pointcloud.T).T
+
+    low = np.array([-0.5,-0.5,-0.5])
+    hi = np.array([0.5,0.5,0.5])
+    cloud_mask = np.argwhere(np.all(np.logical_and(obj_pointcloud >= low, obj_pointcloud <= hi), axis=1)) #(M, 1)
+    obj_pointcloud = obj_pointcloud[cloud_mask][:,0,:] + 0.5
+    
+    return obj_pointcloud, cloud_mask.flatten()
+
+def get_pointcloud(mask, depth, all_ptcld, camera_rot, cam_height, cam_width):
+    inds = np.where(mask, depth, 0.0).flatten().nonzero()[0]
+    if inds.shape[0] == 0:
+        return []
+    # import pdb; pdb.set_trace()
+    obj_points, obj_mask = process_pointcloud(all_ptcld, inds, camera_rot)
+    if len(obj_mask) == 0:
+        return []
+    x_ind, y_ind = np.unravel_index(inds[obj_mask], (cam_height, cam_width))
+    return [obj_points, x_ind, y_ind]
+
+def create_o3d_pc(xyz, visualize=False):
+    pcd = o3d.geometry.PointCloud()
+    pcd.points = o3d.utility.Vector3dVector(xyz)
+    if visualize:
+        o3d.visualization.draw_geometries([pcd])
+    return pcd 
+
+def load_pc_from_pkl(pkl_filename):
+    xyz,xind,yind = None,None,None
+    with open(pkl_filename, 'rb') as f:
+        xyz,xind,yind = pickle.load(f)
+    return xyz
