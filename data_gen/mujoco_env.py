@@ -15,7 +15,7 @@ import gym
 import time as timer
 import dm_control.mujoco as mujoco
 from dm_control.rl import control
-import trajopt.envs.tasks as tasks
+# import trajopt.envs.tasks as tasks
 from dm_control.suite import base
 import collections
 

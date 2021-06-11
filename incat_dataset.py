@@ -15,7 +15,6 @@ import matplotlib.image as mpimg
 import utils.transforms as utrans
 import PIL
 import torchvision
-import utils.pointcloud as pc
 
 import utils.dataset_utils as data_utils
 
@@ -58,7 +57,6 @@ class InCategoryClutterDataset(Dataset):
             self.all_scene_dict.update(scene_dict)
 
         self.reset()
-        self.determine_imge_dim()
     
     def reset(self, seed=0):
         np.random.seed(seed)
@@ -80,6 +78,7 @@ class InCategoryClutterDataset(Dataset):
         self.total_ele = 0
         for k,v in self.object_id_to_dict_idx.items():
             if len(v) %2 == 0:
+                self.total_ele += len(v)
                 continue 
             if self.split == 'train':
                 j = np.random.randint(0, len(v),1)[0]
@@ -92,7 +91,7 @@ class InCategoryClutterDataset(Dataset):
 
 
     def determine_imge_dim(self):
-        sample = self.all_scene_dict[0]
+        sample = self.all_data_dict[0]
         rgb_all = mpimg.imread(sample['rgb_file'])
         self.img_h, self.img_w, _ = rgb_all.shape 
 
@@ -124,15 +123,20 @@ class InCategoryClutterDataset(Dataset):
             for cam_num, cam_d in cam_information.items():
                 if not object_idx in cam_d['objects_left_ratio']:
                     continue 
-                pix_left_ratio, onoccluded_pixel_num = cam_d['objects_left_ratio'][object_idx][0] 
+                pix_left_ratio, onoccluded_pixel_num = cam_d['objects_left_ratio'][object_idx]
+                
+                # import pdb; pdb.set_trace()
                 if pix_left_ratio < self.args.dataset_config.ignore_input_ratio:
                     continue
                 cam_width = cam_d['cam_width']
                 
-                center = copy.deepcopy(object_description['object_cam_d']['object_position_2d'].reshape(-1,))
+                object_cam_information = object_description['object_cam_d'][cam_num]
+                center = copy.deepcopy(object_cam_information['object_position_2d'].reshape(-1,))
                 center[0] = cam_width - center[0]
                 corners = copy.deepcopy(cam_d['scene_bounds'])
-                corners[:,0] = cam_width - corners[:,0]
+                bbox_2d = copy.deepcopy(object_cam_information['object_bbox_world_frame_2d'].reshape(-1,2))
+                corners[:, 0] = cam_width - corners[:,0]
+                bbox_2d[:, 0] = cam_width - bbox_2d[:,0]
 
                 x0,y0 = np.min(corners, axis=0).astype(int)
                 x1,y1 = np.max(corners, axis=0).astype(int)
@@ -159,6 +163,7 @@ class InCategoryClutterDataset(Dataset):
                     'object_position_2d' : center,
                     'scene_bounds' : corners,
                     'total_pixel_in_scene' : pix_left_ratio * onoccluded_pixel_num,
+                    'pix_left_ratio' : pix_left_ratio,
                     'area_type' : area_type,
                     'all_object_with_table_mask_path' : os.path.join(dir_path, cam_d['all_segmentation_file']),
                 }
@@ -170,8 +175,14 @@ class InCategoryClutterDataset(Dataset):
                         continue
                     sample['object_pc_fname'] = object_pc_fname
                 
+                extra_info = {
+                    'object_bbox_world_frame_2d' : bbox_2d,
+                    'object_bounds_self_frame' : object_description['object_bounds_self_frame'],
+                }
+                sample.update(extra_info)
+                
                 scene_dict_l_must,  scene_dict_l_one = scene_dict.get((scene_num, cam_num), ([],[]))
-                if not (pix_left_ratio > 0.9) or (cam_d['occlusion_target'] == object_idx):
+                if (pix_left_ratio <= 0.9) or (cam_d['occlusion_target'] == object_idx):
                     scene_dict_l_must.append(idx_i)
                 else:
                     scene_dict_l_one.append(idx_i)
@@ -202,8 +213,8 @@ class InCategoryClutterDataset(Dataset):
     
     def __getitem__(self, idx):
         
-
         sample = self.all_data_dict[idx]
+
         rgb_all = PIL.Image.open(sample['rgb_file'])
         mask = mpimg.imread(sample['object_mask_path'])
         mask = utrans.mask_to_PIL(mask)
@@ -225,22 +236,25 @@ class InCategoryClutterDataset(Dataset):
                     ])
             img_rgb, img_mask, center_trans = trans(rgb_all, mask, center)
         else:
-            canvas_path = np.random.choice(self.all_canvas_path,1)[0]
+            canvas_path = np.random.choice(train_dataset.all_canvas_path,1)[0]
             canvas = PIL.Image.open(canvas_path)
-            canvas = canvas.resize((self.size_w, self.size_h))
+            canvas = canvas.resize((train_dataset.size_w, train_dataset.size_h))
             cropped_obj_transform = utrans.PILCropArea(corners)
             cropped_obj_img, cropped_mask, cropped_center = cropped_obj_transform(rgb_all, mask_all, center)
             cropped_object_mask = mask.crop(cropped_obj_transform.area)
             cropped_w, cropped_h = cropped_obj_img.size
-
-            shape_ratio = sample['total_pixel_in_scene'] / (cropped_h * cropped_w)
             
-            if self.split == "train":
-                sampled_ratio = np.random.uniform(1/9, 1/4, 1)[0]
+            cropped_object_bbox_2d = cropped_obj_transform.modify_center(sample['object_bbox_world_frame_2d'])
+            a0,b0 = np.min(cropped_object_bbox_2d, axis=0)
+            a1,b1 = np.max(cropped_object_bbox_2d, axis=0)
+            shape_ratio = (a1-a0) * (b1-b0) / (cropped_h * cropped_w)
+            
+            if train_dataset.split == "train":
+                num_pixels_final = np.random.uniform(2,5,1)[0]
             else:
-                sampled_ratio = 1/5
-
-            patch_ratio = (sampled_ratio * (self.size_w * self.size_h)) #/ (shape_ratio)
+                sampled_ratio = 3
+            patch_ratio = num_pixels_final*900 / shape_ratio
+            # patch_ratio = (sampled_ratio * (self.size_w * self.size_h)) #/ (shape_ratio)
             if cropped_w > cropped_h:
                 patch_w = np.sqrt(patch_ratio * (cropped_w / cropped_h))
                 patch_h = patch_w * (cropped_h / cropped_w)
@@ -249,6 +263,15 @@ class InCategoryClutterDataset(Dataset):
                 patch_w = patch_h * (cropped_w / cropped_h)
             patch_w, patch_h = int(patch_w), int(patch_h)
 
+            patch_object_bbox_2d = copy.deepcopy(cropped_object_bbox_2d)
+            patch_object_bbox_2d[:,0] = patch_object_bbox_2d[:,0] * float(patch_w / cropped_w)
+            patch_object_bbox_2d[:,1] = patch_object_bbox_2d[:,1] * float(patch_h / cropped_h)
+
+            a0,b0 = np.min(patch_object_bbox_2d, axis=0)
+            a1,b1 = np.max(patch_object_bbox_2d, axis=0)
+            area_x_range = (-a0, train_dataset.size_w - a1)
+            area_y_range = (-b0, train_dataset.size_h - b1)
+            
             if self.split == 'train':
                 area_range_w,area_range_h = np.random.choice(np.arange(self.num_area_range),2)
                 area_step_w, area_step_h = (self.size_w - patch_w)/ self.num_area_range , (self.size_h - patch_h)/ self.num_area_range 

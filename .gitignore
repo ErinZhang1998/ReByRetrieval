@@ -8,3 +8,4 @@ __pycache__/
 Untitled.ipynb
 configs/
 models/*.pth
+debug.py

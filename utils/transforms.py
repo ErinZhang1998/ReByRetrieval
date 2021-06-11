@@ -182,13 +182,16 @@ class PILCropArea(object):
     
     def modify_center(self, center):
         center_copy = copy.deepcopy(center)
-        center_copy = center_copy.reshape(-1,)
-        center_copy[0] = center_copy[0] - self.x0
-        center_copy[1] = center_copy[1] - self.y0
+        if len(center_copy.shape) == 1:
+            center_copy[0] = center_copy[0] - self.x0
+            center_copy[1] = center_copy[1] - self.y0
+        else:
+            center_copy[:,0] = center_copy[:,0] - self.x0
+            center_copy[:,1] = center_copy[:,1] - self.y0
         return center_copy
 
     def __call__(self, img, mask, center):
-        center_copy = self.modify_center(center)
+        center_copy = self.modify_center(center.reshape(-1,))
         
         img = img.crop(self.area)
         mask = mask.crop(self.area)
@@ -230,3 +233,11 @@ class PILResized(object):
         resized_img = img.resize((self.width,self.height))
         
         return resized_img, resized_mask, center_copy
+
+# def alter_2d_pts(pts, shift, scale):
+#     '''
+#     pts: (N,2)
+#     shift : (2,)
+#     scale : (2,)
+#     '''
+    
