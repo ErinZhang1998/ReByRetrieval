@@ -122,13 +122,11 @@ def gen_data(scene_num, selected_objects, args):
 
         
         for object_idx in range(num_objects):
-            # print("=> OBJECT {}".format(object_idx), selected_objects[object_idx])
-            obj_cat, obj_id, _ = selected_objects[object_idx]
+            # sample['synsetId'], sample['catId'], sample['ShapeNetModelId'], sample['objId']
+            obj_synset_cat, obj_shapenet_id = selected_objects[object_idx][0], selected_objects[object_idx][2]
             obj_info = dict()
-            obj_info['obj_cat'] = obj_cat
-            obj_info['obj_id'] = obj_id
-            # print(obj_cat, obj_id)
-            obj_mesh_filename = os.path.join(shapenet_filepath,'0{}/{}/models/model_normalized.obj'.format(obj_cat, obj_id))
+
+            obj_mesh_filename = os.path.join(shapenet_filepath,'0{}/{}/models/model_normalized.obj'.format(obj_synset_cat, obj_shapenet_id))
             object_mesh = trimesh.load(obj_mesh_filename, force='mesh')
             old_bound = object_mesh.bounds 
             '''
@@ -138,7 +136,7 @@ def gen_data(scene_num, selected_objects, args):
             '''
             Determine object size
             '''
-            scale_vec, scale_matrix = determine_object_scale(obj_cat, object_mesh)
+            scale_vec, scale_matrix = determine_object_scale(obj_synset_cat, object_mesh)
             object_mesh.apply_transform(scale_matrix)
             object_bounds = object_mesh.bounds
             
@@ -209,7 +207,7 @@ def gen_data(scene_num, selected_objects, args):
             obj_info['scale'] = obj_scale_vec
             obj_info['color'] = selected_colors[object_idx+1]
             obj_info['rotation'] = object_rot
-            obj_info['obj_mesh_filename'] = '0{}/{}/models/model_normalized.obj'.format(obj_cat, obj_id)
+            obj_info['obj_mesh_filename'] = '0{}/{}/models/model_normalized.obj'.format(obj_synset_cat, obj_shapenet_id)
             obj_info['object_height'] = object_height
             obj_info['object_tf'] = object_tf
             obj_info['object_bounds'] = object_bounds
@@ -377,7 +375,7 @@ def gen_data(scene_num, selected_objects, args):
                     pix_left_ratio_idx, onoccluded_pixel_num_idx, segmentation_idx = get_pixel_left_ratio(scene_num, camera, cam_num, mujoco_env_test, object_idx, original_obj_keys, cam_width, cam_height)
                     this_cam_stats[object_idx] = [pix_left_ratio_idx, onoccluded_pixel_num_idx]
                     
-                    if segmentation_idx is None:
+                    if onoccluded_pixel_num_idx == 0:
                         continue 
                     segmentation_idx_path = os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}_{object_idx}.png')
                     obj_mask = segmentation_idx.astype(np.uint8)
@@ -474,7 +472,11 @@ def gen_data(scene_num, selected_objects, args):
 
             object_description['scale'] = obj_info['scale']
             object_description['color'] = obj_info['color']
-            object_description['obj_cat'], object_description['obj_shapenet_id'], object_description['obj_id'] = selected_objects[object_idx]
+            
+            object_description['obj_synset_cat'] = selected_objects[object_idx][0]
+            object_description['obj_cat'] = selected_objects[object_idx][1]
+            object_description['obj_shapenet_id'] = selected_objects[object_idx][-2]
+            object_description['obj_id'] = selected_objects[object_idx][-1]
 
             object_description['table']={'mesh_filename': f'04379243/{table_id}/models/model_normalized.obj', \
                     'position': mujoco_env_test.data.qpos.ravel()[0:3].copy(), \
@@ -530,7 +532,7 @@ def gen_data(scene_num, selected_objects, args):
                 plt_dict[cam_num] = (l1,l2)
 
                 object_cam_d[cam_num] = {
-                    'object_center' : pixel_coord,
+                    'object_position_2d' : pixel_coord,
                     'object_bbox_world_frame_2d' : object_bbox_world_frame_2d,
                     'object_bounds_world_frame_2d' : object_bounds_world_frame_2d,
                 }
@@ -620,18 +622,11 @@ if __name__ == '__main__':
         selected_objects_i = []
         for idx in selected_indices:
             sample = df.iloc[idx]
-            selected_objects_i.append((sample['synsetId'], sample['ShapeNetModelId'], sample['objId']))
+            selected_objects_i.append((sample['synsetId'], sample['catId'], sample['ShapeNetModelId'], sample['objId']))
         selected_objects.append(selected_objects_i)
 
     for scene_num in range(args.num_scenes):
         acc_scene_num = scene_num + args.start_scene_idx
         gen_data(acc_scene_num, selected_objects[scene_num], args)
-
-    # for scene_num in range(len(df)):
-    #     acc_scene_num = scene_num + args.start_scene_idx
-    #     sample = df.iloc[scene_num]
-    #     sample_input = [(sample['synsetId'], sample['ShapeNetModelId'], sample['objId'])]
-    #     gen_data(acc_scene_num, sample_input, args.shapenet_filepath, args.shapenet_decomp_filepath, args.top_dir, args.train_or_test)
-    
         
         

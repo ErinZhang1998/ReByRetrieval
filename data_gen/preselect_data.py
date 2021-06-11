@@ -604,16 +604,23 @@ basket = ['basket,handbasket', '02801938', [square_baskets, round_baskets]]
 preselect = [bag, bottle, bowl, can, clock, jar, laptop, camera, mug, basket]
 test_only_ids = [2801938]
 
-csv_columns = ['synsetId', 'name', 'ShapeNetModelId', 'objId']
+csv_columns = ['synsetId', 'catId', 'name', 'ShapeNetModelId', 'objId']
 dict_data = []
 obj_id = 0
-for cat_name, cat_id, cat_objects in preselect:
+cat_id = 0
+for cat_name, cat_synset_id, cat_objects in preselect:
     for objs in cat_objects:
         for obj in objs:
-            row = {'synsetId': cat_id, 'name': cat_name, \
-                  'ShapeNetModelId': obj, 'objId': obj_id}
+            row = {
+                'synsetId': cat_synset_id,
+                'catId' : cat_id,
+                'name': cat_name,
+                'ShapeNetModelId': obj,
+                'objId': obj_id,
+            }
             dict_data.append(row)
         obj_id += 1
+    cat_id += 1
 
 def write_to_csv(csv_file, dict_data, csv_columns):
     try:
@@ -665,3 +672,29 @@ test_csv_file_path = os.path.join(args.csv_file_dir, "preselect_table_top_test.c
 
 write_to_csv(train_csv_file_path, train, csv_columns)
 write_to_csv(test_csv_file_path, test+test_data, csv_columns)
+
+
+
+# cat_ids = set()
+# object_ids = set()
+# cat_names = set()
+# for idx in range(len(df)):
+#     sample = df.iloc[idx]
+#     cat_ids.add(sample['synsetId'])
+#     cat_names.add(sample['name'])
+#     object_ids.add(sample['objId']) 
+# cat_ids = list(cat_ids)
+# object_ids = list(object_ids)
+# cat_names = list(cat_names)
+
+# self.cat_ids = cat_ids
+# self.cat_id_to_label = dict(zip(self.cat_ids, range(len(self.cat_ids))))
+# self.label_to_cat_id = dict(zip(range(len(self.cat_ids)), self.cat_ids))
+
+# self.object_ids = object_ids
+# self.object_id_to_label = dict(zip(self.object_ids, range(len(self.object_ids))))
+# self.object_label_to_id = dict(zip(range(len(self.object_ids)), self.object_ids))
+
+# self.cat_names = cat_names
+# self.cat_names_to_cat_id = dict(zip(self.cat_names, self.cat_ids))
+# self.cat_id_to_cat_names = dict(zip(self.cat_ids, self.cat_names))
