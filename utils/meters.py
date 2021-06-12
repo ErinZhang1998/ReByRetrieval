@@ -49,7 +49,7 @@ class TestMeter(object):
 
     def log_iter_stats(self, iter_data, cnt, image_dir, wandb_enabled=False, plot=False):
         if plot and du.is_master_proc(num_gpus=self.args.num_gpus):
-            dataset_indices = iter_data['dataset_indices'].numpy().reshape(-1,)
+
             pixel_pred = iter_data['pixel_pred']
             pixel_gt = iter_data['pixel_gt']
             scale_pred = iter_data['scale_pred']
@@ -57,8 +57,8 @@ class TestMeter(object):
             image = iter_data['image']
             sample_id = iter_data['sample_id']
             
-            idx_in_batch = np.random.choice(len(dataset_indices),1)[0]
-            dataset_idx = int(dataset_indices[idx_in_batch].item())
+            idx_in_batch = np.random.choice(len(sample_id),1)[0]
+
             pixel_pred_idx = pixel_pred[idx_in_batch].numpy()
             pixel_pred_idx[0] *= self.args.dataset_config.size_w
             pixel_pred_idx[1] *= self.args.dataset_config.size_h
@@ -74,7 +74,7 @@ class TestMeter(object):
             image_tensor = utrans.denormalize(image_tensor, self.args.dataset_config.img_mean, self.args.dataset_config.img_std)
             image_PIL = torchvision.transforms.ToPILImage()(image_tensor[idx_in_batch])
             
-            this_sample_id = [str(int(ele)) for ele in iter_data['sample_id'][idx_in_batch].numpy()]
+            this_sample_id = [str(int(ele)) for ele in sample_id[idx_in_batch].numpy()]
             this_sample_id = '_'.join(this_sample_id)
             
             uplot.plot_predicted_image(cnt, image_PIL, pixel_pred_idx, pixel_gt_idx, enable_wandb = wandb_enabled, image_type_name='test_pixel_image', image_dir = image_dir, sample_id=this_sample_id, scale_pred_idx = scale_pred_idx, scale_gt_idx = scale_gt_idx)

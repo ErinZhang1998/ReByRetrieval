@@ -29,7 +29,7 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
             pixel_gt = data["center"]
             cat_gt = data["obj_category"]
             id_gt = data["obj_id"]
-            dataset_indices = data["idx"] 
+
             sample_id = data["sample_id"]
             area_type = data["area_type"]
             
@@ -61,7 +61,7 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
                     [image, img_embed, pose_pred]
                 )
 
-                dataset_indices = torch.cat(du.all_gather_unaligned(dataset_indices), dim=0)
+
                 scale_gt = torch.cat(du.all_gather_unaligned(scale_gt), dim=0)
                 pixel_gt = torch.cat(du.all_gather_unaligned(pixel_gt), dim=0)
                 sample_id = torch.cat(du.all_gather_unaligned(sample_id), dim=0)
@@ -74,7 +74,6 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
                 'loss_cat': c_loss.item(),
                 'loss_obj': o_loss.item(),
                 'image': image.detach().cpu(),
-                'dataset_indices': dataset_indices.detach().cpu(),
                 'embeds': img_embed.detach().cpu(),
                 'scale_pred': scale_pred.detach().cpu(),
                 'scale_gt': scale_gt.detach().cpu(),

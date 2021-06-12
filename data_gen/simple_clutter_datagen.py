@@ -356,11 +356,13 @@ def gen_data(scene_num, selected_objects, args):
                 this_cam_mask_files = dict()
                 this_cam_pc_files = dict()
 
-                rgb=mujoco_env_test.model.render(height=cam_height, width=cam_width, camera_id=cam_num, depth=False, segmentation=False)
+                rgb = mujoco_env_test.model.render(height=cam_height, width=cam_width, camera_id=cam_num, depth=False, segmentation=False)
                 cv2.imwrite(os.path.join(scene_folder_path, f'rgb_{(cam_num):05}.png'), rgb)
                 # Depth image
                 depth = mujoco_env_test.model.render(height=cam_height, width=cam_width, camera_id=cam_num, depth=True, segmentation=False)
+                import pdb; pdb.set_trace()
                 depth = (depth*1000).astype(np.uint16) #(height, width)
+                
                 cv2.imwrite(os.path.join(scene_folder_path, f'depth_{(cam_num):05}.png'), depth)
                 cv2.imwrite(os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}.png'), segs)
 
@@ -583,7 +585,7 @@ def gen_data(scene_num, selected_objects, args):
             #         ax.scatter(i,j,   marker=".", c='r', s=100)
             # fig.savefig(img_path, dpi=fig.dpi)
             # plt.close()
-        # import pdb; pdb.set_trace()
+        # 
         object_descriptions['cam_information'] = cam_information
         
         
