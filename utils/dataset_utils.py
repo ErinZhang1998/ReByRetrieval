@@ -2,6 +2,44 @@ import os
 import numpy as np
 import matplotlib.image as mpimg
 
+
+#!/usr/bin/env python3
+
+import math
+import numpy as np
+
+from PIL import Image as PIL_Image
+
+import open3d as o3d
+
+
+"""
+Generates Open3D camera intrinsic matrix object from numpy camera intrinsic
+    matrix and image width and height
+
+@param cam_mat: 3x3 numpy array representing camera intrinsic matrix
+@param width:   image width in pixels
+@param height:  image height in pixels
+
+@return t_mat:  4x4 transformation matrix as numpy array
+"""
+def cammat2o3d(cam_mat, width, height):
+    cx = cam_mat[0,2]
+    fx = cam_mat[0,0]
+    cy = cam_mat[1,2]
+    fy = cam_mat[1,1]
+
+    return o3d.camera.PinholeCameraIntrinsic(width, height, fx, fy, cx, cy)
+
+
+def generateCroppedPointCloud(depth_img, intrinsic, camera_to_world_mat, img_width, img_height):
+    od_cammat = cammat2o3d(intrinsic, img_width, img_height)
+    od_depth = o3d.geometry.Image(depth_img)
+    o3d_cloud = o3d.geometry.PointCloud.create_from_depth_image(od_depth, od_cammat)
+    transformed_cloud = o3d_cloud.transform(camera_to_world_mat)
+
+    return transformed_cloud
+
 def compile_mask_files(dir_path):
     '''
     Dictionary mapping from camera index (in str form, e.g. '00039') to files of individual
@@ -31,28 +69,3 @@ def data_dir_list(root_dir):
             l.append(subdir_path)
 
     return l 
-
-def project_back_3d(P, world_to_camera_tf_mat, pt_2d, mult):
-    '''
-    pt_2d : (N, 2)
-    muly : (N, )
-    '''
-    N = len(pt_2d)
-    center_pad = np.append(pt_2d.T, np.ones(N).astype('int').reshape(1,-1), axis=0)
-    center_pad = center_pad * mult
-
-    pt_3d_camera_pre = np.linalg.inv(P) @ center_pad
-    pt_3d_camera = np.append(pt_3d_camera_pre, np.ones(len(pt_2d)).astype('int').reshape(1,-1), axis=0)
-
-    pt_3d_homo = np.linalg.inv(world_to_camera_tf_mat) @ pt_3d_camera
-    pt_3d_homo = pt_3d_homo / pt_3d_homo[-1,:]
-    pt_3d_homo = pt_3d_homo[:-1].T
-    return pt_3d_homo
-
-def get_mult(P, world_to_camera_tf_mat, pt_3d):
-    N = len(pt_3d)
-    pt_3d_homo = np.append(pt_3d.T, np.ones(N).astype('int').reshape(1,-1), axis=0) #(4,N)
-    pt_3d_camera = world_to_camera_tf_mat @ pt_3d_homo #(4,N)
-    pixel_coord = P @ (pt_3d_camera[:-1, :])
-    mult = pixel_coord[-1, :]
-    return mult 

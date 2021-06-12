@@ -593,6 +593,23 @@ def load_pc_from_pkl(pkl_filename):
     return xyz
 
 
+def cammat2o3d(cam_mat, width, height):
+    cx = cam_mat[0,2]
+    fx = cam_mat[0,0]
+    cy = cam_mat[1,2]
+    fy = cam_mat[1,1]
+
+    return o3d.camera.PinholeCameraIntrinsic(width, height, fx, fy, cx, cy)
+
+
+def generateCroppedPointCloud(depth_img, intrinsic, camera_to_world_mat, img_width, img_height):
+    od_cammat = cammat2o3d(intrinsic, img_width, img_height)
+    od_depth = o3d.geometry.Image(depth_img)
+    o3d_cloud = o3d.geometry.PointCloud.create_from_depth_image(od_depth, od_cammat)
+    transformed_cloud = o3d_cloud.transform(camera_to_world_mat)
+
+    return transformed_cloud
+
 
 ##############################################################################################################
 def add_light(scene_name, directional, ambient, diffuse, specular, castshadow, pos, dir, name):
