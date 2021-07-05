@@ -7,6 +7,9 @@ import shutil
 import trimesh
 from scipy.spatial.transform import Rotation as R, rotation
 
+from mujoco_env import MujocoEnv
+
+
 from data_gen_args import *
 from simple_clutter_utils import *
 
@@ -40,16 +43,20 @@ class MujocoObject(object):
         self.rot = np.zeros(3)
         self.pos = np.zeros(3)
 
-        
 
     def set_object_scale(self, scale = None):
         pass
     
-    def set_object_position(self, xyz):
-        self.pos = xyz
-    
-    def set_object_rotation(self, rotvec):
-        self.rot = rotvec
+    def get_mujoco_add_dict(self):
+        return {
+            'scene_name' : self.scene_name,
+            'object_name': self.object_name,
+            'mesh_names': [self.transformed_table_mesh_fname],
+            'pos': self.pos,
+            'size': self.size,
+            'color': self.color,
+            'rot': self.rot,
+        }
 
 class MujocoTable(MujocoObject):
     def __init__(self, **kwargs):
@@ -91,30 +98,29 @@ class MujocoNonTable(MujocoObject):
 
         self.set_object_scale()
     
+    def reset_size(self):
+        self.object_mesh = trimesh.load(self.transformed_table_mesh_fname, force='mesh')
+        object_bounds = self.object_mesh.bounds
+        range_max = np.max(object_bounds[1] - object_bounds[0])
+        object_size = 1 / range_max
+        normalize_vec = [object_size, object_size, object_size]
+        normalize_matrix = np.eye(4)
+        normalize_matrix[:3, :3] *= normalize_vec
+        self.object_mesh.apply_transform(normalize_matrix)
+        self.size = np.asarray(normalize_vec)
+    
     def set_object_scale(self, scale = None):
         '''
         scale : np.array (3,)
         '''
+        self.reset_size()
         if scale is None:
-            scale_vec = [np.random.choice([0.5, 0.75, 1.0])] * 3
-            scale_matrix = np.eye(4)
-            scale_matrix[:3, :3] *= scale_vec
-
-            object_bounds = self.object_mesh.bounds
-            range_max = np.max(object_bounds[1] - object_bounds[0])
-            object_size = 1 / range_max
-            normalize_vec = [object_size, object_size, object_size]
-            normalize_matrix = np.eye(4)
-            normalize_matrix[:3, :3] *= normalize_vec
-            self.object_mesh.apply_transform(normalize_matrix)
-            self.object_mesh.apply_transform(scale_matrix)
-            self.size = np.array(scale_vec) * np.array(normalize_vec)
-        else:
-            mesh = 
-            self.size = scale 
-            scale_matrix = np.eye(4)
-            scale_matrix[:3, :3] *= scale
-            self.object_mesh.apply_transform(scale_matrix)
+            scale = [np.random.choice([0.5, 0.75, 1.0])] * 3
+            
+        scale_matrix = np.eye(4)
+        scale_matrix[:3, :3] *= scale
+        self.object_mesh.apply_transform(scale_matrix)
+        self.size *= np.array(scale)
 
 
 class PerchScene(object):
@@ -123,6 +129,7 @@ class PerchScene(object):
         self.scene_num = scene_num
         self.selected_objects = selected_objects
         self.shapenet_filepath, top_dir, self.train_or_test = args.shapenet_filepath, args.top_dir, args.train_or_test
+        self.num_lights = args.num_lights
         self.num_objects = len(selected_objects) 
         self.selected_colors = [ALL_COLORS[i] for i in np.random.choice(len(ALL_COLORS), self.num_objects+1, replace=False)]
 
@@ -179,8 +186,9 @@ class PerchScene(object):
             self.object_info_dict[object_idx] = object_info
 
         
-        self.table_min_x, self.table_max_x,_ = np.min(self.table_info.table_top_corners, axis=0)
-        self.table_min_y, self.table_max_y,_ = np.max(self.table_info.table_top_corners, axis=0)
+        self.table_min_x, self.table_min_y,_ = np.min(self.table_info.table_top_corners, axis=0)
+        self.table_max_x, self.table_max_y,_ = np.max(self.table_info.table_top_corners, axis=0)
+        self.add_lights_to_scene()
 
     def add_table_to_scene(self):
         table_id = '97b3dfb3af4487b2b7d2794d2db4b0e7'
@@ -194,38 +202,103 @@ class PerchScene(object):
             color=self.selected_colors[0],
             num_objects_in_scene=self.num_objects,
         )
+        add_objects(self.table_info.get_mujoco_add_dict(), run_id=None, material_name=None)
 
     def add_objects_to_scene(self):
         pass 
+    
+    def add_lights_to_scene(self):
+        light_position, light_direction = get_light_pos_and_dir(self.num_lights)
+        ambients = np.random.uniform(0,0.05,self.num_lights*3).reshape(-1,3)
+        diffuses = np.random.uniform(0.25,0.35,self.num_lights*3).reshape(-1,3)
+        speculars = np.random.uniform(0.25,0.35,self.num_lights*3).reshape(-1,3)
+       
+        for light_id in range(self.num_lights):
+            add_light(
+                self.cam_temp_scene_xml_file,
+                directional=True,
+                ambient=ambients[light_id],
+                diffuse=diffuses[light_id],
+                specular=speculars[light_id],
+                castshadow=False,
+                pos=light_position[light_id],
+                dir=light_direction[light_id],
+                name=f'light{light_id}'
+            )
+    
+    def create_env(self):
+        self.mujoco_env = MujocoEnv(self.cam_temp_scene_xml_file, 1, has_robot=False)
+        self.mujoco_env.sim.physics.forward()
+        
+        for _ in range(self.num_objects):
+            for _ in range(4000):
+                self.mujoco_env.model.step()
+        all_poses = self.mujoco_env.data.qpos.ravel().copy().reshape(-1,7)
+        return all_poses
+
+class PerchSceneCompleteRandom(PerchScene):
+    def __init__(self, scene_num, selected_objects, args):
+        super().__init__(scene_num, selected_objects, args)
+    
+    def add_objects_to_scene(self):
+        for object_idx in range(self.num_objects):
+            mujoco_object = self.object_info_dict[object_idx]
+            object_bottom = -1.0 * self.object_info_dict[object_idx].object_mesh.bounds[0,2]
+            position = [
+                np.random.uniform(self.table_min_x+1, self.table_max_x-1),
+                np.random.uniform(self.table_min_y+1, self.table_max_y-1),
+                self.table_info.table_height + object_bottom + 0.002
+            ]
+            mujoco_object.pos = np.asrray(position)
+            mujoco_object.rot = np.random.uniform(0, 2*np.pi, 3)
+            self.object_info_dict[object_idx] = mujoco_object
+        
+        for object_idx in range(self.num_objects):
+            add_objects(self.object_info_dict[object_idx].get_mujoco_add_dict(), run_id=None, material_name=None)
 
 class PerchScene1(PerchScene):
     def __init__(self, scene_num, args):
         selected_objects = [
-            ('2880940',2,"bowl",'3152c7a0e8ee4356314eed4e88b74a21',7),
-            ('2946921',3,"can,tin,tin can",'d44cec47dbdead7ca46192d8b30882',8),
+            ('2880940',2,'3152c7a0e8ee4356314eed4e88b74a21',7),
+            ('2946921',3,'d44cec47dbdead7ca46192d8b30882',8),
         ]
         super().__init__(scene_num, selected_objects, args)
     
     def add_objects_to_scene(self):
         bowl_xyz = np.zeros(3)
+        bowl_width_limit = None
         for object_idx in range(self.num_objects):
-            updated_info = {}
+            mujoco_object = self.object_info_dict[object_idx]
             if object_idx == 0:
-                updated_info['rot'] = np.zeros(3)
                 obj_bound = self.object_info_dict[object_idx].object_mesh.bounds
                 
                 object_bottom = -obj_bound[0][2]
                 bowl_xyz[2] = self.table_info.table_height + object_bottom + 0.002
-                bowl_xyz[0] = np.random.uniform(self.table_min_x+1, self.table_max_x-1)
-                bowl_xyz[1] = np.random.uniform(self.table_min_y+1, self.table_max_y-1)
-                updated_info['pos'] = bowl_xyz
-
+                bowl_xyz[0] = np.random.uniform(self.table_min_x+2, self.table_max_x-2)
+                bowl_xyz[1] = np.random.uniform(self.table_min_y+2, self.table_max_y-2)
+                mujoco_object.pos = bowl_xyz
+                mujoco_object.rot = np.zeros(3)
+                scale = [np.random.choice([0.75, 0.85, 1.0])] * 3
+                mujoco_object.set_object_scale(scale=scale)
+                bowl_bounds = mujoco_object.object_mesh.bounds
+                bowl_width_limit = np.min(bowl_bounds[1,:2]-bowl_bounds[0,:2])
                 
             if object_idx == 1:
                 position = copy.deepcopy(bowl_xyz)
                 position[2] += 0.003
-                updated_info['pos'] = position
-                updated_info['rot'] = np.random.uniform(0, 2*np.pi, 3)
+                mujoco_object.pos = [10, 10, 1]
+                mujoco_object.rot = np.random.uniform(0, 2*np.pi, 3)
+
+                mujoco_object.reset_size()
+                bounds = mujoco_object.object_mesh.bounds
+                x_range, y_range, z_range = bounds[1] - bounds[0]
+                scale = [bowl_width_limit / x_range, bowl_width_limit / y_range, bowl_width_limit / z_range]
+                mujoco_object.set_object_scale(scale=scale)
+                
             
-            self.object_info_dict[object_idx].update(updated_info)
+            self.object_info_dict[object_idx] = mujoco_object
         
+        for object_idx in range(self.num_objects):
+            add_objects(self.object_info_dict[object_idx].get_mujoco_add_dict(), run_id=None, material_name=None)
+    
+    
