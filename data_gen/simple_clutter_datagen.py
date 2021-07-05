@@ -31,6 +31,9 @@ from data_gen_args import *
 from simple_clutter_utils import *
 import pandas as pd
 
+from mujoco_py import cymj
+from mujoco_py import load_model_from_path, MjSim
+
 np.set_printoptions(precision=4, suppress=True)
 
 #Color of objects:
@@ -50,7 +53,9 @@ REGION_LIMIT = 2*np.sqrt(0.5)
     
 #@profile
 def gen_data(scene_num, selected_objects, args):
-    shapenet_filepath, shapenet_decomp_filepath, top_dir, train_or_test = args.shapenet_filepath, args.shapenet_decomp_filepath, args.top_dir, args.train_or_test
+    np.random.seed(129)
+
+    shapenet_filepath, top_dir, train_or_test = args.shapenet_filepath, args.top_dir, args.train_or_test
 
     num_objects = len(selected_objects) 
     selected_colors = [ALL_COLORS[i] for i in np.random.choice(len(ALL_COLORS), num_objects+1, replace=False)]
@@ -203,14 +208,16 @@ def gen_data(scene_num, selected_objects, args):
             object_height = object_bounds[1][2] - object_bounds[0][2]            
             object_max_height = max(object_max_height, object_height)
 
-            obj_info['xyz'] = np.asarray(object_xyz)
-            obj_info['scale'] = obj_scale_vec
-            obj_info['color'] = selected_colors[object_idx+1]
-            obj_info['rotation'] = object_rot
-            obj_info['obj_mesh_filename'] = '0{}/{}/models/model_normalized.obj'.format(obj_synset_cat, obj_shapenet_id)
-            obj_info['object_height'] = object_height
-            obj_info['object_tf'] = object_tf
-            obj_info['object_bounds'] = object_bounds
+            obj_info = {
+                'xyz': np.asarray(object_xyz),
+                'scale': obj_scale_vec,
+                'color': selected_colors[object_idx+1],
+                'rotation': object_rot,
+                'obj_mesh_filename': '0{}/{}/models/model_normalized.obj'.format(obj_synset_cat, obj_shapenet_id),
+                'object_height': object_height,
+                'object_bounds': object_bounds,
+                'mesh_vertices' : np.asarray(object_mesh.vertices),
+            }
             object_idx_to_obj_info[object_idx] = obj_info
 
         layout_filename = os.path.join(scene_folder_path, 'layout.png')
@@ -225,20 +232,32 @@ def gen_data(scene_num, selected_objects, args):
         texture_file = np.random.choice(all_textures, 1)[0]
         texture_name = texture_file.split(".")[0]
         add_texture(cam_temp_scene_xml_file, texture_name, os.path.join(top_dir, 'table_texture', texture_file), texture_type="cube")
-        add_objects(cam_temp_scene_xml_file, 'table', [stl_table_mesh_filename], table_xyz, table_scale, table_color, table_orientation, scene_num, material_name=texture_name)
+        added_table_info = {
+            'scene_name': cam_temp_scene_xml_file,
+            'object_name': 'table',
+            'mesh_names': [stl_table_mesh_filename],
+            'pos': table_xyz,
+            'size': table_scale,
+            'color': table_color,
+            'rot': table_orientation,
+        }
+        add_objects(added_table_info, material_name=texture_name)
         
         # scene_name, object_name, mesh_names, pos, size, color, rot, run_id, contact_geom_list=None, add_ind=-1, add_contacts=True
         for object_idx in object_idx_to_obj_info.keys():
             obj_info = object_idx_to_obj_info[object_idx]
             mesh_names = [os.path.join(top_dir, f'assets/model_normalized_{scene_num}_{object_idx}.stl')]
-            add_objects(cam_temp_scene_xml_file, \
-                        f'object_{object_idx}_{scene_num}', \
-                        mesh_names, \
-                        obj_info['xyz'], \
-                        [1,1,1], \
-                        obj_info['color'], \
-                        obj_info['rotation'], \
-                        scene_num)
+            
+            added_object_info = {
+                'scene_name': cam_temp_scene_xml_file,
+                'object_name': f'object_{object_idx}_{scene_num}',
+                'mesh_names': mesh_names,
+                'pos': obj_info['xyz'],
+                'size': [1,1,1],
+                'color': obj_info['color'],
+                'rot': obj_info['rotation'],
+            }
+            add_objects(added_object_info)
         
         light_position, light_direction = get_light_pos_and_dir(args.num_lights)
         ambients = np.random.uniform(0,0.05,args.num_lights*3).reshape(-1,3)
@@ -337,6 +356,33 @@ def gen_data(scene_num, selected_objects, args):
         mujoco_env_test = MujocoEnv(cam_temp_scene_xml_file, 1, has_robot=False)
         mujoco_env_test.sim.physics.forward()
 
+        # ###
+        hack_path = '/media/xiaoyuz1/hdd5/xiaoyuz1/data/cluttered_datasets/size_3d/training_set/scene_000005_pc_gen'
+        # model = load_model_from_path(cam_temp_scene_xml_file)
+        # sim = MjSim(model)
+        # # Bounds can optionally be provided to crop points outside the workspace
+        # pc_gen = PointCloudGenerator(sim, min_bound=(-1., -1., -1.), max_bound=(1., 1., 1.))
+        # hack_path = '/media/xiaoyuz1/hdd5/xiaoyuz1/data/cluttered_datasets/size_3d/training_set/scene_000005_pc_gen'
+        # all_cam_info = dict()
+        # for i in [1,2,3,4,5]:
+        #     cam_i = list(cam_xyzs.keys())[i]
+        #     depth_img = pc_gen.captureImage(cam_i)
+        #     color_img = pc_gen.captureImage(cam_i, False)
+            
+        #     pc_gen.saveImg(depth_img,hack_path , f'depth_pc_gen_{(cam_i):05}')
+        #     pc_gen.saveImg(color_img, hack_path, f'rgb_pc_gen_{(cam_i):05}')
+        #     cam_i_info = pc_gen.camera_information(cam_i)
+        #     ptc = pc_gen.generateCroppedPointCloud_onecam(cam_i)
+        #     cam_i_info.update({
+        #         'all_pts' : np.asarray(ptc.points),
+        #         'depth_img' : depth_img,
+        #     })
+        #     all_cam_info[cam_i] = cam_i_info
+        # with open(os.path.join(hack_path, 'scene_description.p'), 'wb+') as save_file:
+        #     pickle.dump(all_cam_info, save_file)
+        # ##
+        # return 
+        
 
         cam_information = dict()
         cam_transformations = dict()
@@ -360,14 +406,15 @@ def gen_data(scene_num, selected_objects, args):
                 cv2.imwrite(os.path.join(scene_folder_path, f'rgb_{(cam_num):05}.png'), rgb)
                 # Depth image
                 depth = mujoco_env_test.model.render(height=cam_height, width=cam_width, camera_id=cam_num, depth=True, segmentation=False)
-                import pdb; pdb.set_trace()
-                depth = (depth*1000).astype(np.uint16) #(height, width)
                 
-                cv2.imwrite(os.path.join(scene_folder_path, f'depth_{(cam_num):05}.png'), depth)
+                depth_scaled = (depth*1000).astype(np.uint16) #(height, width)
+                
+                cv2.imwrite(os.path.join(scene_folder_path, f'depth_{(cam_num):05}.png'), depth_scaled)
                 cv2.imwrite(os.path.join(scene_folder_path, f'segmentation_{(cam_num):05}.png'), segs)
 
                 # Point cloud of entire scene 
                 all_ptcld = from_depth_img_to_pc(depth, cam_width/2, cam_height/2, camera_res['focal_scaling'], camera_res['focal_scaling'])
+
                 all_inds = np.meshgrid(np.arange(cam_width), np.arange(cam_height))
                 all_pt_fname = os.path.join(scene_folder_path, f'pc_all_{(cam_num):05}.pkl')
                 with open(all_pt_fname, 'wb+') as f:
@@ -443,9 +490,61 @@ def gen_data(scene_num, selected_objects, args):
                     'object_pc_files' : this_cam_pc_files,
                     'rgb_file' : f'rgb_{(cam_num):05}.png',
                     'depth_file' : f'depth_{(cam_num):05}.png',
+                    'depth' : depth,
                 })
                 cam_information[cam_num] = camera_res
-                
+
+
+        ###
+        ####################### DEBUG PURPOSE
+        # object_transforms = {}
+        # for object_idx in new_obj_keys:
+        #     obj_info = object_idx_to_obj_info[object_idx]
+
+        #     object_description = dict()
+        #     object_description['position'] = mujoco_env_test.data.qpos.ravel()[7+7*object_idx:7+7*object_idx+3].copy()
+        #     object_description['orientation'] = mujoco_env_test.data.qpos.ravel()[7+7*object_idx+3:7+7*object_idx+7].copy()
+        #     object_quat = copy.deepcopy(object_description['orientation'])
+        #     object_quat[:3] = object_description['orientation'][1:]
+        #     object_quat[3] = object_description['orientation'][0]
+        #     object_description['orientation_quat'] = object_quat
+
+
+        #     r2 = R.from_quat(object_quat)
+        #     object_tf = autolab_core.RigidTransform(rotation = r2.as_matrix(), translation = object_description['position'], from_frame='object2_{}'.format(object_idx), to_frame='world')
+
+        #     object_description['object_frame_to_world_frame_mat'] = object_tf.matrix
+        #     object_description['world_frame_to_object_frame_mat'] = object_tf.inverse().matrix
+        #     object_description['mesh_vertices'] = obj_info['mesh_vertices']
+        #     object_description['mesh_vertices_world_frame'] = transform_3d_frame(object_tf.matrix, obj_info['mesh_vertices']) 
+            
+        #     object_transforms[object_idx] = object_description
+        
+        # with open(os.path.join(hack_path, 'scene_description.p'), 'rb') as save_file:
+        #     all_cam_info = pickle.load(save_file)
+        # import pdb; pdb.set_trace()
+        # for cam_i, cam_i_d in all_cam_info.items():
+        #     all_objects_pt_fname = os.path.join(scene_folder_path, f'pc_no_table_{(cam_i):05}.pkl')
+        #     with open(all_objects_pt_fname, 'rb') as f:
+        #         pts_self, x_ind, y_ind = pickle.load(f)
+        #     N1 = len(cam_i_d['all_pts'])
+        #     ptc_1 = create_o3d_pc(cam_i_d['all_pts'])
+        #     ptc_1.colors = o3d.utility.Vector3dVector(np.zeros((N1,3)))
+        #     o3d.visualization.draw_geometries([ptc_1])
+
+        #     N2 = len(x_ind)
+        #     xyz_filtered = np.asarray(ptc_1.points).reshape(480,640,3)[x_ind, y_ind]
+        #     ptc_filtered = create_o3d_pc(xyz_filtered)
+        #     ptc_filtered.colors = o3d.utility.Vector3dVector(np.zeros((N2,3)))
+        #     o3d.visualization.draw_geometries([ptc_filtered])
+        #     import pdb; pdb.set_trace()
+            
+        #     object_idx = 0
+        #     vertices_world = object_transforms[object_idx]['mesh_vertices_world_frame']
+        #     mesh_vertices_2d = project_2d(cam_information[cam_i]['P'], cam_transformations[cam_i], vertices_world)
+        
+        # ##
+        # return    
         
         object_descriptions = dict()
         object_descriptions['scene_num'] = scene_num
@@ -497,6 +596,9 @@ def gen_data(scene_num, selected_objects, args):
             object_description['object_bounds_world_frame'] = transform_3d_frame(object_tf.matrix, obj_info['object_bounds'])
             object_description['object_frame_to_world_frame_mat'] = object_tf.matrix
             object_description['world_frame_to_object_frame_mat'] = object_tf.inverse().matrix
+
+            object_description['mesh_vertices'] = obj_info['mesh_vertices']
+            object_description['mesh_vertices_world_frame'] = transform_3d_frame(object_tf.matrix, obj_info['mesh_vertices']) 
             
             cur_position = object_description['position']
             object_cam_d = dict()
@@ -612,6 +714,7 @@ def abortable_worker(func, *args, **kwargs):
         raise    
 
 if __name__ == '__main__':
+    np.random.seed(129)
     df = pd.read_csv(args.csv_file_path)
 
     selected_object_indices = []
