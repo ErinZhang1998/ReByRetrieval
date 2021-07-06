@@ -18,6 +18,9 @@ parser.add_option("--min_num_objects", dest="min_num_objects", type="int", defau
 parser.add_option("--max_num_objects", dest="max_num_objects", type="int", default=6)
 
 parser.add_option("--start_scene_idx", dest="start_scene_idx", type="int", default=0)
-parser.add_option("--num_lights", dest="num_lights", type="int", default=4)
+parser.add_option("--num_lights", dest="num_lights", type="int", default=3)
+
+parser.add_option("--depth_factor", dest="depth_factor", type="int", default=1000)
+
 
 (args, argss) = parser.parse_args()

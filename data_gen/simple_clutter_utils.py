@@ -624,7 +624,6 @@ def move_object(e, ind, pos, rot):
     all_vels[6+6*ind: 6+6*ind+6] = 0
     e.set_state(all_poses, all_vels)
 
-
 def get_camera_position_occluded_one_cam(table_height, xyz1, xyz2, height1, height2, max_dist, deg_candidate):
     distance_away = 3
 

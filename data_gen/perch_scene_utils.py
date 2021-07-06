@@ -2,6 +2,7 @@ import numpy as np
 import os
 import copy
 import math
+import cv2
 import pickle
 import shutil
 import trimesh
@@ -12,6 +13,23 @@ from mujoco_env import MujocoEnv
 
 from data_gen_args import *
 from simple_clutter_utils import *
+
+class SceneCamera(object):
+    def __init__(self, scene_name, location, target, cam_num):
+        self.scene_name = scene_name
+        self.location  = location
+        self.target = target 
+        self.cam_num = cam_num
+        self.cam_name = f'gen_cam_{cam_num}'
+    
+    def add_camera_to_file(self):
+        add_camera(self.scene_name, self.cam_name, self.location, self.target, self.cam_num)
+
+    # def get_cemera_info(self, mujoco_env, cam_height, cam_width):
+    #     camera = Camera(physics=mujoco_env.model, height=cam_height, width=cam_width, camera_id=self.cam_num)
+    #     camera_id, camera_tf,camera_res = get_camera_matrix(camera)
+    #     rgb = mujoco_env.model.render(height=cam_height, width=cam_width, camera_id=self.cam_num, depth=False, segmentation=False)
+        
 
 class MujocoObject(object):
     def __init__(
@@ -40,13 +58,23 @@ class MujocoObject(object):
         object_mesh.export(transformed_table_mesh_fname)
         self.object_mesh = object_mesh
 
+        # Chaning rotation changes the object mesh
         self.rot = np.zeros(3)
         self.pos = np.zeros(3)
+        # Chaning size scale changes the object mesh
+        self.size = np.ones(3)
 
 
     def set_object_scale(self, scale = None):
         pass
     
+    def set_object_rot(self, rot):
+        r = R.from_euler('xyz', rot, degrees=False)
+        rotation_mat = np.eye(4)
+        rotation_mat[0:3, 0:3] = r.as_matrix()
+        self.object_mesh.apply(rotation_mat)
+        self.rot = rot 
+
     def get_mujoco_add_dict(self):
         return {
             'scene_name' : self.scene_name,
@@ -64,6 +92,11 @@ class MujocoTable(MujocoObject):
 
         self.set_object_scale()
 
+    def set_object_rot(self, rot):
+        # If change rotation, then need to change table_frame_to_world and other stuff
+        # Not for now
+        raise
+
     def set_object_scale(self, scale = None):
         table_bounds = self.object_mesh.bounds
         table_xyz_range = np.min(table_bounds[1, :2] - table_bounds[0, :2])
@@ -77,7 +110,7 @@ class MujocoTable(MujocoObject):
         self.size = scale_vec
         self.pos = np.array([0.0, 0.0, -self.object_mesh.bounds[0][2]])
 
-        self.table_height = self.object_mesh.bounds[1][2] - self.object_mesh.bounds[0][2]
+        self.height = self.object_mesh.bounds[1][2] - self.object_mesh.bounds[0][2]
         table_r = R.from_euler('xyz', self.rot, degrees=False)
         self.table_frame_to_world = autolab_core.RigidTransform(
             rotation=table_r.as_matrix(),
@@ -99,6 +132,7 @@ class MujocoNonTable(MujocoObject):
         self.set_object_scale()
     
     def reset_size(self):
+        # Normalize the size by scaling the longest edge
         self.object_mesh = trimesh.load(self.transformed_table_mesh_fname, force='mesh')
         object_bounds = self.object_mesh.bounds
         range_max = np.max(object_bounds[1] - object_bounds[0])
@@ -132,6 +166,7 @@ class PerchScene(object):
         self.num_lights = args.num_lights
         self.num_objects = len(selected_objects) 
         self.selected_colors = [ALL_COLORS[i] for i in np.random.choice(len(ALL_COLORS), self.num_objects+1, replace=False)]
+        self.depth_factor = args.depth_factor
 
         if not os.path.exists(args.scene_save_dir):
             os.mkdir(args.scene_save_dir)
@@ -190,6 +225,9 @@ class PerchScene(object):
         self.table_max_x, self.table_max_y,_ = np.max(self.table_info.table_top_corners, axis=0)
         self.add_lights_to_scene()
 
+        self.total_camera_num = 0
+        self.camera_info_dict = dict()
+
     def add_table_to_scene(self):
         table_id = '97b3dfb3af4487b2b7d2794d2db4b0e7'
         table_mesh_fname = os.path.join(self.shapenet_filepath, f'04379243/{table_id}/models/model_normalized.obj')
@@ -226,6 +264,45 @@ class PerchScene(object):
                 name=f'light{light_id}'
             )
     
+    def add_camera_to_scene(self, location, target):
+        new_camera = SceneCamera(self.cam_temp_scene_xml_file, location, target, self.total_camera_num)
+        new_camera.add_camera_to_file()
+        self.camera_info_dict[self.total_camera_num] = new_camera
+        self.total_camera_num += 1
+    
+    def render_rgb(self, cam_height, cam_width, cam_num, save=True):
+        # self.camera_info_dict[cam_num]
+        rgb = self.mujoco_env.model.render(
+            height=cam_height, 
+            width=cam_width, 
+            camera_id=cam_num, 
+            depth=False, 
+            segmentation=False
+        )
+        if save:
+            cv2.imwrite(os.path.join(self.scene_folder_path, f'rgb_{(cam_num):05}.png'), rgb)
+        return rgb
+    
+    def render_depth(self, cam_height, cam_width, cam_num, save=True):
+        depth = self.mujoco_env.model.render(
+            height=cam_height, 
+            width=cam_width, 
+            camera_id=cam_num, 
+            depth=True, 
+            segmentation=False
+        )
+        depth_scaled = (depth*self.depth_factor).astype(np.uint16) #(height, width)   
+        if save:     
+            cv2.imwrite(os.path.join(self.scene_folder_path, f'depth_{(cam_num):05}.png'), depth_scaled)
+        return depth
+    
+    def render_whole_scene_segmentation(self, cam_height, cam_width, cam_num, save=True):
+        camera = Camera(physics=self.mujoco_env.model, height=cam_height, width=cam_width, camera_id=cam_num)
+        segmentation = camera.render(segmentation=True)[:,:,0] #(480, 640, 2)
+        if save:
+            cv2.imwrite(os.path.join(self.scene_folder_path, f'segmentation_{(cam_num):05}.png'), segmentation)
+        return segmentation
+    
     def create_env(self):
         self.mujoco_env = MujocoEnv(self.cam_temp_scene_xml_file, 1, has_robot=False)
         self.mujoco_env.sim.physics.forward()
@@ -236,30 +313,11 @@ class PerchScene(object):
         all_poses = self.mujoco_env.data.qpos.ravel().copy().reshape(-1,7)
         return all_poses
 
-class PerchSceneCompleteRandom(PerchScene):
-    def __init__(self, scene_num, selected_objects, args):
-        super().__init__(scene_num, selected_objects, args)
-    
-    def add_objects_to_scene(self):
-        for object_idx in range(self.num_objects):
-            mujoco_object = self.object_info_dict[object_idx]
-            object_bottom = -1.0 * self.object_info_dict[object_idx].object_mesh.bounds[0,2]
-            position = [
-                np.random.uniform(self.table_min_x+1, self.table_max_x-1),
-                np.random.uniform(self.table_min_y+1, self.table_max_y-1),
-                self.table_info.table_height + object_bottom + 0.002
-            ]
-            mujoco_object.pos = np.asrray(position)
-            mujoco_object.rot = np.random.uniform(0, 2*np.pi, 3)
-            self.object_info_dict[object_idx] = mujoco_object
-        
-        for object_idx in range(self.num_objects):
-            add_objects(self.object_info_dict[object_idx].get_mujoco_add_dict(), run_id=None, material_name=None)
-
 class PerchScene1(PerchScene):
     def __init__(self, scene_num, args):
+        # 3152c7a0e8ee4356314eed4e88b74a21
         selected_objects = [
-            ('2880940',2,'3152c7a0e8ee4356314eed4e88b74a21',7),
+            ('2880940',2,'95ac294f47fd7d87e0b49f27ced29e3',7),
             ('2946921',3,'d44cec47dbdead7ca46192d8b30882',8),
         ]
         super().__init__(scene_num, selected_objects, args)
@@ -273,7 +331,7 @@ class PerchScene1(PerchScene):
                 obj_bound = self.object_info_dict[object_idx].object_mesh.bounds
                 
                 object_bottom = -obj_bound[0][2]
-                bowl_xyz[2] = self.table_info.table_height + object_bottom + 0.002
+                bowl_xyz[2] = self.table_info.height + object_bottom + 0.002
                 bowl_xyz[0] = np.random.uniform(self.table_min_x+2, self.table_max_x-2)
                 bowl_xyz[1] = np.random.uniform(self.table_min_y+2, self.table_max_y-2)
                 mujoco_object.pos = bowl_xyz
@@ -300,5 +358,46 @@ class PerchScene1(PerchScene):
         
         for object_idx in range(self.num_objects):
             add_objects(self.object_info_dict[object_idx].get_mujoco_add_dict(), run_id=None, material_name=None)
+
+        # Add camera around the scene
+        num_angles = 8
+        quad = (2.0*math.pi) / num_angles
+        normal_thetas = [i*quad for i in range(num_angles)]
+        # [np.random.uniform(i*quad, (i+1.0)*quad, 1)[0] for i in range(num_angles)]
+        for theta in normal_thetas:
+            cam_x = np.cos(theta) * 4 + self.object_info_dict[0].pos[0]
+            cam_y = np.sin(theta) * 4 + self.object_info_dict[0].pos[1]
+            location = [cam_x, cam_y, self.table_info.height+1.5]
+            target = self.object_info_dict[0].pos
+            self.add_camera_to_scene(location, target)
+        
+        all_poses = self.create_env()
+        bowl_position = all_poses[1][:3]
+        can_position = copy.deepcopy(bowl_position)
+        can_position[2] += 0.008
+        import pdb; pdb.set_trace()
+        rot_x,rot_y,rot_z,rot_w = R.from_rotvec(self.object_info_dict[1].rot).as_quat()
+        new_rot = [rot_w, rot_x, rot_y, rot_z]
+        move_object(self.mujoco_env, 1, can_position, new_rot)
+        for cam_num in self.camera_info_dict.keys():
+            self.render_rgb(480, 640, cam_num)
+
+class PerchSceneCompleteRandom(PerchScene):
+    def __init__(self, scene_num, selected_objects, args):
+        super().__init__(scene_num, selected_objects, args)
     
-    
+    def add_objects_to_scene(self):
+        for object_idx in range(self.num_objects):
+            mujoco_object = self.object_info_dict[object_idx]
+            object_bottom = -1.0 * self.object_info_dict[object_idx].object_mesh.bounds[0,2]
+            position = [
+                np.random.uniform(self.table_min_x+1, self.table_max_x-1),
+                np.random.uniform(self.table_min_y+1, self.table_max_y-1),
+                self.table_info.height + object_bottom + 0.002
+            ]
+            mujoco_object.pos = np.asrray(position)
+            mujoco_object.rot = np.random.uniform(0, 2*np.pi, 3)
+            self.object_info_dict[object_idx] = mujoco_object
+        
+        for object_idx in range(self.num_objects):
+            add_objects(self.object_info_dict[object_idx].get_mujoco_add_dict(), run_id=None, material_name=None)
