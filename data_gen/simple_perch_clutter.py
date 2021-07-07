@@ -19,10 +19,10 @@ def create_one_6d_scene(scene_num, selected_objects, args):
 
     try:
         #
-        perch_scene = PerchScene1(scene_num, args)
+        perch_scene = PerchSceneBowlAndCan(scene_num, args)
         perch_scene.add_objects_to_scene()
 
-        import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
     except:
         print('##################################### GEN Error!')
         # shutil.rmtree(scene_folder_path)

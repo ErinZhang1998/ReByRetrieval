@@ -613,16 +613,23 @@ def doOverlap(l1, r1, l2, r2, buf):
     return True
 
 
-def move_object(e, ind, pos, rot):
+def move_object(mujoco_env, ind, pos, rot):
     # ASSUME THERE IS TABLE so 7+ and 6+
-    all_poses = e.data.qpos.ravel().copy()
-    all_vels = e.data.qvel.ravel().copy()
+    all_poses = mujoco_env.data.qpos.ravel().copy()
+    all_vels = mujoco_env.data.qvel.ravel().copy()
 
     all_poses[7+7*ind: 7+7*ind+3] = pos
     all_poses[7+7*ind+3: 7+7*ind+7] = rot
 
     all_vels[6+6*ind: 6+6*ind+6] = 0
-    e.set_state(all_poses, all_vels)
+    mujoco_env.set_state(all_poses, all_vels)
+
+    num_objects = all_poses.reshape(-1, 7).shape[0]
+    # for _ in range(num_objects):
+    #     for _ in range(10000):
+    #         mujoco_env.model.step()
+    return mujoco_env.data.qpos.ravel().copy().reshape(-1, 7)
+
 
 def get_camera_position_occluded_one_cam(table_height, xyz1, xyz2, height1, height2, max_dist, deg_candidate):
     distance_away = 3
@@ -809,6 +816,7 @@ def get_camera_matrix(camera):
 
     res = {
         'P': P,
+        'intrinsices': P,
         'pos': pos,
         'rot': rot,
         'fov': fov,
@@ -873,6 +881,11 @@ def object_bounds_scaled_rotated(bounds, scale, rot=None):
         rotation_mat[0:3, 0:3] = r.as_matrix()
         bounds_rotated = transform_3d_frame(rotation_mat, bounds)
     return bounds_rotated
+
+def mujoco_quat_to_rotation_object(quat_wxyz):
+    w,x,y,z = quat_wxyz
+    return R.from_quat([x,y,z,w])
+    
 
 ##############################################################################################################
 
@@ -1082,6 +1095,7 @@ def add_objects(object_info, run_id=None, material_name=None):
         geom_name = f'gen_geom_{object_name}_{geom_ind}'
         geom_names.append(geom_name)
         new_geom.setAttribute('name', geom_name)
+        new_geom.setAttribute('mass', '1')
         new_geom.setAttribute('class', '/')
         new_geom.setAttribute('type', 'mesh')
         if not material_name is None:
@@ -1147,6 +1161,7 @@ for name, color in all_colors_dict.items():
         continue
     ALL_COLORS.append(np.asarray(mcolors.to_rgb(color)))
 
+
 def add_object_in_scene(object_info, scale_3d=False):
     synset_category = object_info['synset_category']
     object_mesh = trimesh.load(object_info['mesh_fname'], force='mesh')
@@ -1177,7 +1192,7 @@ def add_object_in_scene(object_info, scale_3d=False):
     f = open(upright_fname, "w+")
     f.close()
     object_mesh.export(upright_fname)
-    object_rot = np.random.uniform(0,2*np.pi,3)
+    object_rot = np.random.uniform(0, 2*np.pi, 3)
     r2 = R.from_euler('xyz', object_rot, degrees=False)
     rotation_mat = np.eye(4)
     rotation_mat[0:3, 0:3] = r2.as_matrix()
@@ -1186,26 +1201,27 @@ def add_object_in_scene(object_info, scale_3d=False):
     object_bottom = -object_bounds[0][2]
 
     return {
-        'bounds' : object_bounds,
-        'size': [1,1,1],
-        'scale' : obj_scale_vec,
+        'bounds': object_bounds,
+        'size': [1, 1, 1],
+        'scale': obj_scale_vec,
         'rot': object_rot,
     }
+
 
 def add_object_in_scene_with_xyz(object_info, scale_3d=False):
 
     output_object_info = add_object_in_scene(object_info, scale_3d=False)
-    
+
     # Determine object position
     object_x = np.random.uniform(
-        object_info['x_sample_range'][0], 
-        object_info['x_sample_range'][1], 
+        object_info['x_sample_range'][0],
+        object_info['x_sample_range'][1],
     )
     object_y = np.random.uniform(
-        object_info['y_sample_range'][0], 
-        object_info['y_sample_range'][1], 
+        object_info['y_sample_range'][0],
+        object_info['y_sample_range'][1],
     )
-    object_z = object_info['table_height'] + object_bottom #+ 0.001
+    object_z = object_info['table_height'] + object_bottom  # + 0.001
     object_xyz = [object_x, object_y, object_z]
 
     output_object_info.update({
@@ -1214,7 +1230,7 @@ def add_object_in_scene_with_xyz(object_info, scale_3d=False):
     return output_object_info
 
 
-def add_table_in_scene(num_objects, table_color, table_mesh_fname, transformed_table_mesh_fname):
+def add_table_in_scene(num_objects, table_color, table_mesh_fname, transformed_mesh_fname):
     # Choose table and table scale and add to sim
     # table_id = '97b3dfb3af4487b2b7d2794d2db4b0e7'
     # table_mesh_filename = os.path.join(shapenet_filepath, f'04379243/{table_id}/models/model_normalized.obj')
@@ -1231,9 +1247,9 @@ def add_table_in_scene(num_objects, table_color, table_mesh_fname, transformed_t
     table_scale = [table_size, table_size, table_size]
     # Export table mesh as .stl file
     #
-    f = open(transformed_table_mesh_fname, "w+")
+    f = open(transformed_mesh_fname, "w+")
     f.close()
-    table_mesh.export(transformed_table_mesh_fname)
+    table_mesh.export(transformed_mesh_fname)
 
     table_bounds = table_bounds*np.array([table_scale, table_scale])
     table_bottom = -table_bounds[0][2]
@@ -1247,7 +1263,7 @@ def add_table_in_scene(num_objects, table_color, table_mesh_fname, transformed_t
     table_info = {
         'object_name': 'table',
         'bounds': table_bounds,
-        'mesh_names': [transformed_table_mesh_fname],
+        'mesh_names': [transformed_mesh_fname],
         'pos': table_xyz,
         'size': table_scale,
         'color': table_color,
@@ -1255,6 +1271,7 @@ def add_table_in_scene(num_objects, table_color, table_mesh_fname, transformed_t
     }
 
     return table_info
+
 
 def mujoco_pose_output(vec):
     position = vec[:3]

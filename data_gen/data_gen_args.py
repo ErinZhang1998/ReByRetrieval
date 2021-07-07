@@ -3,7 +3,8 @@ from optparse import OptionParser
 parser = OptionParser()
 parser.add_option("--shapenet_filepath", dest="shapenet_filepath")
 
-parser.add_option("--shapenet_decomp_filepath", dest="shapenet_decomp_filepath")
+# shapenet_convex_decomp_dir shapenet_decomp_filepath
+parser.add_option("--shapenet_convex_decomp_dir", dest="shapenet_convex_decomp_dir")
 
 parser.add_option("--top_dir", dest="top_dir")
 
@@ -20,7 +21,10 @@ parser.add_option("--max_num_objects", dest="max_num_objects", type="int", defau
 parser.add_option("--start_scene_idx", dest="start_scene_idx", type="int", default=0)
 parser.add_option("--num_lights", dest="num_lights", type="int", default=3)
 
-parser.add_option("--depth_factor", dest="depth_factor", type="int", default=1000)
+parser.add_option("--depth_factor", dest="depth_factor", type="int", default=10000)
+parser.add_option("--width", dest="width", type="int", default=640)
+parser.add_option("--height", dest="height", type="int", default=480)
+# parser.add_option("--height", dest="height", type="int", default=480)
 
 
 (args, argss) = parser.parse_args()
