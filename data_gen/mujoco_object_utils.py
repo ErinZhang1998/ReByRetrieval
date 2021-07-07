@@ -137,52 +137,15 @@ class MujocoNonTable(MujocoObject):
     def load_decomposed_mesh(self):
         obj_convex_decomp_dir = os.path.join(self.shapenet_convex_decomp_dir, f'{self.synset_id}/{self.model_id}')
         comb_mesh = trimesh.load(os.path.join(obj_convex_decomp_dir, 'convex_decomp.obj'), force='mesh')
-        # comb_mesh = None
-        # for mesh_file in os.listdir(obj_convex_decomp_dir):
-        #     object_mesh_part = trimesh.load(os.path.join(obj_convex_decomp_dir, mesh_file))
-        #     if comb_mesh == None:
-        #         comb_mesh = object_mesh_part
-        #     else:
-        #         comb_mesh += object_mesh_part
         
         comb_mesh.apply_transform(self.upright_mat) 
         range_max = np.max(comb_mesh.bounds[1] - comb_mesh.bounds[0])
         comb_mesh_scale = self.actual_size / range_max
         utils.apply_scale_to_mesh(comb_mesh, comb_mesh_scale)
-        # trimesh.repair.fix_inversion(comb_mesh)
-        # meshes = comb_mesh.split()
         comb_mesh.export(os.path.join(obj_convex_decomp_dir, 'convex_decomp.stl'))
         mesh_names = [os.path.join(obj_convex_decomp_dir, 'convex_decomp.stl')]
-        # mesh_names = []
-        # mesh_masses = []
         combined_mesh = comb_mesh
-        # combined_mesh = None
-        # mesh_file_ind = 0
-        # for mesh_file in os.listdir(obj_convex_decomp_dir):
-        #     object_mesh_part = meshes[mesh_file_ind]
-        #     if object_mesh_part.faces.shape[0] > 10 and object_mesh_part.mass>10e-7:
-        #         object_mesh_part_fname = os.path.join(obj_convex_decomp_dir, mesh_file[:-3]+'stl')
-        #         object_mesh_part.export(object_mesh_part_fname)
-        #         mesh_names.append(object_mesh_part_fname)
-        #         mesh_masses.append(object_mesh_part.mass)
-                
-        #         if combined_mesh == None:
-        #             combined_mesh = object_mesh_part
-        #         else:
-        #             combined_mesh += object_mesh_part
-        #     mesh_file_ind += 1
-        #     if mesh_file_ind >= len(meshes):
-        #         break
-        
-        # if len(mesh_names) > 100:
-        #     heavy_inds = np.argsort(np.array(mesh_masses))
-        #     new_mesh_names=[]
-        #     for ind in range(100):
-        #         new_mesh_names.append(mesh_names[heavy_inds[-ind]])
-        #     mesh_names = new_mesh_names
-
         self.convex_decomp_mesh_fnames = mesh_names
-
         # Apply rotation
         rot_obj = R.from_euler('xyz', self.rot, degrees=False)
         self.convex_decomp_mesh = utils.apply_rot_to_mesh(combined_mesh, rot_obj)
