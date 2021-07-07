@@ -18,10 +18,10 @@ from perch_scene_utils import *
 def create_one_6d_scene(scene_num, selected_objects, args):
 
     try:
-        selected_objects = [
-            ('2876657',1,'3f91158956ad7db0322747720d7d37e8',2),
-            ('2946921',3,'d44cec47dbdead7ca46192d8b30882',8),
-        ]
+        # selected_objects = [
+        #     ('2876657',1,'3f91158956ad7db0322747720d7d37e8',2),
+        #     ('2946921',3,'d44cec47dbdead7ca46192d8b30882',8),
+        # ]
         perch_scene = PerchScene(scene_num, selected_objects, args)
 
         # import pdb; pdb.set_trace()
@@ -55,4 +55,4 @@ if __name__ == '__main__':
     for scene_num in range(args.num_scenes):
         acc_scene_num = scene_num + args.start_scene_idx
         # create_one_6d_scene(acc_scene_num, selected_objects[scene_num], args)
-        create_one_6d_scene(acc_scene_num, None, args)
+        create_one_6d_scene(acc_scene_num, selected_objects[scene_num], args)

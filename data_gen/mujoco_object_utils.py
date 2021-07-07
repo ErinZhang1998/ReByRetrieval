@@ -64,29 +64,6 @@ class MujocoObject(object):
         # self.object_mesh.apply_transform(rotation_mat)
         self.object_mesh = utils.apply_rot_to_mesh(self.object_mesh, rot_obj)
         self.rot = rot 
-
-    def get_corners(self, bounds, pos, rot, from_frame_name):
-        '''
-        bounds: (2,3)
-        pos: (3,)
-        rot: (3,) radian
-        from_frame_name: str
-        '''
-        rot_obj = R.from_euler('xyz', rot, degrees=False)
-        obj_frame_to_world = autolab_core.RigidTransform(
-            rotation=rot_obj.as_matrix(),
-            translation=pos,
-            from_frame=from_frame_name,
-            to_frame='world',
-        )
-        #                  (6)_________(8)
-        # (2)_________(4)   |           |
-        # |           |     |           |
-        # |           |    (5)_________(7)   
-        # (1)_________(3)
-        corners_obj = utils.bounds_xyz_to_corners(bounds)
-        corners_world = utils.transform_3d_frame(obj_frame_to_world.matrix, corners_obj)
-        return corners_obj, corners_world, obj_frame_to_world.matrix
     
     def get_mujoco_add_dict(self):
         return {
@@ -112,15 +89,8 @@ class MujocoNonTable(MujocoObject):
         self.shapenet_convex_decomp_dir = kwargs['shapenet_convex_decomp_dir']
         self.object_idx = kwargs['object_idx']
         self.canonical_size = 2
-        # self.set_object_scale()
 
-        # object_rot = np.zeros(4)
-        # object_rot[1:4] = np.random.uniform(low=0, high=1, size=3)
-        # object_rot[0] = np.random.uniform(low=0, high=2*np.pi, size=1)
-        # if random.random() < 0.8:
-        #     object_rot[0] = 1
-        #     object_rot[1:4] = 0
-        self.actual_size = np.random.choice([0.5, 0.75, 1.0]) * self.canonical_size
+        self.actual_size = np.random.choice([0.75, 0.85, 1.0]) * self.canonical_size
         
         random_rotation = [
             np.random.uniform(-90.0, 90),
@@ -128,10 +98,9 @@ class MujocoNonTable(MujocoObject):
             np.random.uniform(0, 360),
         ]
         random_rotation_r = R.from_euler('xyz', random_rotation, degrees=True)
-        # self.set_object_rot(random_rotation_r.as_rotvec())
         self.rot = random_rotation_r.as_rotvec()
 
-        self.pos_x, self.pos_y = np.random.normal(loc=[0,0], scale=np.array([0.1,0.1]))
+        self.pos_x, self.pos_y = np.random.normal(loc=[0,0], scale=np.array([2,2]))
 
 
     def load_decomposed_mesh(self):
@@ -139,16 +108,15 @@ class MujocoNonTable(MujocoObject):
         comb_mesh = trimesh.load(os.path.join(obj_convex_decomp_dir, 'convex_decomp.obj'), force='mesh')
         
         comb_mesh.apply_transform(self.upright_mat) 
-        range_max = np.max(comb_mesh.bounds[1] - comb_mesh.bounds[0])
+        range_max = np.linalg.norm(comb_mesh.bounds[1] - comb_mesh.bounds[0])
         comb_mesh_scale = self.actual_size / range_max
-        utils.apply_scale_to_mesh(comb_mesh, comb_mesh_scale)
+        comb_mesh = utils.apply_scale_to_mesh(comb_mesh, comb_mesh_scale)
         comb_mesh.export(os.path.join(obj_convex_decomp_dir, 'convex_decomp.stl'))
         mesh_names = [os.path.join(obj_convex_decomp_dir, 'convex_decomp.stl')]
-        combined_mesh = comb_mesh
         self.convex_decomp_mesh_fnames = mesh_names
         # Apply rotation
         rot_obj = R.from_euler('xyz', self.rot, degrees=False)
-        self.convex_decomp_mesh = utils.apply_rot_to_mesh(combined_mesh, rot_obj)
+        self.convex_decomp_mesh = utils.apply_rot_to_mesh(comb_mesh, rot_obj)
         return mesh_names
     
     
@@ -206,7 +174,7 @@ class MujocoTable(MujocoObject):
         table_top_corners = table_corners[table_corners[:,2] == table_bounds[1,2]]
         self.table_top_corners = utils.transform_3d_frame(self.table_frame_to_world.matrix, table_top_corners)
         
-        table_corners, _, obj_to_world_mat = self.get_corners(table_bounds, self.pos, self.rot, 'table')
+        table_corners, _, obj_to_world_mat = utils.get_corners(table_bounds, self.pos, self.rot, 'table')
         self.table_frame_to_world_mat = obj_to_world_mat
         table_top_corners = table_corners[table_corners[:,2] == table_bounds[1,2]]
         self.table_top_corners = utils.transform_3d_frame(self.table_frame_to_world_mat, table_top_corners)

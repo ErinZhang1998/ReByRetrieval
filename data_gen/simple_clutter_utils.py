@@ -904,15 +904,28 @@ def apply_rot_to_mesh(mesh, rot_obj):
     mesh.apply_transform(rotation_mat)
     return mesh
 
-# def normalize_mesh_size(mesh, canonical_size):
-#     object_bounds = mesh.bounds
-#     range_max = np.max(object_bounds[1] - object_bounds[0])
-#     object_size = canonical_size / range_max
-#     normalize_vec = [object_size] * 3
-#     normalize_matrix = np.eye(4)
-#     normalize_matrix[:3, :3] *= normalize_vec
-#     mesh.apply_transform(normalize_matrix)
-#     return mesh, normalize_vec
+def get_corners(bounds, pos, rot, from_frame_name):
+    '''
+    bounds: (2,3)
+    pos: (3,)
+    rot: (3,) radian
+    from_frame_name: str
+    '''
+    rot_obj = R.from_euler('xyz', rot, degrees=False)
+    obj_frame_to_world = autolab_core.RigidTransform(
+        rotation=rot_obj.as_matrix(),
+        translation=pos,
+        from_frame=from_frame_name,
+        to_frame='world',
+    )
+    #                  (6)_________(8)
+    # (2)_________(4)   |           |
+    # |           |     |           |
+    # |           |    (5)_________(7)   
+    # (1)_________(3)
+    corners_obj = bounds_xyz_to_corners(bounds)
+    corners_world = transform_3d_frame(obj_frame_to_world.matrix, corners_obj)
+    return corners_obj, corners_world, obj_frame_to_world.matrix
 
 ##############################################################################################################
 
