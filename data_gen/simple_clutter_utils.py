@@ -882,10 +882,37 @@ def object_bounds_scaled_rotated(bounds, scale, rot=None):
         bounds_rotated = transform_3d_frame(rotation_mat, bounds)
     return bounds_rotated
 
+##
 def mujoco_quat_to_rotation_object(quat_wxyz):
     w,x,y,z = quat_wxyz
     return R.from_quat([x,y,z,w])
-    
+
+def rotvec_to_mujoco_quat(rotvec):
+    rot_obj = R.from_euler('xyz', rotvec, degrees=False)
+    x,y,z,w = rot_obj.as_quat()
+    return [w,x,y,z]
+
+def apply_scale_to_mesh(mesh, scale):
+    scale_matrix = np.eye(4)
+    scale_matrix[:3, :3] *= scale
+    mesh.apply_transform(scale_matrix)
+    return mesh 
+
+def apply_rot_to_mesh(mesh, rot_obj):
+    rotation_mat = np.eye(4)
+    rotation_mat[0:3, 0:3] = rot_obj.as_matrix()
+    mesh.apply_transform(rotation_mat)
+    return mesh
+
+# def normalize_mesh_size(mesh, canonical_size):
+#     object_bounds = mesh.bounds
+#     range_max = np.max(object_bounds[1] - object_bounds[0])
+#     object_size = canonical_size / range_max
+#     normalize_vec = [object_size] * 3
+#     normalize_matrix = np.eye(4)
+#     normalize_matrix[:3, :3] *= normalize_vec
+#     mesh.apply_transform(normalize_matrix)
+#     return mesh, normalize_vec
 
 ##############################################################################################################
 
@@ -1059,8 +1086,8 @@ def add_camera(scene_name, cam_name, cam_pos, cam_target, cam_id):
         xmldoc.writexml(f)
 
 
-def add_objects(object_info, run_id=None, material_name=None):
-    scene_name = object_info['scene_name']
+def add_objects(scene_name, object_info, run_id=None, material_name=None):
+    # scene_name = object_info['scene_name']
     object_name = object_info['object_name']
     mesh_names = object_info['mesh_names']
     pos = object_info['pos']
@@ -1095,7 +1122,7 @@ def add_objects(object_info, run_id=None, material_name=None):
         geom_name = f'gen_geom_{object_name}_{geom_ind}'
         geom_names.append(geom_name)
         new_geom.setAttribute('name', geom_name)
-        new_geom.setAttribute('mass', '1')
+        # new_geom.setAttribute('mass', '1')
         new_geom.setAttribute('class', '/')
         new_geom.setAttribute('type', 'mesh')
         if not material_name is None:

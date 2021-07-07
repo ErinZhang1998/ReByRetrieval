@@ -150,23 +150,29 @@ def gen_data(scene_num, shapenet_filepath, shapenet_decomp_filepath, instances_d
                 object_mesh.apply_transform(scale_mat)
                 stl_obj_mesh_filename=os.path.join(top_dir, f'assets/model_normalized_{thread_num}_{added_objects}.stl')
                 object_mesh.export(stl_obj_mesh_filename)
+                
                 object_color=np.random.uniform(size=3)
+                
                 object_size=np.random.uniform(low=min_object_scale, high=max_object_scale, size=1)[0]
                 diag=np.sqrt(np.sum(np.square(object_mesh.bounds[0]-object_mesh.bounds[1])))
                 object_size*=0.05
                 if diag<0.001:   
                     object_size*=1000
+                
                 object_rot=np.zeros(4)
                 object_rot[1:4]=np.random.uniform(low=0, high=1, size=3)
                 object_rot[0]=np.random.uniform(low=0, high=2*math.pi, size=1)
                 if random.random()<0.8:
                     object_rot[0]=1
                     object_rot[1:4]=0
+                
                 object_drop_pos=np.random.normal(loc=drop_xy, scale=drop_std)
+                
                 object_mesh=trimesh.load(stl_obj_mesh_filename)
                 if object_mesh.faces.shape[0]>200000:
                     print('too many mesh faces!')
                     continue
+                
                 obj_mesh_filenames+=[obj_mesh_filename]
                 obj_initial_positions.append(object_drop_pos)
                 obj_initial_rotations.append(object_rot)

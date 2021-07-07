@@ -698,3 +698,16 @@ write_to_csv(test_csv_file_path, test+test_data, csv_columns)
 # self.cat_names = cat_names
 # self.cat_names_to_cat_id = dict(zip(self.cat_names, self.cat_ids))
 # self.cat_id_to_cat_names = dict(zip(self.cat_ids, self.cat_names))
+
+
+def check_too_many_faces(csv_fname, shapenet_dir):
+    df = pd.read_csv(csv_fname)
+    for idx in range(len(df)):
+        row = df.iloc[idx]
+        synset_category, shapenet_model_id = row['synsetId'], row['ShapeNetModelId']
+        mesh_fname = os.path.join(
+                shapenet_dir,
+                '0{}/{}/models/model_normalized.obj'.format(synset_category, shapenet_model_id),
+            )
+        mesh = trimesh.load(mesh_fname, force='mesh')
+        print(mesh.faces.shape[0])
