@@ -1,34 +1,45 @@
 import numpy as np 
 
 class ImageAnnotation(object):
-    def __init__(self, bbox, mask_file_path, cam_intrinsics, cam_location, cam_quat, width=640, height=480):
-        self.bbox = bbox
-        self.mask_file_path = mask_file_path
-        self.cam_intrinsics = cam_intrinsics
-        self.cam_location = cam_location
-        self.cam_quat = cam_quat
-        self.width = width
-        self.height = height 
+    def __init__(
+        self, 
+        center,
+        bbox, 
+        rgb_file_path,
+        mask_file_path, 
+        model_file_path,
+        percentage_not_occluded,
+        cam_intrinsics, 
+        cam_location, 
+        cam_quat, 
+        width=640, 
+        height=480
+    ):
+        '''
+        model_file_path --> category_id
+        rgb_file_path --> image_id
 
-        self.id, self.image_id, self.category_id = None, None, None 
-    
-    def assign_id(self, id):
-        self.id = id 
-    
-    def assign_image_id(self, image_id):
-        self.image_id = image_id 
-    
-    def assign_category_id(self, category_id):
-        self.category_id = category_id 
+        '''
+        self.center = [int(item) for item in center]
+        self.bbox = [int(item) for item in bbox]
+        self.rgb_file_path = rgb_file_path
+        self.mask_file_path = mask_file_path
+        self.model_file_path = model_file_path
+        self.percentage_not_occluded = float(percentage_not_occluded)
+        cam_intrinsics = list(np.asarray(cam_intrinsics).astype(float))
+        for row in range(len(cam_intrinsics)):
+            cam_intrinsics[row] = list(cam_intrinsics[row])
+        self.cam_intrinsics = cam_intrinsics
+        self.cam_location = list(np.asarray(cam_location).astype(float))
+        self.cam_quat = list(np.asarray(cam_quat).astype(float))
+        self.width = int(width)
+        self.height = int(height) 
+
+        self.id, self.image_id, self.category_id = None, None, None  
     
     def output_dict(self):
-        assert not self.id is None
-        assert not self.image_id is None
-        assert not self.category_id is None
         output = {
-            'id': self.id,
-            'image_id': self.image_id,
-            'category_id': self.category_id,
+            'center' : self.center,
             'iscrowd': 0,
             'area': 0,
             'bbox': self.bbox,
@@ -39,6 +50,9 @@ class ImageAnnotation(object):
             'camera_intrinsics': self.cam_intrinsics,
             'location': self.cam_location,
             'quaternion_xyzw': self.cam_quat,
-
+            'rgb_file_path' : self.rgb_file_path,
+            'mask_file_path' : self.mask_file_path,
+            'model_file_path' : self.model_file_path,
+            'percentage_not_occluded' : self.percentage_not_occluded,
         }
         return output

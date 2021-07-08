@@ -85,6 +85,9 @@ class MujocoNonTable(MujocoObject):
             color = kwargs['color'],
             num_objects_in_scene = kwargs['num_objects_in_scene'],
         )
+        '''
+        When initialized, generate random rotation and position
+        '''
 
         self.shapenet_convex_decomp_dir = kwargs['shapenet_convex_decomp_dir']
         self.object_idx = kwargs['object_idx']
@@ -92,65 +95,86 @@ class MujocoNonTable(MujocoObject):
 
         self.actual_size = np.random.choice([0.75, 0.85, 1.0]) * self.canonical_size
         
-        random_rotation = [
-            np.random.uniform(-90.0, 90),
-            np.random.uniform(-90.0, 90),
-            np.random.uniform(0, 360),
-        ]
+        if np.random.uniform(0,1) < 0.8:
+            random_rotation = [
+                np.random.uniform(-90.0, 90),
+                np.random.uniform(-90.0, 90),
+                np.random.uniform(0, 360),
+            ]
+        else:
+            random_rotation = [
+                0,
+                0,
+                np.random.uniform(0, 360),
+            ]
+        
         random_rotation_r = R.from_euler('xyz', random_rotation, degrees=True)
-        self.rot = random_rotation_r.as_rotvec()
+        self.rot = random_rotation_r.as_euler('xyz')
 
         self.pos_x, self.pos_y = np.random.normal(loc=[0,0], scale=np.array([2,2]))
-
+        self.bbox = None
 
     def load_decomposed_mesh(self):
         obj_convex_decomp_dir = os.path.join(self.shapenet_convex_decomp_dir, f'{self.synset_id}/{self.model_id}')
         comb_mesh = trimesh.load(os.path.join(obj_convex_decomp_dir, 'convex_decomp.obj'), force='mesh')
-        
+        # make mesh stand upright
         comb_mesh.apply_transform(self.upright_mat) 
+        comb_mesh.export(os.path.join(obj_convex_decomp_dir, 'convex_decomp.stl'))
+
         range_max = np.linalg.norm(comb_mesh.bounds[1] - comb_mesh.bounds[0])
         comb_mesh_scale = self.actual_size / range_max
+        comb_mesh_scale = [comb_mesh_scale] * 3
+        # scale the mesh
         comb_mesh = utils.apply_scale_to_mesh(comb_mesh, comb_mesh_scale)
-        comb_mesh.export(os.path.join(obj_convex_decomp_dir, 'convex_decomp.stl'))
+        self.size = comb_mesh_scale
+        # comb_mesh.export(os.path.join(obj_convex_decomp_dir, 'convex_decomp.stl'))
         mesh_names = [os.path.join(obj_convex_decomp_dir, 'convex_decomp.stl')]
         self.convex_decomp_mesh_fnames = mesh_names
-        # Apply rotation
+        # Apply rotation, generated during initialization
         rot_obj = R.from_euler('xyz', self.rot, degrees=False)
         self.convex_decomp_mesh = utils.apply_rot_to_mesh(comb_mesh, rot_obj)
         return mesh_names
     
+    def save_correct_size_model(self, model_fname):
+        object_mesh = trimesh.load(self.shapenet_file_name, force='mesh')
+        object_mesh.apply_transform(self.upright_mat)
+        object_mesh = utils.apply_scale_to_mesh(object_mesh, self.size)
+        object_mesh.export(model_fname)
+        self.textured_obj_fname = model_fname
+
+        return object_mesh
     
-    def reload_mesh(self):
-        object_mesh = trimesh.load(self.transformed_mesh_fname, force='mesh')
-        object_bounds = self.object_mesh.bounds
-        range_max = np.max(object_bounds[1] - object_bounds[0])
-        object_size = self.canonical_size / range_max
-        normalize_vec = [object_size] * 3
-        normalize_matrix = np.eye(4)
-        normalize_matrix[:3, :3] *= normalize_vec
-        object_mesh.apply_transform(normalize_matrix)
-        return object_mesh, normalize_vec
+    # def reload_mesh(self):
+    #     object_mesh = trimesh.load(self.transformed_mesh_fname, force='mesh')
+    #     object_bounds = self.object_mesh.bounds
+    #     range_max = np.max(object_bounds[1] - object_bounds[0])
+    #     object_size = self.canonical_size / range_max
+    #     normalize_vec = [object_size] * 3
+    #     normalize_matrix = np.eye(4)
+    #     normalize_matrix[:3, :3] *= normalize_vec
+    #     object_mesh.apply_transform(normalize_matrix)
+    #     return object_mesh, normalize_vec
     
-    def set_object_scale(self, scale = None):
-        '''
-        scale : np.array (3,)
-        If scale is None, then randomly choose a scale. 
-        '''
-        self.object_mesh, normalize_vec = self.reload_mesh()
-        self.size = np.asarray(normalize_vec)
-        self.set_object_rot(self.rot)
-        if scale is None:
-            scale = [np.random.choice([0.5, 0.75, 1.0])] * 3
+    # def set_object_scale(self, scale = None):
+    #     '''
+    #     scale : np.array (3,)
+    #     If scale is None, then randomly choose a scale. 
+    #     '''
+    #     self.object_mesh, normalize_vec = self.reload_mesh()
+    #     self.size = np.asarray(normalize_vec)
+    #     self.set_object_rot(self.rot)
+    #     if scale is None:
+    #         scale = [np.random.choice([0.5, 0.75, 1.0])] * 3
             
-        self.object_mesh = utils.apply_scale_to_mesh(self.object_mesh, scale)
-        self.size *= np.array(scale)
+    #     self.object_mesh = utils.apply_scale_to_mesh(self.object_mesh, scale)
+    #     self.size *= np.array(scale)
     
     
-    def get_object_bbox(self, pos, rot):
-        object_mesh, _ = self.reload_mesh()
-        bounds = object_mesh.bounds
-        corners, corners_world, obj_to_world_mat = self.get_corners(bounds, pos, rot, 'object_{}'.format(self.object_idx))
-        return corners_world
+    # def get_object_bbox(self, pos, rot):
+    #     object_mesh, _ = self.reload_mesh()
+    #     bounds = object_mesh.bounds
+    #     corners, corners_world, obj_to_world_mat = self.get_corners(bounds, pos, rot, 'object_{}'.format(self.object_idx))
+    #     return corners_world
 
 
 class MujocoTable(MujocoObject):

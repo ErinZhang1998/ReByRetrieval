@@ -887,8 +887,8 @@ def mujoco_quat_to_rotation_object(quat_wxyz):
     w,x,y,z = quat_wxyz
     return R.from_quat([x,y,z,w])
 
-def rotvec_to_mujoco_quat(rotvec):
-    rot_obj = R.from_euler('xyz', rotvec, degrees=False)
+def euler_xyz_to_mujoco_quat(euler_xyz):
+    rot_obj = R.from_euler('xyz', euler_xyz, degrees=False)
     x,y,z,w = rot_obj.as_quat()
     return [w,x,y,z]
 
@@ -904,14 +904,14 @@ def apply_rot_to_mesh(mesh, rot_obj):
     mesh.apply_transform(rotation_mat)
     return mesh
 
-def get_corners(bounds, pos, rot, from_frame_name):
+def get_corners(bounds, pos, euler_xyz, from_frame_name):
     '''
     bounds: (2,3)
     pos: (3,)
-    rot: (3,) radian
+    euler_xyz: (3,) radian
     from_frame_name: str
     '''
-    rot_obj = R.from_euler('xyz', rot, degrees=False)
+    rot_obj = R.from_euler('xyz', euler_xyz, degrees=False)
     obj_frame_to_world = autolab_core.RigidTransform(
         rotation=rot_obj.as_matrix(),
         translation=pos,

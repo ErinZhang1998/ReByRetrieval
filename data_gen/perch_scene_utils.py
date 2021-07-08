@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import copy
+import json 
 import math
 import cv2
 from PIL import Image
@@ -15,7 +16,8 @@ from mujoco_env import MujocoEnv
 
 from data_gen_args import *
 from simple_clutter_utils import *
-from mujoco_object_utils import MujocoObject, MujocoNonTable, MujocoTable
+from mujoco_object_utils import MujocoNonTable, MujocoTable
+from perch_coco_utils import ImageAnnotation
 
 class SceneCamera(object):
     def __init__(self, location, target, cam_num):
@@ -23,7 +25,9 @@ class SceneCamera(object):
         self.target = target 
         self.cam_num = cam_num
         self.cam_name = f'gen_cam_{cam_num}'
-    
+
+        self.rgb_image_annotations = []
+
     def add_camera_to_file(self, xml_fname):
         add_camera(xml_fname, self.cam_name, self.pos, self.target, self.cam_num)
 
@@ -91,6 +95,12 @@ class SceneCamera(object):
             'pos' : self.pos, 
             'rot' : self.rot_quat,
         }
+    
+    def get_annotations_dict(self):
+        coco_annos = []
+        for coco_anno in self.rgb_image_annotations:
+            coco_annos.append(coco_anno.output_dict())
+        return coco_annos
 
 class PerchScene(object):
     
@@ -144,8 +154,10 @@ class PerchScene(object):
         self.camera_info_dict = dict()
 
         # First create the scene with convex decomposed parts
+        self.add_cameras()
         self.create_convex_decomposed_scene()
-
+        
+        self.create_camera_scene()
 
     def create_table(self):
         table_id = '97b3dfb3af4487b2b7d2794d2db4b0e7'
@@ -180,73 +192,6 @@ class PerchScene(object):
         )
         self.object_info_dict[object_idx] = object_info
     
-    
-    def create_convex_decomposed_scene(self):
-        self.add_lights_to_scene(self.convex_decomp_xml_file)
-        add_objects(self.convex_decomp_xml_file, self.table_info.get_mujoco_add_dict(), run_id=None, material_name=None)
-        for object_idx in range(self.num_objects):
-            object_info = self.object_info_dict[object_idx]
-            convex_decomp_mesh_fnames = object_info.load_decomposed_mesh()
-            object_add_dict = object_info.get_mujoco_add_dict()
-            
-            theta = ((2.0*math.pi) / self.num_objects) * object_idx
-            start_x = np.cos(theta) * 10
-            start_y = np.sin(theta) * 10
-            object_add_dict.update({
-                'mesh_names' : convex_decomp_mesh_fnames,
-                'pos' : [start_x,start_y,object_idx+1],
-            })
-            add_objects(
-                self.convex_decomp_xml_file,
-                object_add_dict,
-            )
-        
-        num_angles = 8
-        quad = (2.0*math.pi) / num_angles
-        normal_thetas = [i*quad for i in range(num_angles)]
-        table_width = np.max(self.table_info.object_mesh.bounds[1,:2] - self.table_info.object_mesh.bounds[0,:2])
-        
-        for theta in normal_thetas:
-            cam_x = np.cos(theta) * table_width #+ self.object_info_dict[0].pos[0]
-            cam_y = np.sin(theta) * table_width #+ self.object_info_dict[0].pos[1]
-            location = [cam_x, cam_y, self.table_info.height + 1.5]
-            target = [0,0,self.table_info.height]
-            new_camera = SceneCamera(location, target, self.total_camera_num)
-            new_camera.add_camera_to_file(self.convex_decomp_xml_file)
-            self.camera_info_dict[self.total_camera_num] = new_camera
-            self.total_camera_num += 1
-        
-        convex_decomp_mujoco_env = MujocoEnv(self.convex_decomp_xml_file, 1, has_robot=False)
-        for object_idx in range(self.num_objects):
-            object_info = self.object_info_dict[object_idx]
-            
-            convex_decomp_mesh_height = -object_info.convex_decomp_mesh.bounds[0,2]
-            if object_idx < 0:
-                prev_object_info = self.object_info_dict[object_idx-1]
-                prev_object_info_bounds = prev_object_info.convex_decomp_mesh.bounds
-                prev_pose = convex_decomp_mujoco_env.data.qpos.ravel().copy().reshape(-1,7)[object_idx]
-                prev_x, prev_y, prev_z = prev_pose[:3]
-                if prev_z < self.table_info.height:
-                    import pdb; pdb.set_trace()
-                    prev_x, prev_y = 0,0
-                pos_std = np.linalg.norm(prev_object_info_bounds[1] - prev_object_info_bounds[0])
-                # 
-                # _, prev_object_corners,_ = get_corners(prev_object_info_bounds, prev_pose[:3], mujoco_quat_to_rotation_object(prev_pose[3:]).as_rotvec(), f'prev_object_{object_idx-1}')
-                # pos_x, pos_y = np.random.normal(loc=[prev_x,prev_y], scale=np.array([pos_std/2]*2)) 
-            else:
-                pos_x, pos_y = object_info.pos_x, object_info.pos_y
-            move_object(convex_decomp_mujoco_env, object_idx, [pos_x, pos_y, self.table_info.height+convex_decomp_mesh_height+0.1], rotvec_to_mujoco_quat(object_info.rot))
-            
-            for _ in range(2000):
-                convex_decomp_mujoco_env.model.step()
-
-        for cam_num in self.camera_info_dict.keys():
-            self.camera_info_dict[cam_num].set_camera_info_with_mujoco_env(convex_decomp_mujoco_env, self.height, self.width)
-
-        for cam_num in self.camera_info_dict.keys():
-            fname = os.path.join(self.scene_folder_path, f'rgb_beforehand_{(cam_num):05}.png')
-            self.render_rgb(convex_decomp_mujoco_env, self.height, self.width, cam_num, save_path=fname)
-
     def add_lights_to_scene(self, xml_fname):
         light_position, light_direction = get_light_pos_and_dir(self.num_lights)
         ambients = np.random.uniform(0,0.05,self.num_lights*3).reshape(-1,3)
@@ -266,11 +211,146 @@ class PerchScene(object):
                 name=f'light{light_id}'
             )
     
-    def add_camera_to_scene(self, xml_fname, location, target):
-        new_camera = SceneCamera(location, target, self.total_camera_num)
-        new_camera.add_camera_to_file(xml_fname)
-        self.camera_info_dict[self.total_camera_num] = new_camera
-        self.total_camera_num += 1
+    def add_cameras(self):
+        num_angles = 20
+        quad = (2.0*math.pi) / num_angles
+        normal_thetas = [i*quad for i in range(num_angles)]
+        table_width = np.max(self.table_info.object_mesh.bounds[1,:2] - self.table_info.object_mesh.bounds[0,:2])
+        
+        for theta in normal_thetas:
+            cam_x = np.cos(theta) * (table_width/2) #+ self.object_info_dict[0].pos[0]
+            cam_y = np.sin(theta) * (table_width/2) #+ self.object_info_dict[0].pos[1]
+            location = [cam_x, cam_y, self.table_info.height + 1.5]
+            target = [0,0,self.table_info.height]
+            new_camera = SceneCamera(location, target, self.total_camera_num)
+            new_camera.rgb_save_path = os.path.join(self.scene_folder_path, f'rgb_{(self.total_camera_num):05}.png')
+            new_camera.depth_save_path = os.path.join(self.scene_folder_path, f'depth_{(self.total_camera_num):05}.png')
+            self.camera_info_dict[self.total_camera_num] = new_camera
+            self.total_camera_num += 1
+    
+    def generate_default_add_position(self, object_idx):
+        theta = ((2.0*math.pi) / self.num_objects) * object_idx
+        start_x = np.cos(theta) * 10
+        start_y = np.sin(theta) * 10
+        start_z = object_idx + 1
+        return [start_x, start_y, start_z]
+
+    def create_convex_decomposed_scene(self):
+        self.add_lights_to_scene(self.convex_decomp_xml_file)
+        add_objects(self.convex_decomp_xml_file, self.table_info.get_mujoco_add_dict(), run_id=None, material_name=None)
+        for object_idx in range(self.num_objects):
+            object_info = self.object_info_dict[object_idx]
+            convex_decomp_mesh_fnames = object_info.load_decomposed_mesh()
+            object_add_dict = object_info.get_mujoco_add_dict()
+            
+            start_position = self.generate_default_add_position(object_idx)
+            object_add_dict.update({
+                'mesh_names' : convex_decomp_mesh_fnames,
+                'pos' : start_position,
+            })
+            add_objects(
+                self.convex_decomp_xml_file,
+                object_add_dict,
+            )
+        
+        # #  DEBUG 
+        # for cam_num in self.camera_info_dict.keys():
+        #     new_camera = self.camera_info_dict[cam_num]
+        #     new_camera.add_camera_to_file(self.convex_decomp_xml_file)
+
+        convex_decomp_mujoco_env = MujocoEnv(self.convex_decomp_xml_file, 1, has_robot=False)
+        for object_idx in range(self.num_objects):
+            object_info = self.object_info_dict[object_idx]
+            convex_decomp_mesh_height = -object_info.convex_decomp_mesh.bounds[0,2]
+            if False:
+                prev_object_info = self.object_info_dict[object_idx-1]
+                prev_object_info_bounds = prev_object_info.convex_decomp_mesh.bounds
+                prev_pose = convex_decomp_mujoco_env.data.qpos.ravel().copy().reshape(-1,7)[object_idx]
+                prev_x, prev_y, prev_z = prev_pose[:3]
+                if prev_z < self.table_info.height:
+                    
+                    prev_x, prev_y = 0,0
+                pos_std = np.linalg.norm(prev_object_info_bounds[1] - prev_object_info_bounds[0])
+                # 
+                # _, prev_object_corners,_ = get_corners(prev_object_info_bounds, prev_pose[:3], mujoco_quat_to_rotation_object(prev_pose[3:]).as_rotvec(), f'prev_object_{object_idx-1}')
+                # pos_x, pos_y = np.random.normal(loc=[prev_x,prev_y], scale=np.array([pos_std/2]*2)) 
+            else:
+                pos_x, pos_y = object_info.pos_x, object_info.pos_y
+            
+            moved_location = [pos_x, pos_y, self.table_info.height+convex_decomp_mesh_height+0.05]
+            move_object(convex_decomp_mujoco_env, object_idx, moved_location, euler_xyz_to_mujoco_quat(object_info.rot))
+            
+            for _ in range(4000):
+                convex_decomp_mujoco_env.model.step()
+
+        self.convex_decomp_mujoco_env_state = convex_decomp_mujoco_env.get_env_state().copy()
+        
+        # #  DEBUG
+        # for cam_num in self.camera_info_dict.keys():
+        #     fname = os.path.join(self.scene_folder_path, f'rgb_decomp_{(cam_num):05}.png')
+        #     self.render_rgb(convex_decomp_mujoco_env, self.height, self.width, cam_num, save_path=fname)
+    
+    
+    def create_camera_scene(self):
+        self.add_lights_to_scene(self.cam_temp_scene_xml_file)
+        add_objects(self.cam_temp_scene_xml_file, self.table_info.get_mujoco_add_dict(), run_id=None, material_name=None)
+
+        for object_idx in range(self.num_objects):
+            object_info = self.object_info_dict[object_idx]
+
+            object_add_dict = object_info.get_mujoco_add_dict()
+            start_position = self.generate_default_add_position(object_idx)
+            object_add_dict.update({
+                'pos' : start_position,
+            })
+            add_objects(
+                self.cam_temp_scene_xml_file,
+                object_add_dict,
+            )
+        for cam_num in self.camera_info_dict.keys():
+            new_camera = self.camera_info_dict[cam_num]
+            new_camera.add_camera_to_file(self.cam_temp_scene_xml_file)
+        
+        mujoco_env = MujocoEnv(self.cam_temp_scene_xml_file, 1, has_robot=False)
+        mujoco_env.set_env_state(self.convex_decomp_mujoco_env_state)
+        mujoco_env.sim.physics.forward()
+
+        # Calculate object bounding box in the scene and save in the mujoco object 
+        all_current_poses = mujoco_env.data.qpos.ravel().copy().reshape(-1,7)  
+        
+        ###################################### Save the scaled object, which is used for perch in the models directory
+        for object_idx in self.object_info_dict.keys():
+            model_save_dir = os.path.join(args.scene_save_dir, 'models', f'{self.train_or_test}_scene_{self.scene_num}_object_{object_idx}')
+            if os.path.exists(model_save_dir):
+                shutil.rmtree(model_save_dir)
+            os.mkdir(model_save_dir)
+            model_fname = os.path.join(model_save_dir, 'textured.obj')
+
+            object_info = self.object_info_dict[object_idx]
+            object_mesh = object_info.save_correct_size_model(model_fname)
+
+            mesh_bounds = object_mesh.bounds
+            current_pose = all_current_poses[object_idx+1]
+            
+            mesh_bounds, mesh_bbox, _ = get_corners(mesh_bounds, current_pose[:3], mujoco_quat_to_rotation_object(current_pose[3:]).as_euler('xyz'), f'object_{object_idx}')
+            assert np.all(np.abs(np.linalg.norm(mesh_bbox - current_pose[:3], axis=1) - np.linalg.norm(mesh_bounds, axis=1)) < 1e-5)
+            self.object_info_dict[object_idx].bbox = mesh_bbox
+            self.object_info_dict[object_idx].object_center = current_pose[:3]
+        
+        ###################################### Save camera information, like intrinsics 
+        for cam_num in self.camera_info_dict.keys():
+            self.camera_info_dict[cam_num].set_camera_info_with_mujoco_env(mujoco_env, self.height, self.width)
+
+        for cam_num in self.camera_info_dict.keys():
+            fname = os.path.join(self.scene_folder_path, f'rgb_{(cam_num):05}.png')
+            self.render_rgb(mujoco_env, self.height, self.width, cam_num, save_path=fname)
+            self.render_depth(mujoco_env, self.height, self.width, cam_num)
+        
+        for cam_num in self.camera_info_dict.keys():
+            self.render_object_segmentation_and_create_rgb_annotation(mujoco_env, self.height, self.width, cam_num)
+        
+        self.output_camera_annotations()
+
     
     def render_rgb(self, mujoco_env, cam_height, cam_width, cam_num, save=True, save_path=None):
         # self.camera_info_dict[cam_num]
@@ -283,9 +363,9 @@ class PerchScene(object):
         )
         if save:
             if save_path is None:
-                cv2.imwrite(os.path.join(self.scene_folder_path, f'rgb_{(cam_num):05}.png'), rgb)
-            else:
-                cv2.imwrite(save_path, rgb)
+                save_path = os.path.join(self.scene_folder_path, f'rgb_{(cam_num):05}.png')
+            cv2.imwrite(save_path, rgb)
+            self.camera_info_dict[cam_num].rgb_save_path = save_path
         return rgb
     
     def render_depth(self, mujoco_env, cam_height, cam_width, cam_num, save=True, save_path=None):
@@ -307,8 +387,115 @@ class PerchScene(object):
                 save_path = os.path.join(self.scene_folder_path, f'depth_{(cam_num):05}.png')
             depth_img = Image.fromarray(depth_scaled)
             depth_img.save(save_path)
+            self.camera_info_dict[cam_num].depth_save_path = save_path
         return depth
     
+    def render_object_segmentation_and_create_rgb_annotation(self, mujoco_env, cam_height, cam_width, cam_num):
+        '''
+        Process segmentation mask for each object in front the given camera, since the segmentation is 
+        needed for PERCH.
+        Also save the annotation for each object, which involves 
+        - object center in the image
+        - object bounding box in the image (?)
+        - segmentation mask file path
+        - object model file path
+        '''
+        camera_info = self.camera_info_dict[cam_num]
+        camera = Camera(physics=mujoco_env.model, height=cam_height, width=cam_width, camera_id=cam_num)
+        original_state = mujoco_env.get_env_state().copy()
+        whole_scene_segmentation = camera.render(segmentation=True)[:, :, 0]
+        camera_scene_geoms = camera.scene.geoms
+        occluded_geom_id_to_seg_id = {
+            camera_scene_geoms[geom_ind][3] : camera_scene_geoms[geom_ind][8] for geom_ind in range(camera_scene_geoms.shape[0])
+        }
+
+        existed_object_ids, object_pixel_count = np.unique(whole_scene_segmentation, return_counts=True)
+        existed_object_idxs = []
+        
+        for object_idx in self.object_info_dict.keys():
+            geom_id = mujoco_env.model.model.name2id(f'gen_geom_object_{object_idx}_{self.scene_num}_0', "geom")
+            seg_id = occluded_geom_id_to_seg_id[geom_id]
+            # 
+            if not seg_id in existed_object_ids:
+                continue
+            # This object is in this rgb image, so it can have an annotation
+            existed_object_idxs.append(object_idx)
+            object_segmentation = whole_scene_segmentation == seg_id
+
+            # Move all other objects far away, except the table, so that we can capture
+            # only one object in a scene.
+            for move_obj_ind in self.object_info_dict.keys():
+                if move_obj_ind != object_idx:
+                    start_position = self.generate_default_add_position(move_obj_ind)
+                    move_object(mujoco_env, move_obj_ind, start_position, [0, 0, 0, 0])
+            mujoco_env.sim.physics.forward()
+            
+            save_path = os.path.join(self.scene_folder_path, f'segmentation_{(cam_num):05}_{object_idx}.png')
+
+            unocc_target_id = mujoco_env.model.model.name2id(f'gen_geom_object_{object_idx}_{self.scene_num}_0', "geom")
+            unoccluded_camera = Camera(physics=mujoco_env.model, height=cam_height, width=cam_width, camera_id=cam_num)
+            unoccluded_segs = unoccluded_camera.render(segmentation=True)
+
+            # Move other objects back onto table
+            mujoco_env.set_env_state(original_state)
+            mujoco_env.sim.physics.forward()
+
+            unoccluded_geom_id_to_seg_id = {
+                unoccluded_camera.scene.geoms[geom_ind][3]: unoccluded_camera.scene.geoms[geom_ind][8] for geom_ind in range(unoccluded_camera.scene.geoms.shape[0])
+            }
+            unoccluded_segmentation = unoccluded_segs[:, :,0] == unoccluded_geom_id_to_seg_id[unocc_target_id]
+            unoccluded_pixel_num = np.argwhere(unoccluded_segmentation).shape[0]
+            
+            if unoccluded_pixel_num == 0:
+                # return -1, 0, None
+                continue 
+
+            segmentation = np.logical_and(object_segmentation, unoccluded_segmentation)
+            pix_left_ratio = np.argwhere(segmentation).shape[0] / unoccluded_pixel_num
+            cv2.imwrite(save_path, segmentation.astype(np.uint8))
+            
+            bbox_2d = self.camera_info_dict[cam_num].project_2d(self.object_info_dict[object_idx].bbox)
+            # xmin, ymin, width, height
+            xmin, ymin = np.min(bbox_2d, axis=0)
+            xmax, ymax = np.max(bbox_2d, axis=0)
+            bbox_ann = [xmin, ymin, xmax-xmin, ymax-ymin]
+            center_3d = self.object_info_dict[object_idx].object_center
+            center_2d = self.camera_info_dict[cam_num].project_2d(center_3d.reshape(-1,3)).reshape(-1,)
+            # debug purpose
+            cv2_image = cv2.imread(self.camera_info_dict[cam_num].rgb_save_path)
+            # cv2_image = cv2.rectangle(cv2_image, (int(xmin), int(ymax)), (int(xmax),int(ymin)), (0,255,0), 3)
+            cv2_image = cv2.rectangle(cv2_image, (640-int(xmin), int(ymax)), (640-int(xmax),int(ymin)), (0,255,0), 3)
+            for x,y in bbox_2d:
+                cv2_image = cv2.circle(cv2_image, (640-x,y), radius=0, color=(0, 0, 255), thickness=3)
+            cv2_image = cv2.circle(cv2_image, (640-center_2d[0],center_2d[1]), radius=0, color=(255, 0, 0), thickness=5)
+            cv2.imwrite(os.path.join(self.scene_folder_path, f'rgb_with_bbox_{(cam_num):05}_{object_idx}.png') ,cv2_image)
+            # 
+            object_annotation = ImageAnnotation(
+                center = list(center_2d),
+                bbox = bbox_ann,
+                rgb_file_path = self.camera_info_dict[cam_num].rgb_save_path,
+                mask_file_path = save_path,
+                model_file_path = self.object_info_dict[object_idx].textured_obj_fname,
+                percentage_not_occluded = pix_left_ratio,
+                cam_intrinsics = camera_info.intrinsics, 
+                cam_location = camera_info.pos, 
+                cam_quat = camera_info.rot_quat, 
+            )
+            self.camera_info_dict[cam_num].rgb_image_annotations.append(object_annotation)
+    
+    def output_camera_annotations(self):
+        all_annotations = []
+        for cam_num in self.camera_info_dict.keys():
+            camera_info = self.camera_info_dict[cam_num]
+            anno_dict_list = camera_info.get_annotations_dict()
+            all_annotations += anno_dict_list
+        
+        json_string = json.dumps(all_annotations)
+        annotation_fname = os.path.join(self.scene_folder_path, 'annotations.json')
+        json_file = open(annotation_fname, "w+")
+        json_file.write(json_string)
+        json_file.close()
+
     def render_whole_scene_segmentation(self, mujoco_env, cam_height, cam_width, cam_num, save=True, save_path=None):
         camera = Camera(physics=mujoco_env.model, height=cam_height, width=cam_width, camera_id=cam_num)
         segmentation = camera.render(segmentation=True)[:,:,0] #(480, 640, 2)
@@ -316,76 +503,18 @@ class PerchScene(object):
             cv2.imwrite(os.path.join(self.scene_folder_path, f'segmentation_{(cam_num):05}.png'), segmentation)
         return segmentation
     
-    def render_object_segmentation(self, mujoco_env, cam_height, cam_width, cam_num, object_idx, save=True, save_path=None):
-        camera = Camera(physics=mujoco_env.model, height=cam_height, width=cam_width, camera_id=cam_num)
-        original_state = self.mujoco_env.get_env_state().copy()
-        whole_scene_segmentation = camera.render(segmentation=True)[:, :, 0]
-        camera_scene_geoms = camera.scene.geoms
-        occluded_geom_id_to_seg_id = {
-            camera_scene_geoms[geom_ind][3] : camera_scene_geoms[geom_ind][8] for geom_ind in range(camera_scene_geoms.shape[0])
-        }
-
-        target_id = self.mujoco_env.model.model.name2id(f'gen_geom_object_{object_idx}_{self.scene_num}_0', "geom")
-        object_segmentation = whole_scene_segmentation == occluded_geom_id_to_seg_id[target_id]
-
-        # Move all other objects far away, except the table, so that we can capture
-        # only one object in a scene.
-        for move_obj_ind in self.object_info_dict.keys():
-            if move_obj_ind != object_idx:
-                move_object(self.mujoco_env, move_obj_ind, [40, 40, move_obj_ind], [0, 0, 0, 0])
-
-        self.mujoco_env.sim.physics.forward()
-
-        unocc_target_id = self.mujoco_env.model.model.name2id(f'gen_geom_object_{object_idx}_{self.scene_num}_0', "geom")
-        unoccluded_camera = Camera(physics=self.mujoco_env.model, height=cam_height, width=cam_width, camera_id=cam_num)
-        unoccluded_segs = unoccluded_camera.render(segmentation=True)
-
-        # Move other objects back onto table
-        self.mujoco_env.set_env_state(original_state)
-        self.mujoco_env.sim.physics.forward()
-
-        unoccluded_geom_id_to_seg_id = {
-            unoccluded_camera.scene.geoms[geom_ind][3]: unoccluded_camera.scene.geoms[geom_ind][8] for geom_ind in range(unoccluded_camera.scene.geoms.shape[0])
-        }
-        unoccluded_segmentation = unoccluded_segs[:, :,0] == unoccluded_geom_id_to_seg_id[unocc_target_id]
-
-        unoccluded_pixel_num = np.argwhere(unoccluded_segmentation).shape[0]
-        if unoccluded_pixel_num == 0:
-            return -1, 0, None 
-
-        segmentation = np.logical_and(object_segmentation, unoccluded_segmentation)
-        pix_left_ratio = np.argwhere(segmentation).shape[0] / unoccluded_pixel_num
-
-        if save:
-            if save_path is None:
-                save_path = os.path.join(self.scene_folder_path, f'segmentation_{(cam_num):05}_{object_idx}.png')
-                
-            cv2.imwrite(save_path, segmentation)
-        
-        return pix_left_ratio, unoccluded_pixel_num, segmentation
-
     def render_all_object_segmentation(self, mujoco_env, cam_height, cam_width, cam_num, object_idx, save=True, save_path=None):
-        return None 
+        raise 
     
     def render_point_cloud(self, depth, cam_num, mask=None, save=True, save_path=None):
         o3d_intrinsics = self.camera_info_dict[cam_num].get_o3d_intrinsics()
         o3d_depth = o3d.geometry.Image(depth)
         o3d_cloud = o3d.geometry.PointCloud.create_from_depth_image(o3d_depth, o3d_intrinsics)
-        import pdb; pdb.set_trace()
         return None 
     
     # def output_json_information(self):
     #     date_captured = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
-    
-    def create_env(self):
-        self.mujoco_env = MujocoEnv(self.cam_temp_scene_xml_file, 1, has_robot=False)
-        self.mujoco_env.sim.physics.forward()
         
-        for _ in range(self.num_objects):
-            for _ in range(4000):
-                self.mujoco_env.model.step()
-        all_poses = self.mujoco_env.data.qpos.ravel().copy().reshape(-1,7)
-        return all_poses
 
 
 def generate_coco_file(root_dir):
