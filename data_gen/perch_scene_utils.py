@@ -185,6 +185,7 @@ class PerchScene(object):
             num_objects_in_scene=self.num_objects,
             object_idx=object_idx,
             shapenet_convex_decomp_dir=self.args.shapenet_convex_decomp_dir,
+            scale=self.selected_objects[object_idx][4],
         )
         self.object_info_dict[object_idx] = object_info
     
@@ -207,17 +208,28 @@ class PerchScene(object):
                 name=f'light{light_id}'
             )
     
-    def add_cameras(self):
+    def generate_cameras_around(self, center_x=0, center_y=0):
         num_angles = 20
         quad = (2.0*math.pi) / num_angles
         normal_thetas = [i*quad for i in range(num_angles)]
         table_width = np.max(self.table_info.object_mesh.bounds[1,:2] - self.table_info.object_mesh.bounds[0,:2])
         
+        locations = []
+        targets = []
         for theta in normal_thetas:
-            cam_x = np.cos(theta) * (table_width/2) #+ self.object_info_dict[0].pos[0]
-            cam_y = np.sin(theta) * (table_width/2) #+ self.object_info_dict[0].pos[1]
+            cam_x = np.cos(theta) * (table_width/2) + center_x
+            cam_y = np.sin(theta) * (table_width/2) + center_y
             location = [cam_x, cam_y, self.table_info.height + 1.5]
-            target = [0,0,self.table_info.height]
+            target = [center_x,center_y,self.table_info.height]
+
+            locations.append(location)
+            targets.append(target)
+
+        return locations, targets
+    
+    def add_cameras(self):
+        locations, targets = self.generate_cameras_around()
+        for location, target in zip(locations, targets):
             new_camera = SceneCamera(location, target, self.total_camera_num)
             new_camera.rgb_save_path = os.path.join(self.scene_folder_path, f'rgb_{(self.total_camera_num):05}.png')
             new_camera.depth_save_path = os.path.join(self.scene_folder_path, f'depth_{(self.total_camera_num):05}.png')
@@ -280,6 +292,18 @@ class PerchScene(object):
                 convex_decomp_mujoco_env.model.step()
 
         self.convex_decomp_mujoco_env_state = convex_decomp_mujoco_env.get_env_state().copy()
+        all_current_poses = convex_decomp_mujoco_env.data.qpos.ravel().copy().reshape(-1,7) 
+        objects_current_positions = all_current_poses[1:][:,:3]
+        
+        table_current_position = all_current_poses[0][:3].reshape(-1,)
+        table_current_position[2] = self.table_info.height
+        object_closest_to_table_center = np.argmin(np.linalg.norm(objects_current_positions - table_current_position, axis=1))
+        
+        new_cam_center_x, new_cam_center_y,_ = objects_current_positions[object_closest_to_table_center]
+        locations, targets = self.generate_cameras_around(center_x=new_cam_center_x, center_y=new_cam_center_y)
+        for cam_num, (location, target) in enumerate(zip(locations, targets)):
+            self.camera_info_dict[cam_num].pos = location
+            self.camera_info_dict[cam_num].target = target
         
         # #  DEBUG
         # for cam_num in self.camera_info_dict.keys():

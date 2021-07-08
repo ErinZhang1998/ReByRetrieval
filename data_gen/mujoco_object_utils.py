@@ -93,7 +93,8 @@ class MujocoNonTable(MujocoObject):
         self.object_idx = kwargs['object_idx']
         self.canonical_size = 2
 
-        self.actual_size = np.random.choice([0.75, 0.85, 1.0]) * self.canonical_size
+        scale = kwargs['scale'] if not kwargs['scale'] is None else np.random.choice([0.75, 0.85, 1.0])
+        self.actual_size = scale * self.canonical_size
         
         if np.random.uniform(0,1) < 0.8:
             random_rotation = [
