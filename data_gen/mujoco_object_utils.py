@@ -143,38 +143,6 @@ class MujocoNonTable(MujocoObject):
         self.textured_obj_fname = model_fname
 
         return object_mesh
-    
-    # def reload_mesh(self):
-    #     object_mesh = trimesh.load(self.transformed_mesh_fname, force='mesh')
-    #     object_bounds = self.object_mesh.bounds
-    #     range_max = np.max(object_bounds[1] - object_bounds[0])
-    #     object_size = self.canonical_size / range_max
-    #     normalize_vec = [object_size] * 3
-    #     normalize_matrix = np.eye(4)
-    #     normalize_matrix[:3, :3] *= normalize_vec
-    #     object_mesh.apply_transform(normalize_matrix)
-    #     return object_mesh, normalize_vec
-    
-    # def set_object_scale(self, scale = None):
-    #     '''
-    #     scale : np.array (3,)
-    #     If scale is None, then randomly choose a scale. 
-    #     '''
-    #     self.object_mesh, normalize_vec = self.reload_mesh()
-    #     self.size = np.asarray(normalize_vec)
-    #     self.set_object_rot(self.rot)
-    #     if scale is None:
-    #         scale = [np.random.choice([0.5, 0.75, 1.0])] * 3
-            
-    #     self.object_mesh = utils.apply_scale_to_mesh(self.object_mesh, scale)
-    #     self.size *= np.array(scale)
-    
-    
-    # def get_object_bbox(self, pos, rot):
-    #     object_mesh, _ = self.reload_mesh()
-    #     bounds = object_mesh.bounds
-    #     corners, corners_world, obj_to_world_mat = self.get_corners(bounds, pos, rot, 'object_{}'.format(self.object_idx))
-    #     return corners_world
 
 
 class MujocoTable(MujocoObject):

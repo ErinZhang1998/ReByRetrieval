@@ -41,10 +41,6 @@ class SceneCamera(object):
         '''
         pt_3d: (N,3)
         '''
-        # cam_rot_matrix = self.rot_quat.as_matrix()
-        # camera_tf = autolab_core.RigidTransform(rotation=cam_rot_matrix, translation=np.asarray(
-        #     self.pos), from_frame='camera_{}'.format(self.cam_num), to_frame='world')
-        # world_to_camera_tf_mat = camera_tf.inverse().matrix
         N = len(pt_3d)
         pt_3d_pad = np.append(pt_3d.T, np.ones(N).astype(
             'int').reshape(1, -1), axis=0)  # (4,N)
@@ -375,18 +371,13 @@ class PerchScene(object):
             camera_id=cam_num, 
             depth=True, 
             segmentation=False
-        )
-        depth_scaled = (depth*self.depth_factor).astype(np.int32) #(height, width)   
-        
+        )        
         if save:     
-            # if save_path is None:
-            #     cv2.imwrite(os.path.join(self.scene_folder_path, f'depth_{(cam_num):05}.png'), depth_scaled)
-            # else:
-            #     cv2.imwrite(save_path, depth_scaled)
             if save_path is None:
                 save_path = os.path.join(self.scene_folder_path, f'depth_{(cam_num):05}.png')
-            depth_img = Image.fromarray(depth_scaled)
-            depth_img.save(save_path)
+            # depth_img = Image.fromarray((depth*self.depth_factor).astype(np.int32))
+            # depth_img.save(save_path)
+            cv2.imwrite(save_path, (depth*self.depth_factor).astype(np.uint16))
             self.camera_info_dict[cam_num].depth_save_path = save_path
         return depth
     
@@ -455,22 +446,36 @@ class PerchScene(object):
             cv2.imwrite(save_path, segmentation.astype(np.uint8))
             
             bbox_2d = self.camera_info_dict[cam_num].project_2d(self.object_info_dict[object_idx].bbox)
+            bbox_2d[:,0] = self.width - bbox_2d[:,0]
             # xmin, ymin, width, height
             xmin, ymin = np.min(bbox_2d, axis=0)
             xmax, ymax = np.max(bbox_2d, axis=0)
+            if not (0 <= xmin and xmin <= self.width) or not(0 <= xmax and xmax <= self.width):
+                continue 
+            if not (0 <= ymin and ymin <= self.height) or not(0 <= ymax and ymax <= self.height):
+                continue
             bbox_ann = [xmin, ymin, xmax-xmin, ymax-ymin]
             center_3d = self.object_info_dict[object_idx].object_center
             center_2d = self.camera_info_dict[cam_num].project_2d(center_3d.reshape(-1,3)).reshape(-1,)
-            # debug purpose
+            center_2d[0] = self.width - center_2d[0]
+            
+            # # DEBUG purpose
             cv2_image = cv2.imread(self.camera_info_dict[cam_num].rgb_save_path)
             # cv2_image = cv2.rectangle(cv2_image, (int(xmin), int(ymax)), (int(xmax),int(ymin)), (0,255,0), 3)
-            cv2_image = cv2.rectangle(cv2_image, (640-int(xmin), int(ymax)), (640-int(xmax),int(ymin)), (0,255,0), 3)
+            rmin, rmax, cmin, cmax = bbox_ann[1], bbox_ann[1] + bbox_ann[3], bbox_ann[0], bbox_ann[0] + bbox_ann[2]
+            perch_box = [cmin, rmin, cmax, rmax]
+            cv2_image = cv2.rectangle(cv2_image, (int(cmin), int(rmin)), (int(cmax),int(rmax)), (0,255,0), 3)
+            centroid_x, centroid_y = [(cmin+cmax)/2, (rmin+rmax)/2]
+            cv2_image = cv2.circle(cv2_image, (int(centroid_x), int(centroid_y)), radius=0, color=(255, 0, 0), thickness=5)
+            # # Draw the 8 bounding box corners in image
             for x,y in bbox_2d:
-                cv2_image = cv2.circle(cv2_image, (640-x,y), radius=0, color=(0, 0, 255), thickness=3)
-            cv2_image = cv2.circle(cv2_image, (640-center_2d[0],center_2d[1]), radius=0, color=(255, 0, 0), thickness=5)
+                cv2_image = cv2.circle(cv2_image, (x,y), radius=0, color=(0, 0, 255), thickness=3)
+            cv2_image = cv2.circle(cv2_image, (center_2d[0],center_2d[1]), radius=0, color=(255, 255, 255), thickness=5)
             cv2.imwrite(os.path.join(self.scene_folder_path, f'rgb_with_bbox_{(cam_num):05}_{object_idx}.png') ,cv2_image)
-            # 
+            # #
+
             object_annotation = ImageAnnotation(
+                center_3d = list(center_3d.reshape(-1,)),
                 center = list(center_2d),
                 bbox = bbox_ann,
                 rgb_file_path = self.camera_info_dict[cam_num].rgb_save_path,

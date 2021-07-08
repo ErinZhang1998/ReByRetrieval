@@ -3,6 +3,7 @@ import numpy as np
 class ImageAnnotation(object):
     def __init__(
         self, 
+        center_3d,
         center,
         bbox, 
         rgb_file_path,
@@ -20,6 +21,7 @@ class ImageAnnotation(object):
         rgb_file_path --> image_id
 
         '''
+        self.center_3d = [float(item) for item in center_3d]
         self.center = [int(item) for item in center]
         self.bbox = [int(item) for item in bbox]
         self.rgb_file_path = rgb_file_path
@@ -54,5 +56,6 @@ class ImageAnnotation(object):
             'mask_file_path' : self.mask_file_path,
             'model_file_path' : self.model_file_path,
             'percentage_not_occluded' : self.percentage_not_occluded,
+            'center_3d' : self.center_3d,
         }
         return output
