@@ -882,7 +882,15 @@ def object_bounds_scaled_rotated(bounds, scale, rot=None):
         bounds_rotated = transform_3d_frame(rotation_mat, bounds)
     return bounds_rotated
 
-##
+
+def quat_xyzw_to_wxyz(quat_xyzw):
+    x,y,z,w = quat_xyzw
+    return np.array([w,x,y,z])
+
+def quat_wxyz_to_xyzw(quat_wxyz):
+    w,x,y,z = quat_wxyz
+    return np.array([x,y,z,w])
+
 def mujoco_quat_to_rotation_object(quat_wxyz):
     w,x,y,z = quat_wxyz
     return R.from_quat([x,y,z,w])
@@ -904,14 +912,14 @@ def apply_rot_to_mesh(mesh, rot_obj):
     mesh.apply_transform(rotation_mat)
     return mesh
 
-def get_corners(bounds, pos, euler_xyz, from_frame_name):
+def get_corners(bounds, pos, rot_obj, from_frame_name):
     '''
     bounds: (2,3)
     pos: (3,)
-    euler_xyz: (3,) radian
+    rot_obj: scipy.spatial.transform object
     from_frame_name: str
     '''
-    rot_obj = R.from_euler('xyz', euler_xyz, degrees=False)
+    # rot_obj = R.from_euler('xyz', euler_xyz, degrees=False)
     obj_frame_to_world = autolab_core.RigidTransform(
         rotation=rot_obj.as_matrix(),
         translation=pos,
@@ -1120,7 +1128,7 @@ def add_objects(scene_name, object_info, run_id=None, material_name=None):
     pos = object_info['pos']
     size = object_info['size']
     color = object_info['color']
-    rot = object_info['rot']
+    quat = object_info['quat']
 
     xmldoc = minidom.parse(scene_name)
     # import pdb; pdb.set_trace()
@@ -1141,7 +1149,8 @@ def add_objects(scene_name, object_info, run_id=None, material_name=None):
     body_name = f'gen_body_{object_name}'
     new_body.setAttribute('name', body_name)
     new_body.setAttribute('pos', f'{pos[0]} {pos[1]} {pos[2]}')
-    new_body.setAttribute('euler', f'{rot[0]} {rot[1]} {rot[2]}')
+    # new_body.setAttribute('euler', f'{rot[0]} {rot[1]} {rot[2]}')
+    new_body.setAttribute('quat', f'{quat[0]} {quat[1]} {quat[2]} {quat[3]}')
 
     geom_names = []
     for geom_ind in range(len(mesh_names)):

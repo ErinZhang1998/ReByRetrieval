@@ -55,7 +55,7 @@ class SceneCamera(object):
     
     def set_camera_info_with_mujoco_env(self, mujoco_env, cam_height, cam_width):
         camera = Camera(physics=mujoco_env.model, height=cam_height, width=cam_width, camera_id=self.cam_num)
-        
+        import pdb; pdb.set_trace()
         camera_id = camera._render_camera.fixedcamid
         pos = camera._physics.data.cam_xpos[camera_id]
         cam_rot_matrix = camera._physics.data.cam_xmat[camera_id].reshape(3, 3)
@@ -152,10 +152,9 @@ class PerchScene(object):
         self.camera_info_dict = dict()
 
         # First create the scene with convex decomposed parts
-        self.add_cameras()
-        self.create_convex_decomposed_scene()
-        
-        self.create_camera_scene()
+        # self.add_cameras()
+        # self.create_convex_decomposed_scene()
+        # self.create_camera_scene()
 
     def create_table(self):
         table_id = '97b3dfb3af4487b2b7d2794d2db4b0e7'
@@ -290,7 +289,7 @@ class PerchScene(object):
                 pos_x, pos_y = object_info.pos_x, object_info.pos_y
             
             moved_location = [pos_x, pos_y, self.table_info.height+convex_decomp_mesh_height+0.05]
-            move_object(convex_decomp_mujoco_env, object_idx, moved_location, euler_xyz_to_mujoco_quat(object_info.rot))
+            move_object(convex_decomp_mujoco_env, object_idx, moved_location, quat_xyzw_to_wxyz(object_info.rot.as_quat()))
             
             for _ in range(4000):
                 convex_decomp_mujoco_env.model.step()
@@ -353,12 +352,13 @@ class PerchScene(object):
             current_pose = all_current_poses[object_idx+1]
             
             final_position = current_pose[:3]
-            final_euler = mujoco_quat_to_rotation_object(current_pose[3:]).as_euler('xyz')
-            mesh_bounds, mesh_bbox, _ = get_corners(mesh_bounds, current_pose[:3], final_euler, f'object_{object_idx}')
+            final_quat = quat_wxyz_to_xyzw(current_pose[3:])
+            final_rot_obj = R.from_quat(final_quat)
+            mesh_bounds, mesh_bbox, _ = get_corners(mesh_bounds, current_pose[:3], final_rot_obj, f'object_{object_idx}')
             assert np.all(np.abs(np.linalg.norm(mesh_bbox - final_position, axis=1) - np.linalg.norm(mesh_bounds, axis=1)) < 1e-5)
             self.object_info_dict[object_idx].bbox = mesh_bbox
             self.object_info_dict[object_idx].final_position = final_position
-            self.object_info_dict[object_idx].final_euler = final_euler
+            self.object_info_dict[object_idx].final_quat = final_quat
         
         ###################################### Save camera information, like intrinsics 
         for cam_num in self.camera_info_dict.keys():
@@ -488,6 +488,7 @@ class PerchScene(object):
             if not (0 <= ymin and ymin <= self.height) or not(0 <= ymax and ymax <= self.height):
                 continue
             bbox_ann = [xmin, ymin, xmax-xmin, ymax-ymin]
+            model_annotation = self.object_info_dict[object_idx].get_model_annotation()
             center_3d = self.object_info_dict[object_idx].final_position
             center_2d = self.camera_info_dict[cam_num].project_2d(center_3d.reshape(-1,3)).reshape(-1,)
             center_2d[0] = self.width - center_2d[0]
@@ -507,8 +508,8 @@ class PerchScene(object):
             cv2.imwrite(os.path.join(self.scene_folder_path, f'rgb_with_bbox_{(cam_num):05}_{object_idx}.png') ,cv2_image)
             # #
 
+            # object_location_in_camera_frame = 
             object_annotation = ImageAnnotation(
-                center_3d = list(center_3d.reshape(-1,)),
                 center = list(center_2d),
                 bbox = bbox_ann,
                 rgb_file_path = self.camera_info_dict[cam_num].rgb_save_path,
@@ -517,9 +518,9 @@ class PerchScene(object):
                 percentage_not_occluded = pix_left_ratio,
                 number_pixels = number_pixels,
                 cam_intrinsics = camera_info.intrinsics, 
-                cam_location = camera_info.pos, 
-                cam_quat = camera_info.rot_quat, 
-                model_annotation = self.object_info_dict[object_idx].get_model_annotation(),
+                object_location = model_annotation['position'], 
+                object_quat = model_annotation['quat'], 
+                model_annotation = model_annotation,
                 camera_annotation= self.camera_info_dict[cam_num].get_camera_annotation(),
                 width=self.width,
                 height=self.height,

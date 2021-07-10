@@ -8,30 +8,6 @@ import autolab_core
 from scipy.spatial.transform import Rotation as R, rotation        
 import simple_clutter_utils as utils
 
-# class ModelAnnotation(object):
-#     def __init__(
-#         self,
-#         synset_id,
-#         model_id,
-#         size,
-#         position,
-#         euler,
-#     ):
-#         self.synset_id = synset_id
-#         self.model_id = model_id
-#         self.size = [float(item) for item in size]
-#         self.position = [float(item) for item in position]
-#         self.euler = [float(item) for item in euler]
-    
-#     def output_dict(self):
-#         return {
-#             "synset_id" : self.synset_id,
-#             "model_id" : self.model_id,
-#             "size" : self.size,
-#             "position" : self.position,
-#             "euler" : self.euler,
-#         }
-
 class MujocoObject(object):
     def __init__(
         self,
@@ -49,7 +25,7 @@ class MujocoObject(object):
             size : [1,1,1]
         
         self.pos : (3,)
-        self.rot : (3,) Rotation vector
+        self.rot : Rotation scipy transform object, from euler [0,0,0]
         self.size : (3,)
         '''
         self.object_name = object_name
@@ -71,7 +47,7 @@ class MujocoObject(object):
         self.object_mesh = object_mesh
 
         # Chaning rotation changes the object mesh
-        self.rot = np.zeros(3)
+        self.rot = R.from_euler('xyz', np.zeros(3), degrees=False) 
         self.pos = np.zeros(3)
         # Chaning size scale changes the object mesh
         self.size = np.ones(3)
@@ -84,14 +60,6 @@ class MujocoObject(object):
     def set_object_scale(self, scale = None):
         pass
     
-    def set_object_rot(self, rot):
-        rot_obj = R.from_euler('xyz', rot, degrees=False)
-        # rotation_mat = np.eye(4)
-        # rotation_mat[0:3, 0:3] = r.as_matrix()
-        # self.object_mesh.apply_transform(rotation_mat)
-        self.object_mesh = utils.apply_rot_to_mesh(self.object_mesh, rot_obj)
-        self.rot = rot 
-    
     def get_mujoco_add_dict(self):
         return {
                 'object_name': self.object_name,
@@ -99,7 +67,7 @@ class MujocoObject(object):
                 'pos': self.pos,
                 'size': self.size,
                 'color': self.color,
-                'rot': self.rot,
+                'quat': utils.quat_xyzw_to_wxyz(self.rot.as_quat()),
             }
 
 
@@ -137,9 +105,8 @@ class MujocoNonTable(MujocoObject):
                 0,
                 np.random.uniform(0, 360),
             ]
-        
-        random_rotation_r = R.from_euler('xyz', random_rotation, degrees=True)
-        self.rot = random_rotation_r.as_euler('xyz')
+
+        self.rot = R.from_euler('xyz', random_rotation, degrees=True)
 
         self.pos_x, self.pos_y = np.random.normal(loc=[0,0], scale=np.array([2,2]))
         self.bbox = None
@@ -160,8 +127,7 @@ class MujocoNonTable(MujocoObject):
         mesh_names = [os.path.join(obj_convex_decomp_dir, 'convex_decomp.stl')]
         self.convex_decomp_mesh_fnames = mesh_names
         # Apply rotation, generated during initialization
-        rot_obj = R.from_euler('xyz', self.rot, degrees=False)
-        self.convex_decomp_mesh = utils.apply_rot_to_mesh(comb_mesh, rot_obj)
+        self.convex_decomp_mesh = utils.apply_rot_to_mesh(comb_mesh, self.rot)
         return mesh_names
     
     def get_convex_decomp_mesh(self):
@@ -203,12 +169,13 @@ class MujocoNonTable(MujocoObject):
         return object_mesh
     
     def get_model_annotation(self):
+        # final_quat is xyzw
         return {
             "synset_id" : self.synset_id,
             "model_id" : self.model_id,
             "size" : [float(item) for item in self.size],
             "position" : [float(item) for item in self.final_position],
-            "euler" : [float(item) for item in self.final_euler],
+            "quat" : [float(item) for item in self.final_quat],
             "half_or_whole" : int(self.half_or_whole),
             "perch_rot_angle" : int(self.perch_rot_angle),
         }
@@ -223,9 +190,9 @@ class MujocoTable(MujocoObject):
         self.pos = np.array([0.0, 0.0, -self.object_mesh.bounds[0][2]])
 
         self.height = self.object_mesh.bounds[1][2] - self.object_mesh.bounds[0][2]
-        table_r = R.from_euler('xyz', self.rot, degrees=False)
+
         self.table_frame_to_world = autolab_core.RigidTransform(
-            rotation=table_r.as_matrix(),
+            rotation=self.rot.as_matrix(),
             translation=self.pos,
             from_frame='table',
             to_frame='world',
@@ -239,11 +206,6 @@ class MujocoTable(MujocoObject):
         self.table_frame_to_world_mat = obj_to_world_mat
         table_top_corners = table_corners[table_corners[:,2] == table_bounds[1,2]]
         self.table_top_corners = utils.transform_3d_frame(self.table_frame_to_world_mat, table_top_corners)
-
-    def set_object_rot(self, rot):
-        # If change rotation, then need to change table_frame_to_world and other stuff
-        # Not for now
-        raise
 
     def set_object_scale(self, scale = None):
         '''
