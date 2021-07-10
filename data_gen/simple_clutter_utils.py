@@ -927,6 +927,20 @@ def get_corners(bounds, pos, euler_xyz, from_frame_name):
     corners_world = transform_3d_frame(obj_frame_to_world.matrix, corners_obj)
     return corners_obj, corners_world, obj_frame_to_world.matrix
 
+def get_json_cleaned_matrix(mat, type='float'):
+    '''
+    return json serializable matrix 
+    ''' 
+    if len(mat.shape) == 1:
+        if type == 'float':
+            return [float(item) for item in mat]
+        else:
+            return [int(item) for item in mat]
+    cleaned_mat = []
+    for sub_mat in mat:
+        cleaned_mat.append(get_json_cleaned_matrix(sub_mat))
+    return cleaned_mat
+
 ##############################################################################################################
 
 

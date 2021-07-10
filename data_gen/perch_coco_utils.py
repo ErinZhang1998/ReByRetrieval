@@ -8,16 +8,19 @@ class ImageAnnotation(object):
         bbox, 
         rgb_file_path,
         mask_file_path, 
-        model_file_path,
+        model_name,
         percentage_not_occluded,
+        number_pixels,
         cam_intrinsics, 
         cam_location, 
         cam_quat, 
+        model_annotation,
+        camera_annotation,
         width=640, 
-        height=480
+        height=480,
     ):
         '''
-        model_file_path --> category_id
+        model_name --> category_id
         rgb_file_path --> image_id
 
         '''
@@ -26,8 +29,9 @@ class ImageAnnotation(object):
         self.bbox = [int(item) for item in bbox]
         self.rgb_file_path = rgb_file_path
         self.mask_file_path = mask_file_path
-        self.model_file_path = model_file_path
+        self.model_name = model_name
         self.percentage_not_occluded = float(percentage_not_occluded)
+        self.number_pixels = int(number_pixels)
         cam_intrinsics = list(np.asarray(cam_intrinsics).astype(float))
         for row in range(len(cam_intrinsics)):
             cam_intrinsics[row] = list(cam_intrinsics[row])
@@ -36,6 +40,9 @@ class ImageAnnotation(object):
         self.cam_quat = list(np.asarray(cam_quat).astype(float))
         self.width = int(width)
         self.height = int(height) 
+
+        self.model_annotation = model_annotation
+        self.camera_annotation = camera_annotation
 
         self.id, self.image_id, self.category_id = None, None, None  
     
@@ -54,8 +61,11 @@ class ImageAnnotation(object):
             'quaternion_xyzw': self.cam_quat,
             'rgb_file_path' : self.rgb_file_path,
             'mask_file_path' : self.mask_file_path,
-            'model_file_path' : self.model_file_path,
+            'model_name' : self.model_name,
             'percentage_not_occluded' : self.percentage_not_occluded,
+            'number_pixels' : self.number_pixels,
             'center_3d' : self.center_3d,
+            'model_annotation' : self.model_annotation,
+            'camera_annotation' : self.camera_annotation,
         }
         return output

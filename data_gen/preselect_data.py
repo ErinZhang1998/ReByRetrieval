@@ -112,6 +112,13 @@ parser.add_option("--shapenet_filepath", dest="shapenet_filepath")
 
 '''
 
+def output_selected(csv_file, selected_l):
+    csv_df = pd.read_csv(csv_file)
+    res = []
+    for idx in selected_l:
+        res.append(csv_df.iloc[idx]["fullId"].split(".")[-1])
+    return res
+
 ######################################################################vvbag
 triangle_body_straps = ['adfe9029a1ca723eb8966aeece708f87',
  'd5881d42567baaf5dc19a9901b7e9a4f',
@@ -632,12 +639,7 @@ def write_to_csv(csv_file, dict_data, csv_columns):
     except IOError:
         print("I/O error")
 
-def output_selected(csv_file, selected_l):
-    csv_df = pd.read_csv(csv_file)
-    res = []
-    for idx in selected_l:
-        res.append(csv_df.iloc[idx]["fullId"].split(".")[-1])
-    return res
+
 
 if not os.path.exists(args.csv_file_dir):
     os.mkdir(args.csv_file_dir)

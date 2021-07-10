@@ -84,12 +84,14 @@ class SceneCamera(object):
         self.fy = focal_scaling
         self.camera_frame_to_world_frame_mat = camera_tf.matrix
         self.world_frame_to_camera_frame_mat = camera_tf.inverse().matrix
-    
-    def get_camera_info_dict(self):
+
+    def get_camera_annotation(self):
         return {
-            'intrinsics': self.intrinsics,
-            'pos' : self.pos, 
-            'rot' : self.rot_quat,
+            'intrinsics_matrix': get_json_cleaned_matrix(self.intrinsics, type='float'),
+            'pos' : get_json_cleaned_matrix(self.pos, type='float'), 
+            'rot_quat' : get_json_cleaned_matrix(self.rot_quat, type='float'),
+            'camera_frame_to_world_frame_mat' : get_json_cleaned_matrix(self.camera_frame_to_world_frame_mat, type='float'),
+            'world_frame_to_camera_frame_mat' : get_json_cleaned_matrix(self.world_frame_to_camera_frame_mat, type='float'),
         }
     
     def get_annotations_dict(self):
@@ -111,7 +113,7 @@ class PerchScene(object):
         self.depth_factor = args.depth_factor
         self.width = args.width
         self.height = args.height 
-
+        self.scene_save_dir = args.scene_save_dir
         if not os.path.exists(args.scene_save_dir):
             os.mkdir(args.scene_save_dir)
         
@@ -186,6 +188,8 @@ class PerchScene(object):
             object_idx=object_idx,
             shapenet_convex_decomp_dir=self.args.shapenet_convex_decomp_dir,
             scale=self.selected_objects[object_idx][4],
+            half_or_whole=self.selected_objects[object_idx][5],
+            perch_rot_angle=self.selected_objects[object_idx][6],
         )
         self.object_info_dict[object_idx] = object_info
     
@@ -231,8 +235,8 @@ class PerchScene(object):
         locations, targets = self.generate_cameras_around()
         for location, target in zip(locations, targets):
             new_camera = SceneCamera(location, target, self.total_camera_num)
-            new_camera.rgb_save_path = os.path.join(self.scene_folder_path, f'rgb_{(self.total_camera_num):05}.png')
-            new_camera.depth_save_path = os.path.join(self.scene_folder_path, f'depth_{(self.total_camera_num):05}.png')
+            new_camera.rgb_save_path = os.path.join(f'{self.train_or_test}/scene_{self.scene_num:06}', f'rgb_{(self.total_camera_num):05}.png')
+            new_camera.depth_save_path = os.path.join(f'{self.train_or_test}/scene_{self.scene_num:06}', f'depth_{(self.total_camera_num):05}.png')
             self.camera_info_dict[self.total_camera_num] = new_camera
             self.total_camera_num += 1
     
@@ -340,29 +344,28 @@ class PerchScene(object):
         
         ###################################### Save the scaled object, which is used for perch in the models directory
         for object_idx in self.object_info_dict.keys():
-            model_save_dir = os.path.join(args.scene_save_dir, 'models', f'{self.train_or_test}_scene_{self.scene_num}_object_{object_idx}')
-            if os.path.exists(model_save_dir):
-                shutil.rmtree(model_save_dir)
-            os.mkdir(model_save_dir)
-            model_fname = os.path.join(model_save_dir, 'textured.obj')
-
+            model_name = f'{self.train_or_test}_scene_{self.scene_num}_object_{object_idx}'
+            
             object_info = self.object_info_dict[object_idx]
-            object_mesh = object_info.save_correct_size_model(model_fname)
+            object_mesh = object_info.save_correct_size_model(os.path.join(args.scene_save_dir, 'models'), model_name)
 
             mesh_bounds = object_mesh.bounds
             current_pose = all_current_poses[object_idx+1]
             
-            mesh_bounds, mesh_bbox, _ = get_corners(mesh_bounds, current_pose[:3], mujoco_quat_to_rotation_object(current_pose[3:]).as_euler('xyz'), f'object_{object_idx}')
-            assert np.all(np.abs(np.linalg.norm(mesh_bbox - current_pose[:3], axis=1) - np.linalg.norm(mesh_bounds, axis=1)) < 1e-5)
+            final_position = current_pose[:3]
+            final_euler = mujoco_quat_to_rotation_object(current_pose[3:]).as_euler('xyz')
+            mesh_bounds, mesh_bbox, _ = get_corners(mesh_bounds, current_pose[:3], final_euler, f'object_{object_idx}')
+            assert np.all(np.abs(np.linalg.norm(mesh_bbox - final_position, axis=1) - np.linalg.norm(mesh_bounds, axis=1)) < 1e-5)
             self.object_info_dict[object_idx].bbox = mesh_bbox
-            self.object_info_dict[object_idx].object_center = current_pose[:3]
+            self.object_info_dict[object_idx].final_position = final_position
+            self.object_info_dict[object_idx].final_euler = final_euler
         
         ###################################### Save camera information, like intrinsics 
         for cam_num in self.camera_info_dict.keys():
             self.camera_info_dict[cam_num].set_camera_info_with_mujoco_env(mujoco_env, self.height, self.width)
 
         for cam_num in self.camera_info_dict.keys():
-            fname = os.path.join(self.scene_folder_path, f'rgb_{(cam_num):05}.png')
+            fname = os.path.join(f'{self.train_or_test}/scene_{self.scene_num:06}', f'rgb_{(cam_num):05}.png')
             self.render_rgb(mujoco_env, self.height, self.width, cam_num, save_path=fname)
             self.render_depth(mujoco_env, self.height, self.width, cam_num)
         
@@ -383,8 +386,8 @@ class PerchScene(object):
         )
         if save:
             if save_path is None:
-                save_path = os.path.join(self.scene_folder_path, f'rgb_{(cam_num):05}.png')
-            cv2.imwrite(save_path, rgb)
+                save_path = os.path.join(f'{self.train_or_test}/scene_{self.scene_num:06}', f'rgb_{(cam_num):05}.png')
+            cv2.imwrite(os.path.join(self.scene_save_dir, save_path), rgb)
             self.camera_info_dict[cam_num].rgb_save_path = save_path
         return rgb
     
@@ -396,12 +399,15 @@ class PerchScene(object):
             depth=True, 
             segmentation=False
         )        
+        # depth value image overflow
+        depth_scaled = depth * self.depth_factor
+        depth_scaled[depth_scaled > np.iinfo(np.uint16).max] = np.iinfo(np.uint16).max
         if save:     
             if save_path is None:
-                save_path = os.path.join(self.scene_folder_path, f'depth_{(cam_num):05}.png')
-            # depth_img = Image.fromarray((depth*self.depth_factor).astype(np.int32))
-            # depth_img.save(save_path)
-            cv2.imwrite(save_path, (depth*self.depth_factor).astype(np.uint16))
+                save_path = os.path.join(f'{self.train_or_test}/scene_{self.scene_num:06}', f'depth_{(cam_num):05}.png')
+            # depth_img = Image.fromarray(depth_scaled.astype(np.int32))
+            # depth_img.save(os.path.join(self.scene_save_dir, save_path))
+            cv2.imwrite(os.path.join(self.scene_save_dir, save_path), depth_scaled.astype(np.uint16))
             self.camera_info_dict[cam_num].depth_save_path = save_path
         return depth
     
@@ -445,7 +451,7 @@ class PerchScene(object):
                     move_object(mujoco_env, move_obj_ind, start_position, [0, 0, 0, 0])
             mujoco_env.sim.physics.forward()
             
-            save_path = os.path.join(self.scene_folder_path, f'segmentation_{(cam_num):05}_{object_idx}.png')
+            save_path = os.path.join(f'{self.train_or_test}/scene_{self.scene_num:06}', f'segmentation_{(cam_num):05}_{object_idx}.png')
 
             unocc_target_id = mujoco_env.model.model.name2id(f'gen_geom_object_{object_idx}_{self.scene_num}_0', "geom")
             unoccluded_camera = Camera(physics=mujoco_env.model, height=cam_height, width=cam_width, camera_id=cam_num)
@@ -466,8 +472,11 @@ class PerchScene(object):
                 continue 
 
             segmentation = np.logical_and(object_segmentation, unoccluded_segmentation)
-            pix_left_ratio = np.argwhere(segmentation).shape[0] / unoccluded_pixel_num
-            cv2.imwrite(save_path, segmentation.astype(np.uint8))
+            number_pixels = np.argwhere(segmentation).shape[0]
+            if number_pixels == 0:
+                continue
+            pix_left_ratio = number_pixels / unoccluded_pixel_num
+            cv2.imwrite(os.path.join(self.scene_save_dir, save_path), segmentation.astype(np.uint8))
             
             bbox_2d = self.camera_info_dict[cam_num].project_2d(self.object_info_dict[object_idx].bbox)
             bbox_2d[:,0] = self.width - bbox_2d[:,0]
@@ -479,12 +488,12 @@ class PerchScene(object):
             if not (0 <= ymin and ymin <= self.height) or not(0 <= ymax and ymax <= self.height):
                 continue
             bbox_ann = [xmin, ymin, xmax-xmin, ymax-ymin]
-            center_3d = self.object_info_dict[object_idx].object_center
+            center_3d = self.object_info_dict[object_idx].final_position
             center_2d = self.camera_info_dict[cam_num].project_2d(center_3d.reshape(-1,3)).reshape(-1,)
             center_2d[0] = self.width - center_2d[0]
             
             # # DEBUG purpose
-            cv2_image = cv2.imread(self.camera_info_dict[cam_num].rgb_save_path)
+            cv2_image = cv2.imread(os.path.join(self.scene_save_dir, self.camera_info_dict[cam_num].rgb_save_path))
             # cv2_image = cv2.rectangle(cv2_image, (int(xmin), int(ymax)), (int(xmax),int(ymin)), (0,255,0), 3)
             rmin, rmax, cmin, cmax = bbox_ann[1], bbox_ann[1] + bbox_ann[3], bbox_ann[0], bbox_ann[0] + bbox_ann[2]
             perch_box = [cmin, rmin, cmax, rmax]
@@ -504,11 +513,16 @@ class PerchScene(object):
                 bbox = bbox_ann,
                 rgb_file_path = self.camera_info_dict[cam_num].rgb_save_path,
                 mask_file_path = save_path,
-                model_file_path = self.object_info_dict[object_idx].textured_obj_fname,
+                model_name = self.object_info_dict[object_idx].model_name,
                 percentage_not_occluded = pix_left_ratio,
+                number_pixels = number_pixels,
                 cam_intrinsics = camera_info.intrinsics, 
                 cam_location = camera_info.pos, 
                 cam_quat = camera_info.rot_quat, 
+                model_annotation = self.object_info_dict[object_idx].get_model_annotation(),
+                camera_annotation= self.camera_info_dict[cam_num].get_camera_annotation(),
+                width=self.width,
+                height=self.height,
             )
             self.camera_info_dict[cam_num].rgb_image_annotations.append(object_annotation)
     
@@ -519,7 +533,93 @@ class PerchScene(object):
             anno_dict_list = camera_info.get_annotations_dict()
             all_annotations += anno_dict_list
         
-        json_string = json.dumps(all_annotations)
+        # json_string = json.dumps(all_annotations)
+        # annotation_fname = os.path.join(self.scene_folder_path, 'annotations.json')
+        # json_file = open(annotation_fname, "w+")
+        # json_file.write(json_string)
+        # json_file.close()
+
+        images = []
+        image_id_acc = -1
+        image_id_dict = dict()
+
+        categories = []
+        category_id_acc = -1
+        category_id_dict = {}
+
+        annotation_id_acc = 0
+        annotations = []
+
+        for annotation in all_annotations:
+            image_id = image_id_dict.get(annotation['rgb_file_path'], -1)
+            if image_id < 0:
+                image_id_acc += 1
+                image_id_dict[annotation['rgb_file_path']] = image_id_acc
+                image_anno = {
+                    "id" : image_id_acc,
+                    "file_name" : annotation['rgb_file_path'],
+                    "width" : annotation['width'],
+                    "height" : annotation['height'],
+                    "date_captured" : "2021",
+                    "license" : 1,
+                    "coco_url": "", 
+                    "flickr_url": "",
+                }
+                images.append(image_anno)
+
+            model_name = annotation['model_name']
+            category_id = category_id_dict.get(model_name, -1)
+            if category_id < 0:
+                category_id_acc += 1
+                category_id_dict[model_name] = category_id_acc
+                model_category = {
+                    "id": category_id_acc,
+                    "name" : model_name,
+                    "supercategory": "shape",
+                }
+                categories.append(model_category)
+
+            annotation.update({
+                "id" : annotation_id_acc,
+                "image_id" : image_id_acc,
+                "category_id" : category_id_acc,
+            })
+            annotation_id_acc += 1
+            annotations.append(annotation)
+        
+        camera_intrinsic_settings = {
+            'fx' : self.camera_info_dict[0].fx,
+            'fy' : self.camera_info_dict[0].fy,
+            'cx' : self.camera_info_dict[0].width / 2,
+            'cy' : self.camera_info_dict[0].height / 2,
+        }
+
+        camera_intrinsic_matrix = get_json_cleaned_matrix(self.camera_info_dict[0].intrinsics, type='float')
+        
+        coco_json_dict = {
+            "info": {
+                "description": "Example Dataset", 
+                "url": "https://github.com/waspinator/pycococreator", 
+                "version": "0.1.0", 
+                "year": 2018, 
+                "contributor": "waspinator", 
+                "date_created": "2020-03-17 15:05:18.264435"
+                }, 
+            "licenses": [
+                {"id": 1, "name": 
+                "Attribution-NonCommercial-ShareAlike License", 
+                "url": "http://creativecommons.org/licenses/by-nc-sa/2.0/"
+                }
+            ],
+            "categories" : categories,
+            "camera_intrinsic_settings": camera_intrinsic_settings, 
+            "camera_intrinsic_matrix" : camera_intrinsic_matrix,
+            # "fixed_transforms": None,
+            "images" : images,
+            "annotations" : annotations,
+        }
+
+        json_string = json.dumps(coco_json_dict)
         annotation_fname = os.path.join(self.scene_folder_path, 'annotations.json')
         json_file = open(annotation_fname, "w+")
         json_file.write(json_string)
@@ -528,8 +628,11 @@ class PerchScene(object):
     def render_whole_scene_segmentation(self, mujoco_env, cam_height, cam_width, cam_num, save=True, save_path=None):
         camera = Camera(physics=mujoco_env.model, height=cam_height, width=cam_width, camera_id=cam_num)
         segmentation = camera.render(segmentation=True)[:,:,0] #(480, 640, 2)
+
         if save:
-            cv2.imwrite(os.path.join(self.scene_folder_path, f'segmentation_{(cam_num):05}.png'), segmentation)
+            if save_path is None:
+                save_path = os.path.join(f'{self.train_or_test}/scene_{self.scene_num:06}', f'segmentation_{(cam_num):05}.png')
+            cv2.imwrite(os.path.join(self.scene_save_dir, save_path), segmentation)
         return segmentation
     
     def render_all_object_segmentation(self, mujoco_env, cam_height, cam_width, cam_num, object_idx, save=True, save_path=None):
@@ -545,28 +648,3 @@ class PerchScene(object):
     #     date_captured = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
         
 
-
-def generate_coco_file(root_dir):
-    json_dict = {
-        "info": {
-            "description": "Example Dataset", 
-            "url": "https://github.com/waspinator/pycococreator", 
-            "version": "0.1.0", 
-            "year": 2018, 
-            "contributor": "waspinator", 
-            "date_created": "2020-03-17 15:05:18.264435"
-            }, 
-        "licenses": [
-            {"id": 1, "name": 
-            "Attribution-NonCommercial-ShareAlike License", 
-            "url": "http://creativecommons.org/licenses/by-nc-sa/2.0/"
-            }
-        ],
-        "categories" : [],
-        "camera_intrinsic_settings": None, 
-        "fixed_transforms": None,
-        "images" : [],
-        "annotations" : [],
-    }
-    scene_dirs = os.listdir(root_dir)
-    scene_dirs = [scene_dir.startswith("scene_") for scene_dir in scene_dirs]

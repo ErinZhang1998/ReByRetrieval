@@ -21,7 +21,7 @@ parser.add_option("--max_num_objects", dest="max_num_objects", type="int", defau
 parser.add_option("--start_scene_idx", dest="start_scene_idx", type="int", default=0)
 parser.add_option("--num_lights", dest="num_lights", type="int", default=3)
 
-parser.add_option("--depth_factor", dest="depth_factor", type="int", default=10000)
+parser.add_option("--depth_factor", dest="depth_factor", type="int", default=1000)
 parser.add_option("--width", dest="width", type="int", default=640)
 parser.add_option("--height", dest="height", type="int", default=480)
 # parser.add_option("--height", dest="height", type="int", default=480)

@@ -1,9 +1,36 @@
-import os 
+# from math import comb
+import os
+import shutil 
 import numpy as np
 import trimesh 
+import open3d as o3d
 import autolab_core
 from scipy.spatial.transform import Rotation as R, rotation        
 import simple_clutter_utils as utils
+
+# class ModelAnnotation(object):
+#     def __init__(
+#         self,
+#         synset_id,
+#         model_id,
+#         size,
+#         position,
+#         euler,
+#     ):
+#         self.synset_id = synset_id
+#         self.model_id = model_id
+#         self.size = [float(item) for item in size]
+#         self.position = [float(item) for item in position]
+#         self.euler = [float(item) for item in euler]
+    
+#     def output_dict(self):
+#         return {
+#             "synset_id" : self.synset_id,
+#             "model_id" : self.model_id,
+#             "size" : self.size,
+#             "position" : self.position,
+#             "euler" : self.euler,
+#         }
 
 class MujocoObject(object):
     def __init__(
@@ -53,7 +80,7 @@ class MujocoObject(object):
         fname_list = self.shapenet_file_name.split('/')
         self.synset_id = fname_list[-4]
         self.model_id = fname_list[-3] 
-
+    
     def set_object_scale(self, scale = None):
         pass
     
@@ -91,6 +118,8 @@ class MujocoNonTable(MujocoObject):
 
         self.shapenet_convex_decomp_dir = kwargs['shapenet_convex_decomp_dir']
         self.object_idx = kwargs['object_idx']
+        self.half_or_whole = kwargs['half_or_whole']
+        self.perch_rot_angle = kwargs['perch_rot_angle']
         self.canonical_size = 2
 
         scale = kwargs['scale'] if not kwargs['scale'] is None else np.random.choice([0.75, 0.85, 1.0])
@@ -116,8 +145,7 @@ class MujocoNonTable(MujocoObject):
         self.bbox = None
 
     def load_decomposed_mesh(self):
-        obj_convex_decomp_dir = os.path.join(self.shapenet_convex_decomp_dir, f'{self.synset_id}/{self.model_id}')
-        comb_mesh = trimesh.load(os.path.join(obj_convex_decomp_dir, 'convex_decomp.obj'), force='mesh')
+        comb_mesh, obj_convex_decomp_dir = self.get_convex_decomp_mesh()
         # make mesh stand upright
         comb_mesh.apply_transform(self.upright_mat) 
         comb_mesh.export(os.path.join(obj_convex_decomp_dir, 'convex_decomp.stl'))
@@ -136,14 +164,54 @@ class MujocoNonTable(MujocoObject):
         self.convex_decomp_mesh = utils.apply_rot_to_mesh(comb_mesh, rot_obj)
         return mesh_names
     
-    def save_correct_size_model(self, model_fname):
+    def get_convex_decomp_mesh(self):
+        import pybullet as p
+
+        convex_decomp_synset_dir = os.path.join(self.shapenet_convex_decomp_dir, self.synset_id)
+        if not os.path.exists(convex_decomp_synset_dir):
+            os.mkdir(convex_decomp_synset_dir)
+        obj_convex_decomp_dir = os.path.join(self.shapenet_convex_decomp_dir, f'{self.synset_id}/{self.model_id}')
+        if not os.path.exists(obj_convex_decomp_dir):
+            os.mkdir(obj_convex_decomp_dir)
+        
+        obj_convex_decomp_fname = os.path.join(obj_convex_decomp_dir, 'convex_decomp.obj')
+        if not os.path.exists(obj_convex_decomp_fname):
+            name_log = os.path.join(obj_convex_decomp_dir, 'convex_decomp_log.txt')
+            p.vhacd(self.shapenet_file_name, obj_convex_decomp_fname, name_log, alpha=0.04,resolution=50000)
+            
+        assert os.path.exists(obj_convex_decomp_fname)
+        return trimesh.load(obj_convex_decomp_fname, force='mesh'), obj_convex_decomp_dir
+    
+    def save_correct_size_model(self, model_save_root_dir, model_name):
+        import shutil
+        model_save_dir = os.path.join(model_save_root_dir, model_name)
+        if os.path.exists(model_save_dir):
+            shutil.rmtree(model_save_dir)
+        os.mkdir(model_save_dir)
+        model_fname = os.path.join(model_save_dir, 'textured.obj')
+
         object_mesh = trimesh.load(self.shapenet_file_name, force='mesh')
         object_mesh.apply_transform(self.upright_mat)
         object_mesh = utils.apply_scale_to_mesh(object_mesh, self.size)
         object_mesh.export(model_fname)
-        self.textured_obj_fname = model_fname
+        self.model_name = model_name
+
+        # Save as textured.ply
+        copy_textured_mesh = o3d.io.read_triangle_mesh(model_fname)
+        o3d.io.write_triangle_mesh(os.path.join(model_save_dir, 'textured.ply'), copy_textured_mesh)
 
         return object_mesh
+    
+    def get_model_annotation(self):
+        return {
+            "synset_id" : self.synset_id,
+            "model_id" : self.model_id,
+            "size" : [float(item) for item in self.size],
+            "position" : [float(item) for item in self.final_position],
+            "euler" : [float(item) for item in self.final_euler],
+            "half_or_whole" : int(self.half_or_whole),
+            "perch_rot_angle" : int(self.perch_rot_angle),
+        }
 
 
 class MujocoTable(MujocoObject):
