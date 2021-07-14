@@ -206,6 +206,25 @@ class PerchScene(object):
                 name=f'light{light_id}'
             )
     
+    def generate_cameras_fibonacci_sphere_grid(self, center_x=0, center_y=0, camera_z_above_table=1.5, num_angles=20, radius=5):
+        locations = []
+        phi = math.pi * (3. - math.sqrt(5.))  # golden angle in radians
+        for i in range(num_angles):
+            y = 1 - (i / float(num_angles - 1))  # y goes from 1 to 0
+            y_radius = math.sqrt(radius - y * y)  # radius at y
+            theta = phi * i  # golden angle increment
+            x = math.cos(theta) * y_radius
+            z = math.sin(theta) * y_radius
+
+            locations.append((x, y, z))
+        locations = np.asarray(locations)
+        locations[:,0] += center_x
+        locations[:,1] += center_y
+        locations[:,2] += self.table_info.height + camera_z_above_table
+        targets = np.asarray([[center_x,center_y,self.table_info.height]] * num_angles)
+        return locations, targets
+        
+    
     def generate_cameras_around(self, center_x=0, center_y=0, camera_z_above_table=1.5, num_angles=20, radius=5):
         quad = (2.0*math.pi) / num_angles
         normal_thetas = [i*quad for i in range(num_angles)]
@@ -224,8 +243,31 @@ class PerchScene(object):
 
         return locations, targets
     
-    def add_cameras(self):
-        locations, targets = self.generate_cameras_around()
+    def add_cameras(
+        self, 
+        sphere_sampling=True,
+        center_x=0, 
+        center_y=0, 
+        camera_z_above_table=1.5, 
+        num_angles=20, 
+        radius=1,
+    ):
+        if sphere_sampling:
+            locations, targets = self.generate_cameras_fibonacci_sphere_grid(
+                center_x, 
+                center_y, 
+                camera_z_above_table, 
+                num_angles, 
+                radius,
+            )
+        else:
+            locations, targets = self.generate_cameras_around(
+                center_x, 
+                center_y, 
+                camera_z_above_table, 
+                num_angles, 
+                radius,
+            )
         for location, target in zip(locations, targets):
             new_camera = SceneCamera(location, target, self.total_camera_num)
             new_camera.rgb_save_path = os.path.join(f'{self.train_or_test}/scene_{self.scene_num:06}', f'rgb_{(self.total_camera_num):05}.png')
@@ -258,11 +300,6 @@ class PerchScene(object):
                 object_add_dict,
             )
         
-        # #  DEBUG 
-        # for cam_num in self.camera_info_dict.keys():
-        #     new_camera = self.camera_info_dict[cam_num]
-        #     new_camera.add_camera_to_file(self.convex_decomp_xml_file)
-
         convex_decomp_mujoco_env = MujocoEnv(self.convex_decomp_xml_file, 1, has_robot=False)
         error_object_idx = None
         try:
@@ -289,14 +326,22 @@ class PerchScene(object):
 
         self.convex_decomp_mujoco_env_state = convex_decomp_mujoco_env.get_env_state().copy()
         all_current_poses = convex_decomp_mujoco_env.data.qpos.ravel().copy().reshape(-1,7) 
-        # # print(all_current_poses)
-        # objects_current_positions = all_current_poses[1:][:,:3]
+        # print(all_current_poses)
+        objects_current_positions = all_current_poses[1:][:,:3]
         
-        # table_current_position = all_current_poses[0][:3].reshape(-1,)
-        # table_current_position[2] = self.table_info.height
-        # object_closest_to_table_center = np.argmin(np.linalg.norm(objects_current_positions - table_current_position, axis=1))
+        table_current_position = all_current_poses[0][:3].reshape(-1,)
+        table_current_position[2] = self.table_info.height
+        object_closest_to_table_center = np.argmin(np.linalg.norm(objects_current_positions - table_current_position, axis=1))
         
-        # new_cam_center_x, new_cam_center_y,_ = objects_current_positions[object_closest_to_table_center]
+        new_cam_center_x, new_cam_center_y,_ = objects_current_positions[object_closest_to_table_center]
+        self.add_cameras(
+            sphere_sampling=True,
+            center_x=new_cam_center_x, 
+            center_y=new_cam_center_y, 
+            camera_z_above_table=self.object_info_dict[0].canonical_size*1.5, 
+            num_angles=40, 
+            radius=1,
+        )
         # locations, targets = self.generate_cameras_around(center_x=new_cam_center_x, center_y=new_cam_center_y)
         # for cam_num, (location, target) in enumerate(zip(locations, targets)):
         #     self.camera_info_dict[cam_num].pos = location
@@ -319,44 +364,43 @@ class PerchScene(object):
                 object_add_dict,
             )
         
-        mujoco_env = MujocoEnv(self.cam_temp_scene_xml_file, 1, has_robot=False)
-        mujoco_env.set_env_state(self.convex_decomp_mujoco_env_state)
-        mujoco_env.sim.physics.forward()
-        all_current_poses = mujoco_env.data.qpos.ravel().copy().reshape(-1,7)  
+        # mujoco_env = MujocoEnv(self.cam_temp_scene_xml_file, 1, has_robot=False)
+        # mujoco_env.set_env_state(self.convex_decomp_mujoco_env_state)
+        # mujoco_env.sim.physics.forward()
+        # all_current_poses = mujoco_env.data.qpos.ravel().copy().reshape(-1,7)  
 
-        # all_bboxs = []
-        for object_idx in self.object_info_dict.keys(): 
-            model_name = f'{self.train_or_test}_scene_{self.scene_num}_object_{object_idx}'           
-            object_info = self.object_info_dict[object_idx]
-            object_mesh = object_info.save_correct_size_model(os.path.join(args.scene_save_dir, 'models'), model_name)
+        # # all_bboxs = []
+        # for object_idx in self.object_info_dict.keys(): 
+        #     model_name = f'{self.train_or_test}_scene_{self.scene_num}_object_{object_idx}'           
+        #     object_info = self.object_info_dict[object_idx]
+        #     object_mesh = object_info.save_correct_size_model(os.path.join(args.scene_save_dir, 'models'), model_name)
 
-            mesh_bounds = object_mesh.bounds
-            current_pose = all_current_poses[object_idx+1]
+        #     mesh_bounds = object_mesh.bounds
+        #     current_pose = all_current_poses[object_idx+1]
             
-            final_position = current_pose[:3]
-            final_quat = quat_wxyz_to_xyzw(current_pose[3:])
-            final_rot_obj = R.from_quat(final_quat)
-            mesh_bounds, mesh_bbox, _ = get_corners(mesh_bounds, current_pose[:3], final_rot_obj, f'object_{object_idx}')
-            assert np.all(np.abs(np.linalg.norm(mesh_bbox - final_position, axis=1) - np.linalg.norm(mesh_bounds, axis=1)) < 1e-5)
+        #     final_position = current_pose[:3]
+        #     final_quat = quat_wxyz_to_xyzw(current_pose[3:])
+        #     final_rot_obj = R.from_quat(final_quat)
+        #     mesh_bounds, mesh_bbox, _ = get_corners(mesh_bounds, current_pose[:3], final_rot_obj, f'object_{object_idx}')
+        #     assert np.all(np.abs(np.linalg.norm(mesh_bbox - final_position, axis=1) - np.linalg.norm(mesh_bounds, axis=1)) < 1e-5)
 
-            locations, targets = self.generate_cameras_around(
-                center_x=final_position[0], 
-                center_y=final_position[1],
-                num_angles=8, 
-                radius=1,
-            )
-            for location, target in zip(locations, targets):
-                new_camera = SceneCamera(location, target, self.total_camera_num)
-                new_camera.rgb_save_path = os.path.join(f'{self.train_or_test}/scene_{self.scene_num:06}', f'rgb_{(self.total_camera_num):05}.png')
-                new_camera.depth_save_path = os.path.join(f'{self.train_or_test}/scene_{self.scene_num:06}', f'depth_{(self.total_camera_num):05}.png')
-                self.camera_info_dict[self.total_camera_num] = new_camera
-                self.total_camera_num += 1
+        #     locations, targets = self.generate_cameras_around(
+        #         center_x=final_position[0], 
+        #         center_y=final_position[1],
+        #         num_angles=8, 
+        #         radius=1,
+        #     )
+        #     for location, target in zip(locations, targets):
+        #         new_camera = SceneCamera(location, target, self.total_camera_num)
+        #         new_camera.rgb_save_path = os.path.join(f'{self.train_or_test}/scene_{self.scene_num:06}', f'rgb_{(self.total_camera_num):05}.png')
+        #         new_camera.depth_save_path = os.path.join(f'{self.train_or_test}/scene_{self.scene_num:06}', f'depth_{(self.total_camera_num):05}.png')
+        #         self.camera_info_dict[self.total_camera_num] = new_camera
+        #         self.total_camera_num += 1
             
-            self.object_info_dict[object_idx].bbox = mesh_bbox
-            self.object_info_dict[object_idx].final_position = final_position
-            self.object_info_dict[object_idx].final_quat = final_quat
+        #     self.object_info_dict[object_idx].bbox = mesh_bbox
+        #     self.object_info_dict[object_idx].final_position = final_position
+        #     self.object_info_dict[object_idx].final_quat = final_quat
 
-        
         
         # # Generate around the center of all the bounding boxes
         # all_bboxs = np.hstack(all_bboxs)
@@ -374,10 +418,10 @@ class PerchScene(object):
         mujoco_env.set_env_state(self.convex_decomp_mujoco_env_state)
         mujoco_env.sim.physics.forward()
 
-        # Calculate object bounding box in the scene and save in the mujoco object 
+        ## Calculate object bounding box in the scene and save in the mujoco object 
         all_current_poses = mujoco_env.data.qpos.ravel().copy().reshape(-1,7)  
         
-        ###################################### Save the scaled object, which is used for perch in the models directory
+        ## Save the scaled object, which is used for perch in the models directory
         for object_idx in self.object_info_dict.keys():
             model_name = f'{self.train_or_test}_scene_{self.scene_num}_object_{object_idx}'
             
@@ -396,7 +440,7 @@ class PerchScene(object):
             self.object_info_dict[object_idx].final_position = final_position
             self.object_info_dict[object_idx].final_quat = final_quat
         
-        ###################################### Save camera information, like intrinsics 
+        ## Save camera information, like intrinsics 
         for cam_num in self.camera_info_dict.keys():
             self.camera_info_dict[cam_num].set_camera_info_with_mujoco_env(mujoco_env, self.height, self.width)
 

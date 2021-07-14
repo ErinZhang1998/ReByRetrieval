@@ -109,7 +109,7 @@ class MujocoNonTable(MujocoObject):
 
         self.rot = R.from_euler('xyz', random_rotation, degrees=True)
 
-        self.pos_x, self.pos_y = np.random.normal(loc=[0,0], scale=np.array([2,2]))
+        self.pos_x, self.pos_y = np.random.normal(loc=[0,0], scale=np.array([self.canonical_size]*2))
         self.bbox = None
 
     def load_decomposed_mesh(self):
