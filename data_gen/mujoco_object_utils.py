@@ -51,6 +51,7 @@ class MujocoObject(object):
         self.pos = np.zeros(3)
         # Chaning size scale changes the object mesh
         self.size = np.ones(3)
+        self.canonical_size = 0.3
 
     def from_mesh_fname_to_ids(self):
         fname_list = self.shapenet_file_name.split('/')
@@ -88,7 +89,7 @@ class MujocoNonTable(MujocoObject):
         self.object_idx = kwargs['object_idx']
         self.half_or_whole = kwargs['half_or_whole']
         self.perch_rot_angle = kwargs['perch_rot_angle']
-        self.canonical_size = 2
+        
 
         scale = kwargs['scale'] if not kwargs['scale'] is None else np.random.choice([0.75, 0.85, 1.0])
         self.actual_size = scale * self.canonical_size

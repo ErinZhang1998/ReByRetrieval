@@ -21,7 +21,7 @@ def create_one_6d_scene(scene_num, selected_objects, args):
     try:
         perch_scene = PerchScene(scene_num, selected_objects, args)
         scene_folder_path = perch_scene.scene_folder_path
-        perch_scene.add_cameras()
+        # perch_scene.add_cameras()
         perch_scene.create_convex_decomposed_scene()
         perch_scene.create_camera_scene()
         # import pdb; pdb.set_trace()

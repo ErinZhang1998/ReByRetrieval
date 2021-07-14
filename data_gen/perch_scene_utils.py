@@ -55,7 +55,7 @@ class SceneCamera(object):
     
     def set_camera_info_with_mujoco_env(self, mujoco_env, cam_height, cam_width):
         camera = Camera(physics=mujoco_env.model, height=cam_height, width=cam_width, camera_id=self.cam_num)
-        import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
         camera_id = camera._render_camera.fixedcamid
         pos = camera._physics.data.cam_xpos[camera_id]
         cam_rot_matrix = camera._physics.data.cam_xmat[camera_id].reshape(3, 3)
@@ -151,11 +151,6 @@ class PerchScene(object):
         self.total_camera_num = 0
         self.camera_info_dict = dict()
 
-        # First create the scene with convex decomposed parts
-        # self.add_cameras()
-        # self.create_convex_decomposed_scene()
-        # self.create_camera_scene()
-
     def create_table(self):
         table_id = '97b3dfb3af4487b2b7d2794d2db4b0e7'
         table_mesh_fname = os.path.join(self.shapenet_filepath, f'04379243/{table_id}/models/model_normalized.obj')
@@ -211,8 +206,7 @@ class PerchScene(object):
                 name=f'light{light_id}'
             )
     
-    def generate_cameras_around(self, center_x=0, center_y=0):
-        num_angles = 20
+    def generate_cameras_around(self, center_x=0, center_y=0, camera_z_above_table=1.5, num_angles=20, radius=5):
         quad = (2.0*math.pi) / num_angles
         normal_thetas = [i*quad for i in range(num_angles)]
         table_width = np.max(self.table_info.object_mesh.bounds[1,:2] - self.table_info.object_mesh.bounds[0,:2])
@@ -220,9 +214,9 @@ class PerchScene(object):
         locations = []
         targets = []
         for theta in normal_thetas:
-            cam_x = np.cos(theta) * (table_width/2) + center_x
-            cam_y = np.sin(theta) * (table_width/2) + center_y
-            location = [cam_x, cam_y, self.table_info.height + 1.5]
+            cam_x = np.cos(theta) * radius + center_x
+            cam_y = np.sin(theta) * radius + center_y
+            location = [cam_x, cam_y, self.table_info.height + camera_z_above_table]
             target = [center_x,center_y,self.table_info.height]
 
             locations.append(location)
@@ -270,49 +264,56 @@ class PerchScene(object):
         #     new_camera.add_camera_to_file(self.convex_decomp_xml_file)
 
         convex_decomp_mujoco_env = MujocoEnv(self.convex_decomp_xml_file, 1, has_robot=False)
-        for object_idx in range(self.num_objects):
-            object_info = self.object_info_dict[object_idx]
-            convex_decomp_mesh_height = -object_info.convex_decomp_mesh.bounds[0,2]
-            if False:
-                prev_object_info = self.object_info_dict[object_idx-1]
-                prev_object_info_bounds = prev_object_info.convex_decomp_mesh.bounds
-                prev_pose = convex_decomp_mujoco_env.data.qpos.ravel().copy().reshape(-1,7)[object_idx]
-                prev_x, prev_y, prev_z = prev_pose[:3]
-                if prev_z < self.table_info.height:
-                    
-                    prev_x, prev_y = 0,0
-                pos_std = np.linalg.norm(prev_object_info_bounds[1] - prev_object_info_bounds[0])
-                # 
-                # _, prev_object_corners,_ = get_corners(prev_object_info_bounds, prev_pose[:3], mujoco_quat_to_rotation_object(prev_pose[3:]).as_rotvec(), f'prev_object_{object_idx-1}')
-                # pos_x, pos_y = np.random.normal(loc=[prev_x,prev_y], scale=np.array([pos_std/2]*2)) 
-            else:
-                pos_x, pos_y = object_info.pos_x, object_info.pos_y
-            
-            moved_location = [pos_x, pos_y, self.table_info.height+convex_decomp_mesh_height+0.05]
-            move_object(convex_decomp_mujoco_env, object_idx, moved_location, quat_xyzw_to_wxyz(object_info.rot.as_quat()))
-            
-            for _ in range(4000):
-                convex_decomp_mujoco_env.model.step()
+        error_object_idx = None
+        try:
+            for object_idx in range(self.num_objects):
+                object_info = self.object_info_dict[object_idx]
+                convex_decomp_mesh_height = -object_info.convex_decomp_mesh.bounds[0,2]
+                if False:
+                    prev_object_info = self.object_info_dict[object_idx-1]
+                    prev_object_info_bounds = prev_object_info.convex_decomp_mesh.bounds
+                    prev_pose = convex_decomp_mujoco_env.data.qpos.ravel().copy().reshape(-1,7)[object_idx]
+                    prev_x, prev_y, prev_z = prev_pose[:3]
+                    if prev_z < self.table_info.height:
+                        
+                        prev_x, prev_y = 0,0
+                    pos_std = np.linalg.norm(prev_object_info_bounds[1] - prev_object_info_bounds[0])
+                    # 
+                    # _, prev_object_corners,_ = get_corners(prev_object_info_bounds, prev_pose[:3], mujoco_quat_to_rotation_object(prev_pose[3:]).as_rotvec(), f'prev_object_{object_idx-1}')
+                    # pos_x, pos_y = np.random.normal(loc=[prev_x,prev_y], scale=np.array([pos_std/2]*2)) 
+                else:
+                    pos_x, pos_y = object_info.pos_x, object_info.pos_y
+                
+                moved_location = [pos_x, pos_y, self.table_info.height+convex_decomp_mesh_height+0.05]
+                move_object(convex_decomp_mujoco_env, object_idx, moved_location, quat_xyzw_to_wxyz(object_info.rot.as_quat()))
+                error_object_idx = object_idx
+                for _ in range(4000):
+                    convex_decomp_mujoco_env.model.step()
+        except:
+            print('\nERROR move_object: ', self.scene_num, " at index: ", error_object_idx)
+            error_all_poses = convex_decomp_mujoco_env.data.qpos.ravel().copy().reshape(-1,7)
+            for object_idx in range(self.num_objects):
+                if object_idx > error_object_idx:
+                    break
+                object_info = self.object_info_dict[object_idx]
+                print(object_idx, [object_info.pos_x, object_info.pos_y, self.table_info.height+convex_decomp_mesh_height+0.05], object_info.rot.as_quat(), error_all_poses[object_idx+1])
+            print("\n")
+            raise
 
         self.convex_decomp_mujoco_env_state = convex_decomp_mujoco_env.get_env_state().copy()
         all_current_poses = convex_decomp_mujoco_env.data.qpos.ravel().copy().reshape(-1,7) 
-        objects_current_positions = all_current_poses[1:][:,:3]
+        # # print(all_current_poses)
+        # objects_current_positions = all_current_poses[1:][:,:3]
         
-        table_current_position = all_current_poses[0][:3].reshape(-1,)
-        table_current_position[2] = self.table_info.height
-        object_closest_to_table_center = np.argmin(np.linalg.norm(objects_current_positions - table_current_position, axis=1))
+        # table_current_position = all_current_poses[0][:3].reshape(-1,)
+        # table_current_position[2] = self.table_info.height
+        # object_closest_to_table_center = np.argmin(np.linalg.norm(objects_current_positions - table_current_position, axis=1))
         
-        new_cam_center_x, new_cam_center_y,_ = objects_current_positions[object_closest_to_table_center]
-        locations, targets = self.generate_cameras_around(center_x=new_cam_center_x, center_y=new_cam_center_y)
-        for cam_num, (location, target) in enumerate(zip(locations, targets)):
-            self.camera_info_dict[cam_num].pos = location
-            self.camera_info_dict[cam_num].target = target
-        
-        # #  DEBUG
-        # for cam_num in self.camera_info_dict.keys():
-        #     fname = os.path.join(self.scene_folder_path, f'rgb_decomp_{(cam_num):05}.png')
-        #     self.render_rgb(convex_decomp_mujoco_env, self.height, self.width, cam_num, save_path=fname)
-    
+        # new_cam_center_x, new_cam_center_y,_ = objects_current_positions[object_closest_to_table_center]
+        # locations, targets = self.generate_cameras_around(center_x=new_cam_center_x, center_y=new_cam_center_y)
+        # for cam_num, (location, target) in enumerate(zip(locations, targets)):
+        #     self.camera_info_dict[cam_num].pos = location
+        #     self.camera_info_dict[cam_num].target = target
     
     def create_camera_scene(self):
         self.add_lights_to_scene(self.cam_temp_scene_xml_file)
@@ -330,6 +331,54 @@ class PerchScene(object):
                 self.cam_temp_scene_xml_file,
                 object_add_dict,
             )
+        
+        mujoco_env = MujocoEnv(self.cam_temp_scene_xml_file, 1, has_robot=False)
+        mujoco_env.set_env_state(self.convex_decomp_mujoco_env_state)
+        mujoco_env.sim.physics.forward()
+        all_current_poses = mujoco_env.data.qpos.ravel().copy().reshape(-1,7)  
+
+        # all_bboxs = []
+        for object_idx in self.object_info_dict.keys(): 
+            model_name = f'{self.train_or_test}_scene_{self.scene_num}_object_{object_idx}'           
+            object_info = self.object_info_dict[object_idx]
+            object_mesh = object_info.save_correct_size_model(os.path.join(args.scene_save_dir, 'models'), model_name)
+
+            mesh_bounds = object_mesh.bounds
+            current_pose = all_current_poses[object_idx+1]
+            
+            final_position = current_pose[:3]
+            final_quat = quat_wxyz_to_xyzw(current_pose[3:])
+            final_rot_obj = R.from_quat(final_quat)
+            mesh_bounds, mesh_bbox, _ = get_corners(mesh_bounds, current_pose[:3], final_rot_obj, f'object_{object_idx}')
+            assert np.all(np.abs(np.linalg.norm(mesh_bbox - final_position, axis=1) - np.linalg.norm(mesh_bounds, axis=1)) < 1e-5)
+
+            locations, targets = self.generate_cameras_around(
+                center_x=final_position[0], 
+                center_y=final_position[1],
+                num_angles=8, 
+                radius=1,
+            )
+            for location, target in zip(locations, targets):
+                new_camera = SceneCamera(location, target, self.total_camera_num)
+                new_camera.rgb_save_path = os.path.join(f'{self.train_or_test}/scene_{self.scene_num:06}', f'rgb_{(self.total_camera_num):05}.png')
+                new_camera.depth_save_path = os.path.join(f'{self.train_or_test}/scene_{self.scene_num:06}', f'depth_{(self.total_camera_num):05}.png')
+                self.camera_info_dict[self.total_camera_num] = new_camera
+                self.total_camera_num += 1
+            
+            self.object_info_dict[object_idx].bbox = mesh_bbox
+            self.object_info_dict[object_idx].final_position = final_position
+            self.object_info_dict[object_idx].final_quat = final_quat
+
+        
+        
+        # # Generate around the center of all the bounding boxes
+        # all_bboxs = np.hstack(all_bboxs)
+        # avg_pt = np.mean(all_bboxs, axis=0)
+        # locations, targets = self.generate_cameras_around(center_x=avg_pt[0], center_y=avg_pt[1])
+        # for cam_num, (location, target) in enumerate(zip(locations, targets)):
+        #     self.camera_info_dict[cam_num].pos = location
+        #     self.camera_info_dict[cam_num].target = target
+
         for cam_num in self.camera_info_dict.keys():
             new_camera = self.camera_info_dict[cam_num]
             new_camera.add_camera_to_file(self.cam_temp_scene_xml_file)
@@ -648,4 +697,42 @@ class PerchScene(object):
     # def output_json_information(self):
     #     date_captured = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")
         
+    # def generate_cameras_old_style(self):
+    #     num_rotates = 1
+    #     step_deg = 10
+    #     # for object_i in object_idx_to_obj_info.keys(): 
+    #     for object_i, object_info in self.object_info_dict.items():
+    #         xyz1 = object_info.final_position
+    #         # height1 = object_idx_to_obj_info[object_i]['object_height']
+            
+    #         pairwise_diff = xys - xyz1[:2].reshape((1,2))
+    #         dist = np.linalg.norm(pairwise_diff, axis=1)
+    #         max_dist = np.max(dist)
+            
+    #         # for object_j in object_idx_to_obj_info.keys():  
+    #         for object_j in new_obj_keys:
+    #             if object_i == object_j:
+    #                 continue 
+    #             xyz2 = object_idx_to_obj_info[object_j]['xyz']
+    #             height2 = object_idx_to_obj_info[object_j]['object_height']
+                
+    #             for sign in [1,-1]:
+    #                 keep_rotating = True
+    #                 for deg_i in range(num_rotates):
+    #                     if not keep_rotating:
+    #                         break
+    #                     low_deg = deg_i*step_deg*sign
+    #                     high_deg = (deg_i+1)*step_deg*sign
+    #                     cam_xyz1,cam_target,cam_xyz2 = get_camera_position_occluded_one_cam(table_height, xyz1, xyz2,height1,height2,max_dist,[low_deg,high_deg])
+                        
+    #                     for cam_i,cam_xyz in enumerate([cam_xyz1, cam_xyz2]):
+    #                         if cam_i == 2:
+    #                             if not np.random.binomial(n=1, p=(1/5), size=1)[0]:
+    #                                 continue
 
+    #                         add_camera(cam_temp_scene_xml_file, f'gen_cam_{cam_num}', cam_xyz, cam_target, cam_num)
+
+    #                         cam_xyzs[cam_num] = cam_xyz
+    #                         cam_targets[cam_num] = cam_target
+    #                         cam_num_to_occlusion_target[cam_num] = object_i
+    #                         cam_num += 1
