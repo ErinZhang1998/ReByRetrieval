@@ -269,20 +269,7 @@ class PerchScene(object):
             for object_idx in range(self.num_objects):
                 object_info = self.object_info_dict[object_idx]
                 convex_decomp_mesh_height = -object_info.convex_decomp_mesh.bounds[0,2]
-                if False:
-                    prev_object_info = self.object_info_dict[object_idx-1]
-                    prev_object_info_bounds = prev_object_info.convex_decomp_mesh.bounds
-                    prev_pose = convex_decomp_mujoco_env.data.qpos.ravel().copy().reshape(-1,7)[object_idx]
-                    prev_x, prev_y, prev_z = prev_pose[:3]
-                    if prev_z < self.table_info.height:
-                        
-                        prev_x, prev_y = 0,0
-                    pos_std = np.linalg.norm(prev_object_info_bounds[1] - prev_object_info_bounds[0])
-                    # 
-                    # _, prev_object_corners,_ = get_corners(prev_object_info_bounds, prev_pose[:3], mujoco_quat_to_rotation_object(prev_pose[3:]).as_rotvec(), f'prev_object_{object_idx-1}')
-                    # pos_x, pos_y = np.random.normal(loc=[prev_x,prev_y], scale=np.array([pos_std/2]*2)) 
-                else:
-                    pos_x, pos_y = object_info.pos_x, object_info.pos_y
+                pos_x, pos_y = object_info.pos_x, object_info.pos_y
                 
                 moved_location = [pos_x, pos_y, self.table_info.height+convex_decomp_mesh_height+0.05]
                 move_object(convex_decomp_mujoco_env, object_idx, moved_location, quat_xyzw_to_wxyz(object_info.rot.as_quat()))
