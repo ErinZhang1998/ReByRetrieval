@@ -209,19 +209,20 @@ class PerchScene(object):
     def generate_cameras_fibonacci_sphere_grid(self, center_x=0, center_y=0, camera_z_above_table=1.5, num_angles=20, radius=5):
         locations = []
         phi = math.pi * (3. - math.sqrt(5.))  # golden angle in radians
-        for i in range(num_angles):
-            y = 1 - (i / float(num_angles - 1))  # y goes from 1 to 0
+        for i in range(num_angles*2):
+            y = 1 - (i / float(num_angles*2 - 1)) * 2  # y goes from 1 to 0
             y_radius = math.sqrt(radius - y * y)  # radius at y
             theta = phi * i  # golden angle increment
             x = math.cos(theta) * y_radius
             z = math.sin(theta) * y_radius
-
+            if z <= 0:
+                continue
             locations.append((x, y, z))
         locations = np.asarray(locations)
         locations[:,0] += center_x
         locations[:,1] += center_y
         locations[:,2] += self.table_info.height + camera_z_above_table
-        targets = np.asarray([[center_x,center_y,self.table_info.height]] * num_angles)
+        targets = np.asarray([[center_x,center_y,self.table_info.height]] * len(locations))
         return locations, targets
         
     
@@ -334,11 +335,12 @@ class PerchScene(object):
         object_closest_to_table_center = np.argmin(np.linalg.norm(objects_current_positions - table_current_position, axis=1))
         
         new_cam_center_x, new_cam_center_y,_ = objects_current_positions[object_closest_to_table_center]
+        new_cam_center_x, new_cam_center_y,_ = np.mean(objects_current_positions, axis=0)
         self.add_cameras(
             sphere_sampling=True,
             center_x=new_cam_center_x, 
             center_y=new_cam_center_y, 
-            camera_z_above_table=self.object_info_dict[0].canonical_size*1.5, 
+            camera_z_above_table=self.object_info_dict[0].canonical_size, 
             num_angles=40, 
             radius=1,
         )
