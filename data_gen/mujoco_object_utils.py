@@ -113,7 +113,12 @@ class MujocoNonTable(MujocoObject):
         self.bbox = None
 
     def load_decomposed_mesh(self):
-        comb_mesh, obj_convex_decomp_dir = self.get_convex_decomp_mesh()
+        comb_mesh, obj_convex_decomp_dir = utils.get_convex_decomp_mesh(
+            self.shapenet_file_name, 
+            self.shapenet_convex_decomp_dir, 
+            self.synset_id, 
+            model_id=self.model_id,
+        )
         # make mesh stand upright
         comb_mesh.apply_transform(self.upright_mat) 
         comb_mesh.export(os.path.join(obj_convex_decomp_dir, 'convex_decomp.stl'))
@@ -130,24 +135,6 @@ class MujocoNonTable(MujocoObject):
         # Apply rotation, generated during initialization
         self.convex_decomp_mesh = utils.apply_rot_to_mesh(comb_mesh, self.rot)
         return mesh_names
-    
-    def get_convex_decomp_mesh(self):
-        import pybullet as p
-
-        convex_decomp_synset_dir = os.path.join(self.shapenet_convex_decomp_dir, self.synset_id)
-        if not os.path.exists(convex_decomp_synset_dir):
-            os.mkdir(convex_decomp_synset_dir)
-        obj_convex_decomp_dir = os.path.join(self.shapenet_convex_decomp_dir, f'{self.synset_id}/{self.model_id}')
-        if not os.path.exists(obj_convex_decomp_dir):
-            os.mkdir(obj_convex_decomp_dir)
-        
-        obj_convex_decomp_fname = os.path.join(obj_convex_decomp_dir, 'convex_decomp.obj')
-        if not os.path.exists(obj_convex_decomp_fname):
-            name_log = os.path.join(obj_convex_decomp_dir, 'convex_decomp_log.txt')
-            p.vhacd(self.shapenet_file_name, obj_convex_decomp_fname, name_log, alpha=0.04,resolution=50000)
-            
-        assert os.path.exists(obj_convex_decomp_fname)
-        return trimesh.load(obj_convex_decomp_fname, force='mesh'), obj_convex_decomp_dir
     
     def save_correct_size_model(self, model_save_root_dir, model_name):
         import shutil
@@ -214,7 +201,7 @@ class MujocoTable(MujocoObject):
         '''
         table_bounds = self.object_mesh.bounds
         table_xyz_range = np.min(table_bounds[1, :2] - table_bounds[0, :2])
-        table_size = 2*(self.num_objects_in_scene + 2)/table_xyz_range
+        table_size = 2/table_xyz_range
         scale_vec = np.array([table_size]*3)
         scale_matrix = np.eye(4)
         scale_matrix[:3, :3] *= scale_vec

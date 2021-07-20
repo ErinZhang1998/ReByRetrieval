@@ -613,13 +613,14 @@ def doOverlap(l1, r1, l2, r2, buf):
     return True
 
 
-def move_object(mujoco_env, ind, pos, rot):
+def move_object(mujoco_env, ind, pos, rot, num_ind_prev=1):
     # ASSUME THERE IS TABLE so 7+ and 6+
     all_poses = mujoco_env.data.qpos.ravel().copy()
     all_vels = mujoco_env.data.qvel.ravel().copy()
 
-    all_poses[7+7*ind: 7+7*ind+3] = pos
-    all_poses[7+7*ind+3: 7+7*ind+7] = rot
+    start_idx = 7*num_ind_prev
+    all_poses[start_idx + 7*ind : start_idx + 7*ind+3] = pos
+    all_poses[start_idx + 7*ind+3 : start_idx + 7*ind+7] = rot
 
     all_vels[6+6*ind: 6+6*ind+6] = 0
     mujoco_env.set_state(all_poses, all_vels)
@@ -1096,6 +1097,7 @@ def add_camera(scene_name, cam_name, cam_pos, cam_target, cam_id):
     new_body = xmldoc.createElement('camera')
     new_body.setAttribute('name', cam_name)
     new_body.setAttribute('mode', 'targetbody')
+    new_body.setAttribute('fovy', '65')
     new_body.setAttribute('pos', f'{cam_pos[0]} {cam_pos[1]} {cam_pos[2]}')
     new_body.setAttribute('target', f'added_cam_target_{cam_id}')
     world_body.appendChild(new_body)
@@ -1343,3 +1345,25 @@ def mujoco_pose_output(vec):
     object_quat[3] = vec[3:][0]
     rotation = R.from_quat(object_quat)
     return position, rotation
+
+
+def get_convex_decomp_mesh(mesh_file_name, convex_decomp_dir, synset_id, model_id=None):
+    import pybullet as p
+
+    convex_decomp_synset_dir = os.path.join(convex_decomp_dir, synset_id)
+    if not os.path.exists(convex_decomp_synset_dir):
+        os.mkdir(convex_decomp_synset_dir)
+    if model_id is not None:
+        obj_convex_decomp_dir = os.path.join(convex_decomp_dir, f'{synset_id}/{model_id}')
+        if not os.path.exists(obj_convex_decomp_dir):
+            os.mkdir(obj_convex_decomp_dir)
+    else:
+        obj_convex_decomp_dir = convex_decomp_synset_dir
+    
+    obj_convex_decomp_fname = os.path.join(obj_convex_decomp_dir, 'convex_decomp.obj')
+    if not os.path.exists(obj_convex_decomp_fname):
+        name_log = os.path.join(obj_convex_decomp_dir, 'convex_decomp_log.txt')
+        p.vhacd(mesh_file_name, obj_convex_decomp_fname, name_log, alpha=0.04,resolution=50000)
+        
+    assert os.path.exists(obj_convex_decomp_fname)
+    return trimesh.load(obj_convex_decomp_fname, force='mesh'), obj_convex_decomp_dir

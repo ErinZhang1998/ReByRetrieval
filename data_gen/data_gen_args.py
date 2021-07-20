@@ -24,7 +24,7 @@ parser.add_option("--num_lights", dest="num_lights", type="int", default=3)
 parser.add_option("--depth_factor", dest="depth_factor", type="int", default=1000)
 parser.add_option("--width", dest="width", type="int", default=640)
 parser.add_option("--height", dest="height", type="int", default=480)
-# parser.add_option("--height", dest="height", type="int", default=480)
+parser.add_option("--use_walls", dest="use_walls", type="int", default=1)
 
 
 (args, argss) = parser.parse_args()
