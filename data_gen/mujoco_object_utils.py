@@ -200,8 +200,8 @@ class MujocoTable(MujocoObject):
         Scale the table so that it can hold many objects
         '''
         table_bounds = self.object_mesh.bounds
-        table_xyz_range = np.min(table_bounds[1, :2] - table_bounds[0, :2])
-        table_size = 2/table_xyz_range
+        table_xyz_range = np.max(table_bounds[1, :2] - table_bounds[0, :2])
+        table_size = 1/table_xyz_range
         scale_vec = np.array([table_size]*3)
         scale_matrix = np.eye(4)
         scale_matrix[:3, :3] *= scale_vec
