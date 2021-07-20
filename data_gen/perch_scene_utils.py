@@ -207,18 +207,25 @@ class PerchScene(object):
             )
     
     def generate_cameras_fibonacci_sphere_grid(self, center_x=0, center_y=0, camera_z_above_table=1.5, num_angles=20, radius=5):
-        locations = []
-        phi = math.pi * (3. - math.sqrt(5.))  # golden angle in radians
-        for i in range(num_angles*2):
-            y = 1 - (i / float(num_angles*2 - 1)) * 2  # y goes from 1 to 0
-            y_radius = math.sqrt(1 - y * y) * radius  # radius at y
-            theta = phi * i  # golden angle increment
-            x = math.cos(theta) * y_radius
-            z = math.sin(theta) * y_radius
-            if z <= 0:
-                continue
-            locations.append((x, y, z))
-        locations = np.asarray(locations)
+        # locations = []
+        # phi = math.pi * (3. - math.sqrt(5.))  # golden angle in radians
+        # for i in range(num_angles*2):
+        #     y = 1 - (i / float(num_angles*2 - 1)) * 2  # y goes from 1 to 0
+        #     y_radius = math.sqrt(1 - y * y) * radius  # radius at y
+        #     theta = phi * i  # golden angle increment
+        #     x = math.cos(theta) * y_radius
+        #     z = math.sin(theta) * y_radius
+        #     if z <= 0:
+        #         continue
+        #     locations.append((x, y, z))
+        num_pts = num_angles * 2
+        indices = np.arange(0, num_pts, dtype=float) + 0.5
+        phi = np.arccos(1 - 2*indices/num_pts)
+        theta = np.pi * (1 + 5**0.5) * indices
+        x, y, z = np.cos(theta) * np.sin(phi), np.sin(theta) * np.sin(phi), np.cos(phi)
+        locations = np.asarray([x, y, z]).T
+        locations = locations[locations[:,2] >= 0]
+        locations = locations * radius
         locations[:,0] += center_x
         locations[:,1] += center_y
         locations[:,2] += self.table_info.height + camera_z_above_table
@@ -276,64 +283,12 @@ class PerchScene(object):
             self.camera_info_dict[self.total_camera_num] = new_camera
             self.total_camera_num += 1
     
-    def generate_default_add_position(self, object_idx):
+    def generate_default_add_position(self, object_idx, distance_away=50):
         theta = ((2.0*math.pi) / self.num_objects) * object_idx
-        start_x = np.cos(theta) * 50
-        start_y = np.sin(theta) * 50
+        start_x = np.cos(theta) * distance_away
+        start_y = np.sin(theta) * distance_away
         start_z = object_idx + 1
         return [start_x, start_y, start_z]
-
-    def create_four_walls(self, xml_fname):
-        unit = self.object_info_dict[0].canonical_size
-        table_height= self.table_info.height
-        wall_length = unit * 3
-        wall_height = 2
-        wall_horizontal_x = wall_length
-        wall_mesh = trimesh.creation.box((wall_height, wall_length, wall_length))
-        # for wall_idx in range(4):
-        wall_mesh_file = os.path.join(self.scene_folder_path, f'assets/wall.obj')
-        f = open(wall_mesh_file, "w+")
-        f.close()
-        wall_mesh.export(wall_mesh_file)
-        mujoco_fname = wall_mesh_file
-        # comb_mesh, obj_convex_decomp_dir = get_convex_decomp_mesh(wall_mesh_file, self.scene_folder_path, "square")
-        # comb_mesh.export(os.path.join(obj_convex_decomp_dir, 'convex_decomp.stl'))
-        # mujoco_fname = os.path.join(obj_convex_decomp_dir, 'convex_decomp.stl')
-
-        r = R.from_euler('xyz', [0, 0, (1/2)*np.pi], degrees=False)
-        wall_mujoco_add_dicts = []
-        positions = [
-            [0, wall_horizontal_x, wall_height * 0.5 + table_height],
-            [0, -1.0*wall_horizontal_x, wall_height * 0.5+ table_height],
-            [wall_horizontal_x + 0.4, 0, wall_height * 0.5+ table_height],
-            [-1.0*(wall_horizontal_x + 0.4), 0, wall_height * 0.5+ table_height],
-        ]
-        # for wall in wall_mesh_horizontals + wall_mesh_verticals:
-        for wall_idx in range(4):
-            # wall_mesh_file = os.path.join(self.scene_folder_path, f'assets/wall_{wall_idx}.stl')
-            # f = open(wall_mesh_file, "w+")
-            # f.close()
-            # wall.export(wall_mesh_file)
-            if wall_idx > 1:
-                quat = r.as_quat()
-                quat = quat_xyzw_to_wxyz(quat)
-            else:
-                quat = [0,0,0,0]
-            mujoco_add_dict = {
-                'object_name': f'wall_{wall_idx}_{self.scene_num}',
-                'mesh_names': [mujoco_fname],
-                'pos': positions[wall_idx],
-                'size': [1,1,1],
-                'color': [0,0,0],
-                'quat': quat,
-            }
-            add_objects(
-                xml_fname,
-                mujoco_add_dict,
-            )
-            wall_mujoco_add_dicts.append(mujoco_add_dict)
-        
-        return wall_mujoco_add_dicts
 
     def create_table_walls(self, xml_fname):
         table_corners = self.table_info.table_top_corners
@@ -348,7 +303,7 @@ class PerchScene(object):
                 break
             # Create wall mesh
             if wall_idx < 2:
-                wall_length = np.linalg.norm(table_corners[idx1] - table_corners[idx2]) * 0.8
+                wall_length = np.linalg.norm(table_corners[idx1] - table_corners[idx2]) * 0.9
             else:
                 wall_length = np.linalg.norm(table_corners[idx1] - table_corners[idx2]) * 5
             wall_mesh = trimesh.creation.box((table_height+1, wall_length, wall_length))
@@ -432,6 +387,14 @@ class PerchScene(object):
             center_x=new_cam_center_x, 
             center_y=new_cam_center_y, 
             camera_z_above_table=self.object_info_dict[0].canonical_size, 
+            num_angles=40, 
+            radius=0.5,
+        )
+        self.add_cameras(
+            sphere_sampling=True,
+            center_x=new_cam_center_x, 
+            center_y=new_cam_center_y, 
+            camera_z_above_table=0, 
             num_angles=40, 
             radius=0.5,
         )
@@ -521,10 +484,10 @@ class PerchScene(object):
 
         ## Calculate object bounding box in the scene and save in the mujoco object 
         all_current_poses = mujoco_env.data.qpos.ravel().copy().reshape(-1,7)  
-        # if len(all_current_poses) > 1+self.num_objects:
-        #     for wall_idx in range(4):
-        #         wall_location = self.generate_default_add_position(wall_idx)
-        #         move_object(mujoco_env, wall_idx, wall_location, [0,0,0,0], num_ind_prev=0)
+        if self.num_meshes_before_object > 1:
+            for wall_idx in range(self.num_meshes_before_object-1):
+                wall_location = self.generate_default_add_position(wall_idx, distance_away=80)
+                move_object(mujoco_env, wall_idx, wall_location, [0,0,0,0], num_ind_prev=0)
                 
         ## Save the scaled object, which is used for perch in the models directory
         for object_idx in self.object_info_dict.keys():
@@ -534,7 +497,7 @@ class PerchScene(object):
             object_mesh = object_info.save_correct_size_model(os.path.join(args.scene_save_dir, 'models'), model_name)
 
             mesh_bounds = object_mesh.bounds
-            current_pose = all_current_poses[object_idx+1]
+            current_pose = all_current_poses[object_idx + self.num_meshes_before_object]
             
             final_position = current_pose[:3]
             final_quat = quat_wxyz_to_xyzw(current_pose[3:])
@@ -635,6 +598,7 @@ class PerchScene(object):
                     start_position = self.generate_default_add_position(move_obj_ind)
                     move_object(mujoco_env, move_obj_ind, start_position, [0, 0, 0, 0], num_ind_prev=self.num_meshes_before_object)
             mujoco_env.sim.physics.forward()
+
             
             save_path = os.path.join(f'{self.train_or_test}/scene_{self.scene_num:06}', f'segmentation_{(cam_num):05}_{object_idx}.png')
 
@@ -658,6 +622,7 @@ class PerchScene(object):
 
             segmentation = np.logical_and(object_segmentation, unoccluded_segmentation)
             number_pixels = np.argwhere(segmentation).shape[0]
+            
             if number_pixels == 0:
                 continue
             pix_left_ratio = number_pixels / unoccluded_pixel_num
@@ -668,8 +633,10 @@ class PerchScene(object):
             # xmin, ymin, width, height
             xmin, ymin = np.min(bbox_2d, axis=0)
             xmax, ymax = np.max(bbox_2d, axis=0)
+            
             if not (0 <= xmin and xmin <= self.width) or not(0 <= xmax and xmax <= self.width):
                 continue 
+            
             if not (0 <= ymin and ymin <= self.height) or not(0 <= ymax and ymax <= self.height):
                 continue
             bbox_ann = [xmin, ymin, xmax-xmin, ymax-ymin]

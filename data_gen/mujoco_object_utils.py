@@ -122,7 +122,6 @@ class MujocoNonTable(MujocoObject):
         # make mesh stand upright
         comb_mesh.apply_transform(self.upright_mat) 
         comb_mesh.export(os.path.join(obj_convex_decomp_dir, 'convex_decomp.stl'))
-
         range_max = np.linalg.norm(comb_mesh.bounds[1] - comb_mesh.bounds[0])
         comb_mesh_scale = self.actual_size / range_max
         comb_mesh_scale = [comb_mesh_scale] * 3
