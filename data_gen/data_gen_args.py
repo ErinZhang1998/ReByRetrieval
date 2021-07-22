@@ -25,6 +25,6 @@ parser.add_option("--depth_factor", dest="depth_factor", type="int", default=100
 parser.add_option("--width", dest="width", type="int", default=640)
 parser.add_option("--height", dest="height", type="int", default=480)
 parser.add_option("--use_walls", dest="use_walls", type="int", default=1)
-
+parser.add_option("--table_size", dest="table_size", type="int", default=2)
 
 (args, argss) = parser.parse_args()

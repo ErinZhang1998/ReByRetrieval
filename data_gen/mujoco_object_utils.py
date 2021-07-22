@@ -94,13 +94,14 @@ class MujocoNonTable(MujocoObject):
         scale = kwargs['scale'] if not kwargs['scale'] is None else np.random.choice([0.75, 0.85, 1.0])
         self.actual_size = scale * self.canonical_size
         
-        if np.random.uniform(0,1) < 0.8:
+        if np.random.uniform(0,1) < 0.5:
             random_rotation = [
                 np.random.uniform(-90.0, 90),
                 np.random.uniform(-90.0, 90),
                 np.random.uniform(0, 360),
             ]
         else:
+            print("Upright: ", self.object_idx)
             random_rotation = [
                 0,
                 0,
@@ -109,7 +110,7 @@ class MujocoNonTable(MujocoObject):
 
         self.rot = R.from_euler('xyz', random_rotation, degrees=True)
 
-        self.pos_x, self.pos_y = np.random.normal(loc=[0,0], scale=np.array([self.canonical_size]*2))
+        self.pos_x, self.pos_y = np.random.normal(loc=[0,0], scale=np.array([self.canonical_size*0.5]*2))
         self.bbox = None
 
     def load_decomposed_mesh(self):
@@ -170,8 +171,14 @@ class MujocoNonTable(MujocoObject):
 
 class MujocoTable(MujocoObject):
     def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-
+        super().__init__(
+            object_name = kwargs['object_name'],
+            shapenet_file_name = kwargs['shapenet_file_name'],
+            transformed_mesh_fname = kwargs['transformed_mesh_fname'],
+            color = kwargs['color'],
+            num_objects_in_scene = kwargs['num_objects_in_scene'],
+        )
+        self.table_size = kwargs['table_size']
         self.set_object_scale()
 
         self.pos = np.array([0.0, 0.0, -self.object_mesh.bounds[0][2]])
@@ -199,9 +206,9 @@ class MujocoTable(MujocoObject):
         Scale the table so that it can hold many objects
         '''
         table_bounds = self.object_mesh.bounds
-        table_xyz_range = np.max(table_bounds[1, :2] - table_bounds[0, :2])
-        table_size = 1/table_xyz_range
-        scale_vec = np.array([table_size]*3)
+        table_xyz_range = np.min(table_bounds[1, :2] - table_bounds[0, :2])
+        table_scale = self.table_size/table_xyz_range
+        scale_vec = np.array([table_scale]*3)
         scale_matrix = np.eye(4)
         scale_matrix[:3, :3] *= scale_vec
         self.object_mesh.apply_transform(scale_matrix)

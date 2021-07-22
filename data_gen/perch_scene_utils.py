@@ -113,7 +113,7 @@ class PerchScene(object):
         self.width = args.width
         self.height = args.height 
         self.scene_save_dir = args.scene_save_dir
-        self.num_meshes_before_object = args.use_walls + 1
+        self.num_meshes_before_object = 1#args.use_walls + 1
         if not os.path.exists(args.scene_save_dir):
             os.mkdir(args.scene_save_dir)
         
@@ -161,6 +161,7 @@ class PerchScene(object):
             transformed_mesh_fname=transformed_mesh_fname,
             color=self.selected_colors[0],
             num_objects_in_scene=self.num_objects,
+            table_size=self.args.table_size,
         )
 
     def create_object(self, object_idx):
@@ -206,7 +207,7 @@ class PerchScene(object):
                 name=f'light{light_id}'
             )
     
-    def generate_cameras_fibonacci_sphere_grid(self, center_x=0, center_y=0, camera_z_above_table=1.5, num_angles=20, radius=5):
+    def generate_cameras_fibonacci_sphere_grid(self, center_x=0, center_y=0, camera_z_above_table=1.5, num_angles=20, radius=5, upper_limit=0.5):
         # locations = []
         # phi = math.pi * (3. - math.sqrt(5.))  # golden angle in radians
         # for i in range(num_angles*2):
@@ -218,13 +219,14 @@ class PerchScene(object):
         #     if z <= 0:
         #         continue
         #     locations.append((x, y, z))
-        num_pts = num_angles * 2
+        num_pts = num_angles * 4
         indices = np.arange(0, num_pts, dtype=float) + 0.5
         phi = np.arccos(1 - 2*indices/num_pts)
         theta = np.pi * (1 + 5**0.5) * indices
         x, y, z = np.cos(theta) * np.sin(phi), np.sin(theta) * np.sin(phi), np.cos(phi)
         locations = np.asarray([x, y, z]).T
         locations = locations[locations[:,2] >= 0]
+        locations = locations[locations[:,2] <= upper_limit]
         locations = locations * radius
         locations[:,0] += center_x
         locations[:,1] += center_y
@@ -259,6 +261,7 @@ class PerchScene(object):
         camera_z_above_table=1.5, 
         num_angles=20, 
         radius=1,
+        upper_limit=0.5,
     ):
         if sphere_sampling:
             locations, targets = self.generate_cameras_fibonacci_sphere_grid(
@@ -267,6 +270,7 @@ class PerchScene(object):
                 camera_z_above_table, 
                 num_angles, 
                 radius,
+                upper_limit,
             )
         else:
             locations, targets = self.generate_cameras_around(
@@ -289,8 +293,73 @@ class PerchScene(object):
         start_y = np.sin(theta) * distance_away
         start_z = object_idx + 1
         return [start_x, start_y, start_z]
+    
+    def create_walls_far_away(self, xml_fname):
+        for wall_idx in range(4):
+            pos = self.generate_default_add_position(wall_idx, distance_away=80)
+            wall_mesh_file = os.path.join(self.scene_folder_path, f'assets/wall_{wall_idx}.stl')
+            
+            mujoco_add_dict = {
+                'object_name': f'wall_{wall_idx}_{self.scene_num}',
+                'mesh_names': [wall_mesh_file],
+                'pos': pos,
+                'size': [1,1,1],
+                'color': [0,0,0],
+                'quat': [0,0,0,0],
+                'mocap' : True,
+            }
+            add_objects(
+                xml_fname,
+                mujoco_add_dict,
+            )
+    
+    def create_walls_on_table(self, xml_fname):
+        outer_pts = self.table_info.table_top_corners
+        unit = self.object_info_dict[0].canonical_size
+        low_x, low_y = -unit, -unit
+        upper_x, upper_y = unit, unit
+        inner_pts = [
+            [low_x, low_y, self.table_info.height],
+            [upper_x, low_y, self.table_info.height],
+            [low_x, upper_y, self.table_info.height],
+            [upper_x, upper_y, self.table_info.height],
+        ]
+        wall_infos = create_walls(inner_pts, outer_pts, bottom_height=self.table_info.height)
+        for wall_idx, v in wall_infos.items():
+            pos, quat, ls = v
+            lx,ly,lz = ls
+            wall_mesh = trimesh.creation.box((lx,ly,lz))
+            wall_mesh_file = os.path.join(self.scene_folder_path, f'assets/wall_{wall_idx}.stl')
+            f = open(wall_mesh_file, "w+")
+            f.close()
+            wall_mesh.export(wall_mesh_file)
+            
+            mujoco_add_dict = {
+                'object_name': f'wall_{wall_idx}_{self.scene_num}',
+                'mesh_names': [wall_mesh_file],
+                'pos': pos,
+                'size': [1,1,1],
+                'color': [0,0,0,0],
+                'quat': quat,
+                'mocap' : True,
+            }
+            # mujoco_add_dict = {
+            #     'object_name': f'wall_{wall_idx}_{self.scene_num}',
+            #     'mesh_names': [wall_mesh_file],
+            #     'site' : True,
+            #     'site_sizes' : [lx/2,ly/2,0.1],
+            #     'type' : 'box',
+            #     'pos': pos,
+            #     'size': [1,1,1],
+            #     'color': [0,0,0,0.3],
+            #     'quat': quat,
+            # }
+            add_objects(
+                xml_fname,
+                mujoco_add_dict,
+            )
 
-    def create_table_walls(self, xml_fname):
+    def create_walls_around_table(self, xml_fname):
         table_corners = self.table_info.table_top_corners
         table_height= self.table_info.height
         
@@ -328,7 +397,7 @@ class PerchScene(object):
             )
     
     def create_convex_decomposed_scene(self):
-        _ = self.create_table_walls(self.convex_decomp_xml_file) 
+        _ = self.create_walls_on_table(self.convex_decomp_xml_file) 
         self.add_lights_to_scene(self.convex_decomp_xml_file)
         add_objects(self.convex_decomp_xml_file, self.table_info.get_mujoco_add_dict(), run_id=None, material_name=None)
     
@@ -355,7 +424,7 @@ class PerchScene(object):
                 convex_decomp_mesh_height = -object_info.convex_decomp_mesh.bounds[0,2]
                 pos_x, pos_y = object_info.pos_x, object_info.pos_y
                 
-                moved_location = [pos_x, pos_y, self.table_info.height+convex_decomp_mesh_height+0.05]
+                moved_location = [pos_x, pos_y, self.table_info.height+convex_decomp_mesh_height+0.01]
                 move_object(convex_decomp_mujoco_env, object_idx, moved_location, quat_xyzw_to_wxyz(object_info.rot.as_quat()), num_ind_prev=self.num_meshes_before_object)
                 error_object_idx = object_idx
                 for _ in range(4000):
@@ -370,37 +439,44 @@ class PerchScene(object):
                 print(object_idx, [object_info.pos_x, object_info.pos_y, self.table_info.height+convex_decomp_mesh_height+0.05], object_info.rot.as_quat(), error_all_poses[object_idx+1])
             print("\n")
             raise
-
+        
         self.convex_decomp_mujoco_env_state = convex_decomp_mujoco_env.get_env_state().copy()
         all_current_poses = convex_decomp_mujoco_env.data.qpos.ravel().copy().reshape(-1,7) 
         
         objects_current_positions = all_current_poses[self.num_meshes_before_object:][:,:3]
+        for _,_,cur_z in objects_current_positions:
+            assert cur_z > self.table_info.height
         table_current_position = all_current_poses[self.num_meshes_before_object-1][:3].reshape(-1,)
-        
         table_current_position[2] = self.table_info.height
-        object_closest_to_table_center = np.argmin(np.linalg.norm(objects_current_positions - table_current_position, axis=1)) 
-        new_cam_center_x, new_cam_center_y,_ = objects_current_positions[object_closest_to_table_center]
-        
-        new_cam_center_x, new_cam_center_y,_ = np.mean(objects_current_positions, axis=0)
+        # object_closest_to_table_center = np.argmin(np.linalg.norm(objects_current_positions - table_current_position, axis=1)) 
+        # new_cam_center_x, new_cam_center_y,_ = objects_current_positions[object_closest_to_table_center]
+        # new_cam_center_x, new_cam_center_y,_ = np.mean(objects_current_positions, axis=0)
+        radius = np.max(np.linalg.norm(self.table_info.table_top_corners - table_current_position, axis=1))
+        new_cam_center_x, new_cam_center_y = table_current_position[:2]
         self.add_cameras(
             sphere_sampling=True,
             center_x=new_cam_center_x, 
             center_y=new_cam_center_y, 
             camera_z_above_table=self.object_info_dict[0].canonical_size, 
-            num_angles=40, 
-            radius=0.5,
+            num_angles=20, 
+            radius=self.object_info_dict[0].canonical_size*2,
         )
         self.add_cameras(
             sphere_sampling=True,
             center_x=new_cam_center_x, 
             center_y=new_cam_center_y, 
-            camera_z_above_table=0, 
-            num_angles=40, 
-            radius=0.5,
+            camera_z_above_table=0.1, 
+            num_angles=100, 
+            radius=self.object_info_dict[0].canonical_size*2,
+            upper_limit = 0.1,
         )
+        ### DEBUG PERPOSE CAMERAs, bird-eye view to better see what is going on
+        # level_height = 2
         # locations = [
-        #     [0,0,4+self.table_info.height],
-        #     [1,0,4+self.table_info.height],
+        #     [0,0,level_height+self.table_info.height],
+        #     [1,0,level_height+self.table_info.height],
+        #     [0,1,level_height+self.table_info.height],
+        #     [level_height,level_height,level_height+self.table_info.height],
         # ]
         # targets = [[0,0,0]] * len(locations)
         # for location, target in zip(locations, targets):
@@ -411,7 +487,7 @@ class PerchScene(object):
         #     self.total_camera_num += 1
     
     def create_camera_scene(self):
-        _ = self.create_table_walls(self.cam_temp_scene_xml_file)
+        _ = self.create_walls_on_table(self.cam_temp_scene_xml_file)
         self.add_lights_to_scene(self.cam_temp_scene_xml_file)
         add_objects(self.cam_temp_scene_xml_file, self.table_info.get_mujoco_add_dict(), run_id=None, material_name=None)
 
@@ -484,10 +560,10 @@ class PerchScene(object):
 
         ## Calculate object bounding box in the scene and save in the mujoco object 
         all_current_poses = mujoco_env.data.qpos.ravel().copy().reshape(-1,7)  
-        if self.num_meshes_before_object > 1:
-            for wall_idx in range(self.num_meshes_before_object-1):
-                wall_location = self.generate_default_add_position(wall_idx, distance_away=80)
-                move_object(mujoco_env, wall_idx, wall_location, [0,0,0,0], num_ind_prev=0)
+        # if self.num_meshes_before_object > 1:
+        #     for wall_idx in range(self.num_meshes_before_object-1):
+        #         wall_location = self.generate_default_add_position(wall_idx, distance_away=80)
+        #         move_object(mujoco_env, wall_idx, wall_location, [0,0,0,0], num_ind_prev=0)
                 
         ## Save the scaled object, which is used for perch in the models directory
         for object_idx in self.object_info_dict.keys():
@@ -719,9 +795,11 @@ class PerchScene(object):
                     "flickr_url": "",
                 }
                 images.append(image_anno)
+                image_id = image_id_acc
 
             model_name = annotation['model_name']
             category_id = category_id_dict.get(model_name, -1)
+
             if category_id < 0:
                 category_id_acc += 1
                 category_id_dict[model_name] = category_id_acc
@@ -731,11 +809,12 @@ class PerchScene(object):
                     "supercategory": "shape",
                 }
                 categories.append(model_category)
+                category_id = category_id_acc
 
             annotation.update({
                 "id" : annotation_id_acc,
-                "image_id" : image_id_acc,
-                "category_id" : category_id_acc,
+                "image_id" : image_id,
+                "category_id" : category_id,
             })
             annotation_id_acc += 1
             annotations.append(annotation)

@@ -1122,7 +1122,6 @@ def add_camera(scene_name, cam_name, cam_pos, cam_target, cam_id):
     with open(scene_name, "w") as f:
         xmldoc.writexml(f)
 
-
 def add_objects(scene_name, object_info, run_id=None, material_name=None):
     # scene_name = object_info['scene_name']
     object_name = object_info['object_name']
@@ -1133,14 +1132,12 @@ def add_objects(scene_name, object_info, run_id=None, material_name=None):
     quat = object_info['quat']
 
     xmldoc = minidom.parse(scene_name)
-    # import pdb; pdb.set_trace()
 
     assets = xmldoc.getElementsByTagName('asset')[0]
     for mesh_ind in range(len(mesh_names)):
         new_mesh = xmldoc.createElement('mesh')
         new_mesh.setAttribute('name', f'gen_mesh_{object_name}_{mesh_ind}')
         new_mesh.setAttribute('class', 'geom0')
-        # new_mesh.setAttribute('class', 'geom')
         new_mesh.setAttribute('scale', f'{size[0]} {size[1]} {size[2]}')
         new_mesh.setAttribute('file', mesh_names[mesh_ind])
         assets.appendChild(new_mesh)
@@ -1151,38 +1148,121 @@ def add_objects(scene_name, object_info, run_id=None, material_name=None):
     body_name = f'gen_body_{object_name}'
     new_body.setAttribute('name', body_name)
     new_body.setAttribute('pos', f'{pos[0]} {pos[1]} {pos[2]}')
-    # new_body.setAttribute('euler', f'{rot[0]} {rot[1]} {rot[2]}')
     new_body.setAttribute('quat', f'{quat[0]} {quat[1]} {quat[2]} {quat[3]}')
+    if object_info.get('mocap', False):
+        new_body.setAttribute('mocap', 'true')
 
     geom_names = []
     for geom_ind in range(len(mesh_names)):
-        new_geom = xmldoc.createElement('geom')
         geom_name = f'gen_geom_{object_name}_{geom_ind}'
+        if object_info.get('site', False):
+            new_geom = xmldoc.createElement('site')
+
+            new_geom.setAttribute('type', object_info.get('type', 'box'))
+            site_sizes = object_info.get('site_sizes', [1,1,1])
+            new_geom.setAttribute('size', f'{site_sizes[0]} {site_sizes[1]} {site_sizes[2]}')
+        else:
+            new_geom = xmldoc.createElement('geom')
+            new_geom.setAttribute('type', 'mesh')
+        
         geom_names.append(geom_name)
         new_geom.setAttribute('name', geom_name)
         # new_geom.setAttribute('mass', '1')
         new_geom.setAttribute('class', '/')
-        new_geom.setAttribute('type', 'mesh')
+        
         if not material_name is None:
             new_geom.setAttribute('material', material_name)
         if material_name is None:
-            new_geom.setAttribute(
-                'rgba', f'{color[0]} {color[1]} {color[2]} 1')
-        new_geom.setAttribute('mesh', f'gen_mesh_{object_name}_{geom_ind}')
+            if len(color) == 3:
+                new_geom.setAttribute('rgba', f'{color[0]} {color[1]} {color[2]} 1')
+            else:
+                new_geom.setAttribute('rgba', f'{color[0]} {color[1]} {color[2]} {color[3]}')
+        
+        if not object_info.get('site', False):
+            new_geom.setAttribute('mesh', f'gen_mesh_{object_name}_{geom_ind}')
+
         new_body.appendChild(new_geom)
 
-    new_joint = xmldoc.createElement('joint')
-    new_joint.setAttribute('name', f'gen_joint_{object_name}')
-    new_joint.setAttribute('class', '/')
-    new_joint.setAttribute('type', 'free')
-    #new_joint.setAttribute('damping', '0.001')
-    new_body.appendChild(new_joint)
+    if not object_info.get('mocap', False) and not object_info.get('site', False):
+        new_joint = xmldoc.createElement('joint')
+        new_joint.setAttribute('name', f'gen_joint_{object_name}')
+        new_joint.setAttribute('class', '/')
+        new_joint.setAttribute('type', 'free')
+        #new_joint.setAttribute('damping', '0.001')
+        new_body.appendChild(new_joint)
     world_body.appendChild(new_body)
 
     with open(scene_name, "w") as f:
         xmldoc.writexml(f)
 
     return body_name, geom_names
+
+
+# def add_objects(scene_name, object_info, run_id=None, material_name=None):
+#     # scene_name = object_info['scene_name']
+#     object_name = object_info['object_name']
+#     mesh_names = object_info['mesh_names']
+#     pos = object_info['pos']
+#     size = object_info['size']
+#     color = object_info['color']
+#     quat = object_info['quat']
+
+#     xmldoc = minidom.parse(scene_name)
+#     # import pdb; pdb.set_trace()
+
+#     assets = xmldoc.getElementsByTagName('asset')[0]
+#     for mesh_ind in range(len(mesh_names)):
+#         new_mesh = xmldoc.createElement('mesh')
+#         new_mesh.setAttribute('name', f'gen_mesh_{object_name}_{mesh_ind}')
+#         new_mesh.setAttribute('class', 'geom0')
+#         # new_mesh.setAttribute('class', 'geom')
+#         new_mesh.setAttribute('scale', f'{size[0]} {size[1]} {size[2]}')
+#         new_mesh.setAttribute('file', mesh_names[mesh_ind])
+#         assets.appendChild(new_mesh)
+
+#     world_body = xmldoc.getElementsByTagName('worldbody')[0]
+
+#     new_body = xmldoc.createElement('body')
+#     body_name = f'gen_body_{object_name}'
+#     new_body.setAttribute('name', body_name)
+#     new_body.setAttribute('pos', f'{pos[0]} {pos[1]} {pos[2]}')
+#     # new_body.setAttribute('euler', f'{rot[0]} {rot[1]} {rot[2]}')
+#     new_body.setAttribute('quat', f'{quat[0]} {quat[1]} {quat[2]} {quat[3]}')
+#     if object_info.get('mocap', False):
+#         new_body.setAttribute('mocap', 'true')
+
+#     geom_names = []
+#     for geom_ind in range(len(mesh_names)):
+#         new_geom = xmldoc.createElement('geom')
+#         geom_name = f'gen_geom_{object_name}_{geom_ind}'
+#         geom_names.append(geom_name)
+#         new_geom.setAttribute('name', geom_name)
+#         # new_geom.setAttribute('mass', '1')
+#         new_geom.setAttribute('class', '/')
+#         new_geom.setAttribute('type', 'mesh')
+#         if not material_name is None:
+#             new_geom.setAttribute('material', material_name)
+#         if material_name is None:
+#             if len(color) == 3:
+#                 new_geom.setAttribute('rgba', f'{color[0]} {color[1]} {color[2]} 1')
+#             else:
+#                 new_geom.setAttribute('rgba', f'{color[0]} {color[1]} {color[2]} {color[3]}')
+#         new_geom.setAttribute('mesh', f'gen_mesh_{object_name}_{geom_ind}')
+#         new_body.appendChild(new_geom)
+
+#     if not object_info.get('mocap', False):
+#         new_joint = xmldoc.createElement('joint')
+#         new_joint.setAttribute('name', f'gen_joint_{object_name}')
+#         new_joint.setAttribute('class', '/')
+#         new_joint.setAttribute('type', 'free')
+#         #new_joint.setAttribute('damping', '0.001')
+#         new_body.appendChild(new_joint)
+#     world_body.appendChild(new_body)
+
+#     with open(scene_name, "w") as f:
+#         xmldoc.writexml(f)
+
+#     return body_name, geom_names
 
 
 def add_texture(scene_name, texture_name, filename, texture_type="cube"):
@@ -1367,3 +1447,61 @@ def get_convex_decomp_mesh(mesh_file_name, convex_decomp_dir, synset_id, model_i
         
     assert os.path.exists(obj_convex_decomp_fname)
     return trimesh.load(obj_convex_decomp_fname, force='mesh'), obj_convex_decomp_dir
+
+def create_cuboid_mesh(self, lx,ly,lz, save_file=None):
+    wall_mesh = trimesh.creation.box((lx,ly,lz))
+    # wall_mesh_file = os.path.join(self.scene_folder_path, f'assets/wall_{wall_idx}.stl')
+    f = open(save_file, "w+")
+    f.close()
+    wall_mesh.export(save_file)
+
+def create_walls(inner_pts, outer_pts, bottom_height=0):
+    '''
+    inner_pts: (4,3)
+    outer_pts: (4,3)
+    '''
+    E,F,G,H = inner_pts
+    A,B,C,D = outer_pts 
+    wall_height = 1
+    lx_room = 0
+    ly_room = 0
+
+    wall_infos = dict()
+    
+    x0 = np.mean([A,B], axis=0)[0]
+    assert np.abs(np.mean([A,E], axis=0)[1] - np.mean([B,F], axis=0)[1]) < 1e-3 
+    y0 = np.mean([A,E], axis=0)[1]
+    lx = np.abs(E[0] - F[0]) + 0.1
+    ly = np.abs(E[1] - A[1]) - ly_room
+    lz = wall_height
+    pos0 = [x0,y0,bottom_height+lz*0.5]
+    wall_infos[0] = [pos0, [0,0,0,0], [lx,ly,lz]]
+
+    x1 = np.mean([C,D], axis=0)[0]
+    assert np.abs(np.mean([C,G], axis=0)[1] - np.mean([H,D], axis=0)[1]) < 1e-3 
+    y1 = np.mean([C,G], axis=0)[1]
+    lx = np.abs(G[0] - H[0]) + 0.1
+    ly = np.abs(C[1] - G[1]) - ly_room
+    lz = wall_height
+    pos1 = [x1,y1,bottom_height+lz*0.5]
+    wall_infos[1] = [pos1, [0,0,0,0], [lx,ly,lz]]
+    
+    y2 = np.mean([A,C], axis=0)[1]
+    assert np.abs(np.mean([A,E], axis=0)[0] - np.mean([C,G], axis=0)[0]) < 1e-3 
+    x2 = np.mean([C,G], axis=0)[0]
+    lx = np.abs(A[0] - E[0]) - lx_room
+    ly = np.abs(A[1] - C[1]) - ly_room
+    lz = wall_height
+    pos2 = [x2,y2,bottom_height+lz*0.5]
+    wall_infos[2] = [pos2, [0,0,0,0], [lx,ly,lz]]
+    
+    y3 = np.mean([B,D], axis=0)[1]
+    assert np.abs(np.mean([H,D], axis=0)[0] - np.mean([B,F], axis=0)[0]) < 1e-3 
+    x3 = np.mean([H,D], axis=0)[0]
+    lx = np.abs(B[0] - F[0]) - lx_room
+    ly = np.abs(B[1] - D[1]) - ly_room
+    lz = wall_height
+    pos3 = [x3,y3,bottom_height+wall_height*0.5]
+    wall_infos[3] = [pos3, [0,0,0,0], [lx,ly,lz]]
+
+    return wall_infos
