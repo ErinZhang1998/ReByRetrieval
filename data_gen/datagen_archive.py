@@ -27,8 +27,8 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from PIL import Image 
 
-from data_gen_args import *
-from simple_clutter_utils import *
+from datagen_args import *
+from datagen_utils import *
 import pandas as pd
 
 from mujoco_py import cymj

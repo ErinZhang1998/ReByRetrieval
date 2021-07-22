@@ -6,7 +6,7 @@ import trimesh
 import open3d as o3d
 import autolab_core
 from scipy.spatial.transform import Rotation as R, rotation        
-import simple_clutter_utils as utils
+import datagen_utils as utils
 
 class MujocoObject(object):
     def __init__(

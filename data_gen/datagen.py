@@ -6,14 +6,9 @@ import traceback
 import numpy as np
 import pandas as pd
 
-import trimesh
-from mujoco_env import MujocoEnv
-from pyquaternion import Quaternion
-from scipy.spatial.transform import Rotation as R
-
-from data_gen_args import *
-from simple_clutter_utils import *
-from perch_scene_utils import *
+from datagen_args import *
+from datagen_utils import *
+from perch_scene import *
 
 def create_one_6d_scene(scene_num, selected_objects, args):
     # perch_scene = PerchScene(scene_num, selected_objects, args)
