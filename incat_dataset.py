@@ -47,7 +47,6 @@ class InCategoryClutterDataset(Dataset):
             self.all_canvas_path = file_ptr.read().split('\n')[:-1]
             file_ptr.close()
         
-
         self.all_data_dict = dict()
         self.all_scene_cam_dict = dict()
         self.idx_to_same_object_dict = dict()

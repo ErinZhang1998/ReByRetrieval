@@ -389,7 +389,7 @@ class PerchScene(object):
             center_x=new_cam_center_x, 
             center_y=new_cam_center_y, 
             camera_z_above_table=0.1, 
-            num_angles=100, 
+            num_angles=200, 
             radius=self.object_info_dict[0].canonical_size*2,
             upper_limit = 0.1,
         )
@@ -667,129 +667,6 @@ class PerchScene(object):
             self.camera_info_dict[cam_num].rgb_image_annotations.append(object_annotation)
     
 
-    def render_object_segmentation_and_create_rgb_annotation_old(self, mujoco_env, cam_height, cam_width, cam_num):
-        '''
-        Process segmentation mask for each object in front the given camera, since the segmentation is 
-        needed for PERCH.
-        Also save the annotation for each object, which involves 
-        - object center in the image
-        - object bounding box in the image (?)
-        - segmentation mask file path
-        - object model file path
-        '''
-        camera_info = self.camera_info_dict[cam_num]
-        camera = Camera(physics=mujoco_env.model, height=cam_height, width=cam_width, camera_id=cam_num)
-        original_state = mujoco_env.get_env_state().copy()
-        whole_scene_segmentation = camera.render(segmentation=True)[:, :, 0]
-        camera_scene_geoms = camera.scene.geoms
-        occluded_geom_id_to_seg_id = {
-            camera_scene_geoms[geom_ind][3] : camera_scene_geoms[geom_ind][8] for geom_ind in range(camera_scene_geoms.shape[0])
-        }
-
-        existed_object_ids, object_pixel_count = np.unique(whole_scene_segmentation, return_counts=True)
-        
-        for object_idx in self.object_info_dict.keys():
-            geom_id = mujoco_env.model.model.name2id(f'gen_geom_object_{object_idx}_{self.scene_num}_0', "geom")
-            seg_id = occluded_geom_id_to_seg_id[geom_id]
-            
-            if not geom_id in existed_object_ids:
-                continue
-            # This object is in this rgb image, so it can have an annotation
-            object_segmentation = whole_scene_segmentation == seg_id
-
-            # Move all other objects far away, except the table, so that we can capture
-            # only one object in a scene.
-            for move_obj_ind in self.object_info_dict.keys():
-                if move_obj_ind != object_idx:
-                    start_position = datagen_utils.generate_default_add_position(move_obj_ind, len(self.object_info_dict))
-                    datagen_utils.move_object(
-                        mujoco_env, 
-                        move_obj_ind + self.num_meshes_before_object, 
-                        start_position, 
-                        [0, 0, 0, 0], 
-                    )
-            mujoco_env.sim.physics.forward()
-
-            
-            save_path = os.path.join(f'{self.train_or_test}/scene_{self.scene_num:06}', f'segmentation_{(cam_num):05}_{object_idx}.png')
-
-            unocc_target_id = mujoco_env.model.model.name2id(f'gen_geom_object_{object_idx}_{self.scene_num}_0', "geom")
-            unoccluded_camera = Camera(physics=mujoco_env.model, height=cam_height, width=cam_width, camera_id=cam_num)
-            unoccluded_segs = unoccluded_camera.render(segmentation=True)
-
-            # Move other objects back onto table
-            mujoco_env.set_env_state(original_state)
-            mujoco_env.sim.physics.forward()
-
-            unoccluded_geom_id_to_seg_id = {
-                unoccluded_camera.scene.geoms[geom_ind][3]: unoccluded_camera.scene.geoms[geom_ind][8] for geom_ind in range(unoccluded_camera.scene.geoms.shape[0])
-            }
-            unoccluded_segmentation = unoccluded_segs[:, :,0] == unoccluded_geom_id_to_seg_id[unocc_target_id]
-            unoccluded_pixel_num = np.argwhere(unoccluded_segmentation).shape[0]
-            
-            if unoccluded_pixel_num == 0:
-                # return -1, 0, None
-                continue 
-
-            segmentation = np.logical_and(object_segmentation, unoccluded_segmentation)
-            number_pixels = np.argwhere(segmentation).shape[0]
-            
-            if number_pixels == 0:
-                continue
-            pix_left_ratio = number_pixels / unoccluded_pixel_num
-            cv2.imwrite(os.path.join(self.scene_save_dir, save_path), segmentation.astype(np.uint8))
-            
-            bbox_2d = self.camera_info_dict[cam_num].project_2d(self.object_info_dict[object_idx].bbox)
-            bbox_2d[:,0] = self.width - bbox_2d[:,0]
-            # xmin, ymin, width, height
-            xmin, ymin = np.min(bbox_2d, axis=0)
-            xmax, ymax = np.max(bbox_2d, axis=0)
-            
-            if not (0 <= xmin and xmin <= self.width) or not(0 <= xmax and xmax <= self.width):
-                continue 
-            
-            if not (0 <= ymin and ymin <= self.height) or not(0 <= ymax and ymax <= self.height):
-                continue
-            bbox_ann = [xmin, ymin, xmax-xmin, ymax-ymin]
-            model_annotation = self.object_info_dict[object_idx].get_model_annotation()
-            center_3d = self.object_info_dict[object_idx].final_position
-            center_2d = self.camera_info_dict[cam_num].project_2d(center_3d.reshape(-1,3)).reshape(-1,)
-            center_2d[0] = self.width - center_2d[0]
-            
-            # # DEBUG purpose
-            cv2_image = cv2.imread(os.path.join(self.scene_save_dir, self.camera_info_dict[cam_num].rgb_save_path))
-            # cv2_image = cv2.rectangle(cv2_image, (int(xmin), int(ymax)), (int(xmax),int(ymin)), (0,255,0), 3)
-            rmin, rmax, cmin, cmax = bbox_ann[1], bbox_ann[1] + bbox_ann[3], bbox_ann[0], bbox_ann[0] + bbox_ann[2]
-            perch_box = [cmin, rmin, cmax, rmax]
-            cv2_image = cv2.rectangle(cv2_image, (int(cmin), int(rmin)), (int(cmax),int(rmax)), (0,255,0), 3)
-            centroid_x, centroid_y = [(cmin+cmax)/2, (rmin+rmax)/2]
-            cv2_image = cv2.circle(cv2_image, (int(centroid_x), int(centroid_y)), radius=0, color=(255, 0, 0), thickness=5)
-            # # Draw the 8 bounding box corners in image
-            for x,y in bbox_2d:
-                cv2_image = cv2.circle(cv2_image, (x,y), radius=0, color=(0, 0, 255), thickness=3)
-            cv2_image = cv2.circle(cv2_image, (center_2d[0],center_2d[1]), radius=0, color=(255, 255, 255), thickness=5)
-            cv2.imwrite(os.path.join(self.scene_folder_path, f'rgb_with_bbox_{(cam_num):05}_{object_idx}.png') ,cv2_image)
-            # #
-
-            # object_location_in_camera_frame = 
-            object_annotation = ImageAnnotation(
-                center = list(center_2d),
-                bbox = bbox_ann,
-                rgb_file_path = self.camera_info_dict[cam_num].rgb_save_path,
-                mask_file_path = save_path,
-                model_name = self.object_info_dict[object_idx].model_name,
-                percentage_not_occluded = pix_left_ratio,
-                number_pixels = number_pixels,
-                cam_intrinsics = camera_info.intrinsics, 
-                object_location = model_annotation['position'], 
-                object_quat = model_annotation['quat'], 
-                model_annotation = model_annotation,
-                camera_annotation= self.camera_info_dict[cam_num].get_camera_annotation(),
-                width=self.width,
-                height=self.height,
-            )
-            self.camera_info_dict[cam_num].rgb_image_annotations.append(object_annotation)
-    
     def output_camera_annotations(self):
         all_annotations = []
         for cam_num in self.camera_info_dict.keys():
