@@ -26,5 +26,8 @@ parser.add_option("--width", dest="width", type="int", default=640)
 parser.add_option("--height", dest="height", type="int", default=480)
 parser.add_option("--use_walls", dest="use_walls", type="int", default=1)
 parser.add_option("--table_size", dest="table_size", type="int", default=2)
+parser.add_option("--debug", action="store_true", dest="debug")
+parser.add_option("--upright_ratio", dest="upright_ratio", type="float", default=0.5)
+
 
 (args, argss) = parser.parse_args()

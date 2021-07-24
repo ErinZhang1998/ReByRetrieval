@@ -21,8 +21,8 @@ def create_one_6d_scene(scene_num, selected_objects, args):
         # import pdb; pdb.set_trace()
     except:
         print('##################################### GEN Error!')
-        # if scene_folder_path is not None:
-        #     shutil.rmtree(scene_folder_path)
+        if scene_folder_path is not None:
+            shutil.rmtree(scene_folder_path)
         print(selected_objects)
         traceback.print_exc()
 

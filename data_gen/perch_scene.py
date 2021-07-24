@@ -1,3 +1,4 @@
+from matplotlib.pyplot import annotate
 import numpy as np
 import os
 import copy
@@ -110,6 +111,7 @@ class PerchScene(object):
             scale=self.selected_objects[object_idx][4],
             half_or_whole=self.selected_objects[object_idx][5],
             perch_rot_angle=self.selected_objects[object_idx][6],
+            upright_ratio=self.args.upright_ratio,
         )
         self.object_info_dict[object_idx] = object_info
     
@@ -412,7 +414,8 @@ class PerchScene(object):
     def create_camera_scene(self):
         _ = self.create_walls_on_table(self.cam_temp_scene_xml_file)
         self.add_lights_to_scene(self.cam_temp_scene_xml_file)
-        datagen_utils.add_objects(self.cam_temp_scene_xml_file, self.table_info.get_mujoco_add_dict())
+        body_name, added_mesh_names, geom_names, joint_name = datagen_utils.add_objects(self.cam_temp_scene_xml_file, self.table_info.get_mujoco_add_dict())
+        self.camera_xml_name_tracker.set_object_dicts(-1, body_name, added_mesh_names, geom_names, joint_name)
 
         for object_idx in range(self.num_objects):
             object_info = self.object_info_dict[object_idx]
@@ -426,11 +429,8 @@ class PerchScene(object):
                 self.cam_temp_scene_xml_file,
                 object_add_dict,
             )
-            
-            self.camera_xml_name_tracker.object_mesh_names[object_idx] = added_mesh_names
-            self.camera_xml_name_tracker.object_body_names[object_idx] = body_name
-            self.camera_xml_name_tracker.object_geom_names[object_idx] = geom_names
-            self.camera_xml_name_tracker.object_joint_names[object_idx] = joint_name
+
+            self.camera_xml_name_tracker.set_object_dicts(object_idx, body_name, added_mesh_names, geom_names, joint_name)
             
         # mujoco_env = MujocoEnv(self.cam_temp_scene_xml_file, 1, has_robot=False)
         # mujoco_env.set_env_state(self.convex_decomp_mujoco_env_state)
@@ -574,11 +574,36 @@ class PerchScene(object):
         object_segmentation = segmentation == geom_id
         return object_segmentation
     
+    def get_all_geom_ids(self, mujoco_env, with_table=True):
+        object_geom_ids = [self.camera_xml_name_tracker.get_object_geom_name(i) for i in self.object_info_dict.keys()]
+        if with_table:
+            all_geom_ids = object_geom_ids + [self.camera_xml_name_tracker.get_object_geom_name(-1)]
+        else:
+            all_geom_ids = object_geom_ids
+        return [
+            mujoco_env.model.model.name2id(geom_name, "geom") for geom_name in all_geom_ids
+        ]
+    
     def render_object_segmentation_and_create_rgb_annotation(self, mujoco_env, cam_height, cam_width, cam_num):
         camera_info = self.camera_info_dict[cam_num]
         original_state = mujoco_env.get_env_state().copy()
         whole_scene_segmentation = self.render_object_segmentation(mujoco_env, cam_height, cam_width, cam_num)
+        
+        all_without_table_geom_ids = self.get_all_geom_ids(mujoco_env, with_table=False)
+        all_object_segmentation = np.vectorize(lambda x : x in all_without_table_geom_ids)(whole_scene_segmentation)
+        all_object_segmentation_path = os.path.join(f'{self.train_or_test}/scene_{self.scene_num:06}', f'all_object_segmentation_{(cam_num):05}.png')
+        cv2.imwrite(os.path.join(self.scene_save_dir, all_object_segmentation_path), all_object_segmentation.astype(np.uint8))
 
+        all_geom_ids = self.get_all_geom_ids(mujoco_env)
+        all_object_with_table_segmentation = np.vectorize(lambda x : x in all_geom_ids)(whole_scene_segmentation)
+        all_object_with_table_segmentation_path = os.path.join(f'{self.train_or_test}/scene_{self.scene_num:06}', f'all_object_with_table_segmentation_{(cam_num):05}.png')
+        cv2.imwrite(os.path.join(self.scene_save_dir, all_object_with_table_segmentation_path), all_object_with_table_segmentation.astype(np.uint8))
+
+        self.camera_info_dict[cam_num].all_object_with_table_segmentation_path = all_object_with_table_segmentation_path
+        self.camera_info_dict[cam_num].all_object_segmentation_path = all_object_segmentation_path
+
+        object_annotations = []
+        bbox_2ds = []
         for object_idx in self.object_info_dict.keys():
             object_segmentation_occluded = self.render_object_segmentation(mujoco_env, cam_height, cam_width, cam_num, object_idx=object_idx)
             if object_segmentation_occluded is None:
@@ -631,41 +656,57 @@ class PerchScene(object):
             center_3d = self.object_info_dict[object_idx].final_position
             center_2d = self.camera_info_dict[cam_num].project_2d(center_3d.reshape(-1,3)).reshape(-1,)
             center_2d[0] = self.width - center_2d[0]
+            bbox_2ds.append(bbox_2d)
             
-            # # DEBUG purpose
-            cv2_image = cv2.imread(os.path.join(self.scene_save_dir, self.camera_info_dict[cam_num].rgb_save_path))
-            # cv2_image = cv2.rectangle(cv2_image, (int(xmin), int(ymax)), (int(xmax),int(ymin)), (0,255,0), 3)
-            rmin, rmax, cmin, cmax = bbox_ann[1], bbox_ann[1] + bbox_ann[3], bbox_ann[0], bbox_ann[0] + bbox_ann[2]
-            perch_box = [cmin, rmin, cmax, rmax]
-            cv2_image = cv2.rectangle(cv2_image, (int(cmin), int(rmin)), (int(cmax),int(rmax)), (0,255,0), 3)
-            centroid_x, centroid_y = [(cmin+cmax)/2, (rmin+rmax)/2]
-            cv2_image = cv2.circle(cv2_image, (int(centroid_x), int(centroid_y)), radius=0, color=(255, 0, 0), thickness=5)
-            # # Draw the 8 bounding box corners in image
-            for x,y in bbox_2d:
-                cv2_image = cv2.circle(cv2_image, (x,y), radius=0, color=(0, 0, 255), thickness=3)
-            cv2_image = cv2.circle(cv2_image, (center_2d[0],center_2d[1]), radius=0, color=(255, 255, 255), thickness=5)
-            cv2.imwrite(os.path.join(self.scene_folder_path, f'rgb_with_bbox_{(cam_num):05}_{object_idx}.png') ,cv2_image)
-            # #
+            if self.args.debug:
+                # # DEBUG purpose
+                cv2_image = cv2.imread(os.path.join(self.scene_save_dir, self.camera_info_dict[cam_num].rgb_save_path))
+                # cv2_image = cv2.rectangle(cv2_image, (int(xmin), int(ymax)), (int(xmax),int(ymin)), (0,255,0), 3)
+                rmin, rmax, cmin, cmax = bbox_ann[1], bbox_ann[1] + bbox_ann[3], bbox_ann[0], bbox_ann[0] + bbox_ann[2]
+                perch_box = [cmin, rmin, cmax, rmax]
+                cv2_image = cv2.rectangle(cv2_image, (int(cmin), int(rmin)), (int(cmax),int(rmax)), (0,255,0), 3)
+                centroid_x, centroid_y = [(cmin+cmax)/2, (rmin+rmax)/2]
+                cv2_image = cv2.circle(cv2_image, (int(centroid_x), int(centroid_y)), radius=0, color=(255, 0, 0), thickness=5)
+                # # Draw the 8 bounding box corners in image
+                for x,y in bbox_2d:
+                    cv2_image = cv2.circle(cv2_image, (x,y), radius=0, color=(0, 0, 255), thickness=3)
+                cv2_image = cv2.circle(cv2_image, (center_2d[0],center_2d[1]), radius=0, color=(255, 255, 255), thickness=5)
+                cv2.imwrite(os.path.join(self.scene_folder_path, f'rgb_with_bbox_{(cam_num):05}_{object_idx}.png') ,cv2_image)
+                # #
+            object_annotation = {
+                "center" : list(center_2d),
+                "bbox" : bbox_ann,
+                "cam_num" : cam_num,
+                "object_idx" : object_idx,
+                "mask_file_path" : save_path,
+                "model_name" : self.object_info_dict[object_idx].model_name,
+                "percentage_not_occluded" : pix_left_ratio,
+                "number_pixels" : number_pixels,
+                "location" : model_annotation['position'], 
+                "quaternion_xyzw" : model_annotation['quat'], 
+                "width" : self.width,
+                "height" : self.height,
+            }
+            object_annotations.append(ImageAnnotation(object_annotation))
+        
+        bbox_2ds = np.vstack(bbox_2ds)
+        cmin,rmin = np.min(bbox_2ds, axis=0).astype(float)
+        cmax,rmax = np.max(bbox_2ds, axis=0).astype(float)
+        self.camera_info_dict[cam_num].all_object_bbox = [
+                [cmin, rmin],
+                [cmax, rmin],
+                [cmin, rmax],
+                [cmax, rmax],
+            ]
 
-            # object_location_in_camera_frame = 
-            object_annotation = ImageAnnotation(
-                center = list(center_2d),
-                bbox = bbox_ann,
-                rgb_file_path = self.camera_info_dict[cam_num].rgb_save_path,
-                mask_file_path = save_path,
-                model_name = self.object_info_dict[object_idx].model_name,
-                percentage_not_occluded = pix_left_ratio,
-                number_pixels = number_pixels,
-                cam_intrinsics = camera_info.intrinsics, 
-                object_location = model_annotation['position'], 
-                object_quat = model_annotation['quat'], 
-                model_annotation = model_annotation,
-                camera_annotation= self.camera_info_dict[cam_num].get_camera_annotation(),
-                width=self.width,
-                height=self.height,
-            )
-            self.camera_info_dict[cam_num].rgb_image_annotations.append(object_annotation)
-    
+        if self.args.debug:
+            ## DEBUG purpose
+            cv2_image = cv2.imread(os.path.join(self.scene_save_dir, self.camera_info_dict[cam_num].rgb_save_path))
+            # rmin, rmax, cmin, cmax = all_object_bbox[1], all_object_bbox[1] + all_object_bbox[3], all_object_bbox[0], all_object_bbox[0] + all_object_bbox[2]
+            cv2_image = cv2.rectangle(cv2_image, (int(cmin), int(rmin)), (int(cmax),int(rmax)), (0,255,0), 3)
+            cv2.imwrite(os.path.join(self.scene_folder_path, f'rgb_with_all_object_bbox_{(cam_num):05}_{object_idx}.png') ,cv2_image)
+            ##
+        self.camera_info_dict[cam_num].rgb_image_annotations += object_annotations
 
     def output_camera_annotations(self):
         all_annotations = []
@@ -691,42 +732,74 @@ class PerchScene(object):
         annotation_id_acc = 0
         annotations = []
 
+        for cam_num, cam_info in self.camera_info_dict.items():
+            image_anno = {
+                "id" : cam_num,
+                "file_name" : cam_info.rgb_save_path,
+                "all_object_bbox" : cam_info.all_object_bbox,
+                "width" : int(cam_info.width),
+                "height" : int(cam_info.height),
+                "date_captured" : "2021",
+                "license" : 1,
+                "coco_url": "", 
+                "flickr_url": "",
+            }
+            image_anno.update(cam_info.get_camera_annotation())
+            images.append(image_anno)
+        
+        # datagen_utils.output_json(images, os.path.join(self.scene_folder_path, 'images.json'))
+        
+        for object_idx, object_info in self.object_info_dict.items():
+            model_category = {
+                "id": object_idx,
+                "name" : object_info.model_name,
+                "shapenet_category_id" : int(self.selected_objects[object_idx][1]),
+                "shapenet_object_id" : int(self.selected_objects[object_idx][3]),
+                "supercategory": "shape",
+            }
+            model_category.update(object_info.get_model_annotation())
+            categories.append(model_category)
+        
+        # datagen_utils.output_json(categories, os.path.join(self.scene_folder_path, 'categories.json'))
+        
         for annotation in all_annotations:
-            image_id = image_id_dict.get(annotation['rgb_file_path'], -1)
-            if image_id < 0:
-                image_id_acc += 1
-                image_id_dict[annotation['rgb_file_path']] = image_id_acc
-                image_anno = {
-                    "id" : image_id_acc,
-                    "file_name" : annotation['rgb_file_path'],
-                    "width" : annotation['width'],
-                    "height" : annotation['height'],
-                    "date_captured" : "2021",
-                    "license" : 1,
-                    "coco_url": "", 
-                    "flickr_url": "",
-                }
-                images.append(image_anno)
-                image_id = image_id_acc
+            # image_id = image_id_dict.get(annotation['cam_num'], -1)
+            # if image_id < 0:
+            #     image_id_acc += 1
+            #     image_id_dict[annotation['rgb_file_path']] = image_id_acc
+            #     image_anno = {
+            #         "id" : image_id_acc,
+            #         "file_name" : annotation['rgb_file_path'],
+            #         "all_object_bbox" : annotation["all_object_bbox"],
+            #         "width" : annotation['width'],
+            #         "height" : annotation['height'],
+            #         "date_captured" : "2021",
+            #         "license" : 1,
+            #         "coco_url": "", 
+            #         "flickr_url": "",
+            #     }
+            #     images.append(image_anno)
+            #     image_id = image_id_acc
 
-            model_name = annotation['model_name']
-            category_id = category_id_dict.get(model_name, -1)
+            # model_name = annotation['model_name']
+            # category_id = category_id_dict.get(model_name, -1)
 
-            if category_id < 0:
-                category_id_acc += 1
-                category_id_dict[model_name] = category_id_acc
-                model_category = {
-                    "id": category_id_acc,
-                    "name" : model_name,
-                    "supercategory": "shape",
-                }
-                categories.append(model_category)
-                category_id = category_id_acc
+            # if category_id < 0:
+            #     category_id_acc += 1
+            #     category_id_dict[model_name] = category_id_acc
+            #     model_category = {
+            #         "id": category_id_acc,
+            #         "name" : model_name,
+            #         "supercategory": "shape",
+            #     }
+            #     model_category.update(annotation['model_annotation'])
+            #     categories.append(model_category)
+            #     category_id = category_id_acc
 
             annotation.update({
                 "id" : annotation_id_acc,
-                "image_id" : image_id,
-                "category_id" : category_id,
+                "image_id" : annotation['cam_num'],
+                "category_id" : annotation['object_idx'],
             })
             annotation_id_acc += 1
             annotations.append(annotation)
@@ -742,6 +815,7 @@ class PerchScene(object):
         
         coco_json_dict = {
             "info": {
+                "scene_num" : self.scene_num,
                 "description": "Example Dataset", 
                 "url": "https://github.com/waspinator/pycococreator", 
                 "version": "0.1.0", 
@@ -763,11 +837,8 @@ class PerchScene(object):
             "annotations" : annotations,
         }
 
-        json_string = json.dumps(coco_json_dict)
         annotation_fname = os.path.join(self.scene_folder_path, 'annotations.json')
-        json_file = open(annotation_fname, "w+")
-        json_file.write(json_string)
-        json_file.close()
+        datagen_utils.output_json(coco_json_dict, annotation_fname)
 
     def render_whole_scene_segmentation(self, mujoco_env, cam_height, cam_width, cam_num, save=True, save_path=None):
         camera = Camera(physics=mujoco_env.model, height=cam_height, width=cam_width, camera_id=cam_num)

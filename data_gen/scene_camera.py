@@ -75,11 +75,14 @@ class SceneCamera(object):
 
     def get_camera_annotation(self):
         return {
+            'all_object_with_table_segmentation_path' : self.all_object_with_table_segmentation_path,
+            'all_object_segmentation_path' : self.all_object_segmentation_path,
             'intrinsics_matrix': datagen_utils.get_json_cleaned_matrix(self.intrinsics, type='float'),
             'pos' : datagen_utils.get_json_cleaned_matrix(self.pos, type='float'), 
             'rot_quat' : datagen_utils.get_json_cleaned_matrix(self.rot_quat, type='float'),
             'camera_frame_to_world_frame_mat' : datagen_utils.get_json_cleaned_matrix(self.camera_frame_to_world_frame_mat, type='float'),
             'world_frame_to_camera_frame_mat' : datagen_utils.get_json_cleaned_matrix(self.world_frame_to_camera_frame_mat, type='float'),
+            'all_object_bbox' : self.all_object_bbox,
         }
     
     def get_annotations_dict(self):

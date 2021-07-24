@@ -95,9 +95,13 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
             img_embed, pose_pred = model([image, pts, feats])
         else:
             img_embed, pose_pred = model([image])
-        # Position prediction 
-        pixel_pred = pose_pred[:,:2]
-        scale_pred = pose_pred[:,2:]
+        # Position prediction
+        if args.predict_center: 
+            scale_start_idx = 2
+            pixel_pred = pose_pred[:,:scale_start_idx]
+        else:
+            scale_start_idx = 0
+        scale_pred = pose_pred[:,scale_start_idx:]
         # Normalize embedding
         img_embed -= img_embed.min(1, keepdim=True)[0]
         img_embed /= img_embed.max(1, keepdim=True)[0]
@@ -110,41 +114,55 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
         
         loss_fun = loss.get_loss_func(args.training_config.loss_used)(reduction="mean")
         loss_scale = loss_fun(scale_pred, scale_gt)
-        loss_pixel = loss_fun(pixel_pred, pixel_gt)
-
         loss_cat_w = args.loss.lambda_cat * loss_cat
         loss_obj_w = args.loss.lambda_obj * loss_obj
         loss_scale_w = args.loss.lambda_scale * loss_scale
-        loss_pixel_w = args.loss.lambda_pixel * loss_pixel
 
-        total_loss = loss_cat_w + loss_obj_w + loss_scale_w + loss_pixel_w
+        if args.predict_center: 
+            loss_pixel = loss_fun(pixel_pred, pixel_gt)
+            loss_pixel_w = args.loss.lambda_pixel * loss_pixel
+            total_loss = loss_cat_w + loss_obj_w + loss_scale_w + loss_pixel_w
+        else:
+            total_loss = loss_cat_w + loss_obj_w + loss_scale_w
         total_loss.backward()
         
         optimizer.step()
 
         if args.num_gpus > 1:
-            total_loss, loss_cat_w, loss_obj_w, loss_scale_w, loss_pixel_w = du.all_reduce(
-                [total_loss, loss_cat_w, loss_obj_w, loss_scale_w, loss_pixel_w]
-            )
+            if args.predict_center: 
+                total_loss, loss_cat_w, loss_obj_w, loss_scale_w, loss_pixel_w = du.all_reduce(
+                    [total_loss, loss_cat_w, loss_obj_w, loss_scale_w, loss_pixel_w]
+                )
+            else:
+                total_loss, loss_cat_w, loss_obj_w, loss_scale_w = du.all_reduce(
+                    [total_loss, loss_cat_w, loss_obj_w, loss_scale_w]
+                )
 
         if du.is_master_proc(num_gpus=args.num_gpus):
             
             if wandb_enabled:
-                wandb_dict = {'train/train_loss':total_loss.item(), \
-                'train/train_loss_cat': loss_cat_w.item(), \
-                'train/train_loss_obj': loss_obj_w.item(), \
-                'train/train_loss_scale': loss_scale_w.item(), \
-                'train/train_loss_pixel': loss_pixel_w.item(), \
-                'train/learning_rate': optimizer.param_groups[0]['lr']}
-
+                wandb_dict = {
+                    'train/train_loss':total_loss.item(), 
+                    'train/train_loss_cat': loss_cat_w.item(), 
+                    'train/train_loss_obj': loss_obj_w.item(), 
+                    'train/train_loss_scale': loss_scale_w.item(), 
+                    'train/learning_rate': optimizer.param_groups[0]['lr']
+                }
+                if args.predict_center: 
+                    wandb_dict.update({'train/train_loss_pixel': loss_pixel_w.item()})
                 wandb.log(wandb_dict, step=cnt)
+
             if cnt % args.training_config.log_every == 0:
+                if args.predict_center: 
+                    loss_pixel_w_item = loss_pixel_w.item()
+                else:
+                    loss_pixel_w_item = -1
                 print('Train Epoch: {} [{} ({:.0f}%)]\tTotal Loss={:.6f}, Triplet_Loss_Category ({}) = {:.6f}, Triplet_Loss_Object ({}) = {:.6f}, Object_Scale_Loss ({}) = {:.6f}, Object_2D_Center_Loss ({}) = {:.6f}'.format(
                     epoch, cnt, 100. * batch_idx / len(train_loader), total_loss.item(), \
                         args.loss.lambda_cat, loss_cat_w.item(), \
                         args.loss.lambda_obj, loss_obj_w.item(), \
                         args.loss.lambda_scale, loss_scale_w.item(), \
-                        args.loss.lambda_pixel, loss_pixel_w.item()))
+                        args.loss.lambda_pixel, loss_pixel_w_item))
 
         if du.is_master_proc(num_gpus=args.num_gpus):
             

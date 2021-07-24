@@ -26,7 +26,7 @@ def output_selected(csv_file, selected_l):
 preselect = [bag, bottle, bowl, can, clock, jar, laptop, camera, mug, basket]
 test_only_ids = [2801938]
 
-csv_columns = ['synsetId', 'catId', 'name', 'ShapeNetModelId', 'objId']
+csv_columns = ['synsetId', 'catId', 'name', 'ShapeNetModelId', 'objId', 'half_or_whole', 'perch_rot_angle']
 dict_data = []
 obj_id = 0
 cat_id = 0

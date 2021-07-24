@@ -6,7 +6,7 @@ import trimesh
 import open3d as o3d
 import autolab_core
 from scipy.spatial.transform import Rotation as R, rotation        
-import datagen_utils as utils
+import datagen_utils
 
 class MujocoObject(object):
     def __init__(
@@ -68,7 +68,7 @@ class MujocoObject(object):
                 'pos': self.pos,
                 'size': self.size,
                 'color': self.color,
-                'quat': utils.quat_xyzw_to_wxyz(self.rot.as_quat()),
+                'quat': datagen_utils.quat_xyzw_to_wxyz(self.rot.as_quat()),
             }
 
 
@@ -89,17 +89,18 @@ class MujocoNonTable(MujocoObject):
         self.object_idx = kwargs['object_idx']
         self.half_or_whole = kwargs['half_or_whole']
         self.perch_rot_angle = kwargs['perch_rot_angle']
-        
+        self.upright_ratio = kwargs['upright_ratio']
 
         scale = kwargs['scale'] if not kwargs['scale'] is None else np.random.choice([0.75, 0.85, 1.0])
         self.actual_size = scale * self.canonical_size
         
-        if np.random.uniform(0,1) < 0.5:
+        if np.random.uniform(0,1) < self.upright_ratio:
             random_rotation = [
                 np.random.uniform(-90.0, 90),
                 np.random.uniform(-90.0, 90),
                 np.random.uniform(0, 360),
             ]
+            self.upright = False
         else:
             print("Upright: ", self.object_idx)
             random_rotation = [
@@ -107,14 +108,14 @@ class MujocoNonTable(MujocoObject):
                 0,
                 np.random.uniform(0, 360),
             ]
+            self.upright = True
 
         self.rot = R.from_euler('xyz', random_rotation, degrees=True)
-
         self.pos_x, self.pos_y = np.random.normal(loc=[0,0], scale=np.array([self.canonical_size*0.5]*2))
         self.bbox = None
 
     def load_decomposed_mesh(self):
-        comb_mesh, obj_convex_decomp_dir = utils.get_convex_decomp_mesh(
+        comb_mesh, obj_convex_decomp_dir = datagen_utils.get_convex_decomp_mesh(
             self.shapenet_file_name, 
             self.shapenet_convex_decomp_dir, 
             self.synset_id, 
@@ -127,13 +128,13 @@ class MujocoNonTable(MujocoObject):
         comb_mesh_scale = self.actual_size / range_max
         comb_mesh_scale = [comb_mesh_scale] * 3
         # scale the mesh
-        comb_mesh = utils.apply_scale_to_mesh(comb_mesh, comb_mesh_scale)
+        comb_mesh = datagen_utils.apply_scale_to_mesh(comb_mesh, comb_mesh_scale)
         self.size = comb_mesh_scale
         # comb_mesh.export(os.path.join(obj_convex_decomp_dir, 'convex_decomp.stl'))
         mesh_names = [os.path.join(obj_convex_decomp_dir, 'convex_decomp.stl')]
         self.convex_decomp_mesh_fnames = mesh_names
         # Apply rotation, generated during initialization
-        self.convex_decomp_mesh = utils.apply_rot_to_mesh(comb_mesh, self.rot)
+        self.convex_decomp_mesh = datagen_utils.apply_rot_to_mesh(comb_mesh, self.rot)
         return mesh_names
     
     def save_correct_size_model(self, model_save_root_dir, model_name):
@@ -146,7 +147,7 @@ class MujocoNonTable(MujocoObject):
 
         object_mesh = trimesh.load(self.shapenet_file_name, force='mesh')
         object_mesh.apply_transform(self.upright_mat)
-        object_mesh = utils.apply_scale_to_mesh(object_mesh, self.size)
+        object_mesh = datagen_utils.apply_scale_to_mesh(object_mesh, self.size)
         object_mesh.export(model_fname)
         self.model_name = model_name
 
@@ -192,14 +193,14 @@ class MujocoTable(MujocoObject):
             to_frame='world',
         )
         table_bounds = self.object_mesh.bounds
-        table_corners = utils.bounds_xyz_to_corners(table_bounds)
+        table_corners = datagen_utils.bounds_xyz_to_corners(table_bounds)
         table_top_corners = table_corners[table_corners[:,2] == table_bounds[1,2]]
-        self.table_top_corners = utils.transform_3d_frame(self.table_frame_to_world.matrix, table_top_corners)
+        self.table_top_corners = datagen_utils.transform_3d_frame(self.table_frame_to_world.matrix, table_top_corners)
         
-        table_corners, _, obj_to_world_mat = utils.get_corners(table_bounds, self.pos, self.rot, 'table')
+        table_corners, _, obj_to_world_mat = datagen_utils.get_corners(table_bounds, self.pos, self.rot, 'table')
         self.table_frame_to_world_mat = obj_to_world_mat
         table_top_corners = table_corners[table_corners[:,2] == table_bounds[1,2]]
-        self.table_top_corners = utils.transform_3d_frame(self.table_frame_to_world_mat, table_top_corners)
+        self.table_top_corners = datagen_utils.transform_3d_frame(self.table_frame_to_world_mat, table_top_corners)
 
     def set_object_scale(self, scale = None):
         '''

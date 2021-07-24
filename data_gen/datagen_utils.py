@@ -1,7 +1,8 @@
 import pybullet as p
 import numpy as np
 import copy
-import pickle
+import json
+import pandas as pd
 from scipy.spatial.transform import Rotation as R, rotation
 import math
 
@@ -202,15 +203,19 @@ def get_json_cleaned_matrix(mat, type='float'):
     '''
     Return json serializable matrix 
     ''' 
-    if len(mat.shape) == 1:
-        if type == 'float':
-            return [float(item) for item in mat]
-        else:
-            return [int(item) for item in mat]
-    cleaned_mat = []
-    for sub_mat in mat:
-        cleaned_mat.append(get_json_cleaned_matrix(sub_mat))
-    return cleaned_mat
+    try:
+        mat[0]
+        if len(mat.shape) == 1:
+            if type == 'float':
+                return [float(item) for item in mat]
+            else:
+                return [int(item) for item in mat]
+        cleaned_mat = []
+        for sub_mat in mat:
+            cleaned_mat.append(get_json_cleaned_matrix(sub_mat))
+        return cleaned_mat
+    except:
+        return mat
 
 ##############################################################################################################
 class XmlObjectNameTracker(object):
@@ -224,6 +229,12 @@ class XmlObjectNameTracker(object):
         self.object_geom_names = {} # object_idx --> [geom_names]
         self.object_joint_names = {} # object_idx --> joint_name
     
+    def set_object_dicts(self, object_idx, body_name, added_mesh_names, geom_names, joint_name):
+        self.object_mesh_names[object_idx] = added_mesh_names
+        self.object_body_names[object_idx] = body_name
+        self.object_geom_names[object_idx] = geom_names
+        self.object_joint_names[object_idx] = joint_name
+
     def get_object_geom_name(self, object_idx):
         geom_names = self.object_geom_names[object_idx]
         if len(geom_names) == 1:
@@ -452,6 +463,24 @@ def get_convex_decomp_mesh(mesh_file_name, convex_decomp_dir, synset_id, model_i
     return trimesh.load(obj_convex_decomp_fname, force='mesh'), obj_convex_decomp_dir
 
 
+def get_convex_decomp_mesh_csv(csv_fname, shapenet_filepath, shapenet_convex_decomp_dir):
+    df = pd.read_csv(csv_fname)
+    for i in range(len(df)):
+        row = df.iloc[i]
+        synset_id = row['synsetId']
+        model_id = row['ShapeNetModelId']
+        mesh_fname = os.path.join(
+            shapenet_filepath,
+            '0{}/{}/models/model_normalized.obj'.format(synset_id, model_id),
+        )
+        comb_mesh, obj_convex_decomp_dir = get_convex_decomp_mesh(
+            mesh_fname, 
+            shapenet_convex_decomp_dir, 
+            f'0{synset_id}', 
+            model_id=model_id,
+        )
+
+
 def create_walls(inner_pts, outer_pts, bottom_height=0):
     '''
     Create 4 walls such that the space between inner_pts and outer_pts are filled.
@@ -505,9 +534,16 @@ def create_walls(inner_pts, outer_pts, bottom_height=0):
 
     return wall_infos
 
+
 def generate_default_add_position(object_idx, num_objects, distance_away=50):
     theta = ((2.0*math.pi) / num_objects) * object_idx
     start_x = np.cos(theta) * distance_away
     start_y = np.sin(theta) * distance_away
     start_z = object_idx + 1
     return [start_x, start_y, start_z]
+
+def output_json(json_dict, path):
+    json_string = json.dumps(json_dict)
+    json_file = open(path, "w+")
+    json_file.write(json_string)
+    json_file.close()

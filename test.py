@@ -61,7 +61,6 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
                     [image, img_embed, pose_pred]
                 )
 
-
                 scale_gt = torch.cat(du.all_gather_unaligned(scale_gt), dim=0)
                 pixel_gt = torch.cat(du.all_gather_unaligned(pixel_gt), dim=0)
                 sample_id = torch.cat(du.all_gather_unaligned(sample_id), dim=0)

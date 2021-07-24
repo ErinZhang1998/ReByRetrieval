@@ -60,7 +60,7 @@ def data_dir_list(root_dir):
     for subdir in os.listdir(root_dir):
         if subdir.startswith('scene_'):
             subdir_path = os.path.join(root_dir, subdir)
-            scene_description_dir = os.path.join(subdir_path, 'scene_description.p')
+            scene_description_dir = os.path.join(subdir_path, 'annotations.json')
             if not os.path.exists(scene_description_dir):
                 continue 
             scene_name = subdir_path.split("/")[-1]
