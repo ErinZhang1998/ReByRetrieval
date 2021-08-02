@@ -27,7 +27,7 @@ parser.add_option("--use_walls", dest="use_walls", type="int", default=1)
 parser.add_option("--table_size", dest="table_size", type="int", default=2)
 parser.add_option("--debug", action="store_true", dest="debug")
 parser.add_option("--upright_ratio", dest="upright_ratio", type="float", default=0.5)
-
+parser.add_option("--canonical_size", dest="canonical_size", type="float", default=0.3)
 parser.add_option("--single_object", action="store_true", dest="single_object")
 
 # parser.add_option("--camera_radius", dest="camera_radius", type="float", default=0)

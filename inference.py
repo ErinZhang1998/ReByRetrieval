@@ -49,7 +49,7 @@ def save_correct_size_model(model_save_root_dir, model_name, scale, shapenet_fil
 
     model_fname_backup = os.path.join(model_save_dir, 'textured_backup.obj')
     model_ply_fname_backup = os.path.join(model_save_dir, 'textured_backup.ply')
-    # import pdb; pdb.set_trace()
+
     if os.path.exists(model_fname) and not os.path.exists(model_fname_backup):
         shutil.copyfile(model_fname, model_fname_backup)
     

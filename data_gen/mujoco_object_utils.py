@@ -90,7 +90,8 @@ class MujocoNonTable(MujocoObject):
         self.half_or_whole = kwargs['half_or_whole']
         self.perch_rot_angle = kwargs['perch_rot_angle']
         self.upright_ratio = kwargs['upright_ratio']
-
+        
+        self.canonical_size = kwargs['canonical_size'] if not kwargs['canonical_size'] is None else self.canonical_size
         scale = kwargs['scale'] if not kwargs['scale'] is None else np.random.choice([0.75, 0.85, 1.0])
         self.actual_size = scale * self.canonical_size
         
@@ -126,6 +127,7 @@ class MujocoNonTable(MujocoObject):
         range_max = np.linalg.norm(comb_mesh.bounds[1] - comb_mesh.bounds[0])
         comb_mesh_scale = self.actual_size / range_max
         comb_mesh_scale = [comb_mesh_scale] * 3
+        import pdb; pdb.set_trace()
         # scale the mesh
         comb_mesh = datagen_utils.apply_scale_to_mesh(comb_mesh, comb_mesh_scale)
         self.size = comb_mesh_scale

@@ -112,6 +112,7 @@ class PerchScene(object):
             half_or_whole=self.selected_objects[object_idx][5],
             perch_rot_angle=self.selected_objects[object_idx][6],
             upright_ratio=self.args.upright_ratio,
+            canonical_size=self.args.canonical_size,
         )
         self.object_info_dict[object_idx] = object_info
     
@@ -213,25 +214,9 @@ class PerchScene(object):
             new_camera.depth_save_path = os.path.join(f'{self.train_or_test}/scene_{self.scene_num:06}', f'depth_{(self.total_camera_num):05}.png')
             self.camera_info_dict[self.total_camera_num] = new_camera
             self.total_camera_num += 1
-    
-    def create_walls_far_away(self, xml_fname):
-        for wall_idx in range(4):
-            pos = datagen_utils.generate_default_add_position(wall_idx, 4, distance_away=80)
-            wall_mesh_file = os.path.join(self.scene_folder_path, f'assets/wall_{wall_idx}.stl')
-            
-            mujoco_add_dict = {
-                'object_name': f'wall_{wall_idx}_{self.scene_num}',
-                'mesh_names': [wall_mesh_file],
-                'pos': pos,
-                'size': [1,1,1],
-                'color': [0,0,0.1],
-                'quat': [0,0,0,0],
-                'mocap' : True,
-            }
-            datagen_utils.add_objects(
-                xml_fname,
-                mujoco_add_dict,
-            )
+
+        with open(os.path.join(self.scene_folder_path, f'camera_locations_{center_x}_{center_y}_{camera_z_above_table}_{radius}_{upper_limit}'), 'wb+') as f:
+            pickle.dump([locations, targets], f)
     
     def create_walls_on_table(self, xml_fname):
         outer_pts = self.table_info.table_top_corners
@@ -263,43 +248,6 @@ class PerchScene(object):
                 'color': [0,0,0,0],
                 'quat': quat,
                 'mocap' : True,
-            }
-            datagen_utils.add_objects(
-                xml_fname,
-                mujoco_add_dict,
-            )
-
-    def create_walls_around_table(self, xml_fname):
-        table_corners = self.table_info.table_top_corners
-        table_height= self.table_info.height
-        
-        comb = [[0,1,1,-1],[2,3,1,1],[0,2,0,-1],[1,3,0,1]]
-        r = R.from_euler('xyz', [0, (1/2)*np.pi, 0], degrees=False)
-        quat = r.as_quat()
-        quat = datagen_utils.quat_xyzw_to_wxyz(quat)
-        for wall_idx,(idx1,idx2,change_idx,change_sign) in enumerate(comb):
-            if wall_idx >= self.num_meshes_before_object-1:
-                break
-            # Create wall mesh
-            if wall_idx < 2:
-                wall_length = np.linalg.norm(table_corners[idx1] - table_corners[idx2]) * 0.9
-            else:
-                wall_length = np.linalg.norm(table_corners[idx1] - table_corners[idx2]) * 5
-            wall_mesh = trimesh.creation.box((table_height+1, wall_length, wall_length))
-            wall_mesh_file = os.path.join(self.scene_folder_path, f'assets/wall_{wall_idx}.stl')
-            f = open(wall_mesh_file, "w+")
-            f.close()
-            wall_mesh.export(wall_mesh_file)
-            
-            middle = np.mean(table_corners[[idx1,idx2]], axis=0)
-            middle[change_idx] += change_sign * (wall_length * 0.5 + 0.005)
-            mujoco_add_dict = {
-                'object_name': f'wall_{wall_idx}_{self.scene_num}',
-                'mesh_names': [wall_mesh_file],
-                'pos': middle,
-                'size': [1,1,1],
-                'color': [0,0,0],
-                'quat': quat,
             }
             datagen_utils.add_objects(
                 xml_fname,
