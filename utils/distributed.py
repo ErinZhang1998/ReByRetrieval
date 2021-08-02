@@ -4,11 +4,10 @@
 """Distributed helpers."""
 
 import functools
-import logging
 import pickle
 import torch
 import torch.distributed as dist
-
+import logging
 
 def all_gather(tensors):
     """

@@ -4,10 +4,13 @@ import torch
 import torch.distributed as dist
 
 class InCategoryClutterDataloader(object):
-    def __init__(self, dataset, args, shuffle = True):
+    def __init__(self, dataset, args, shuffle = True, train = True):
         self.args = args
         self.dataset = dataset
-        self.batch_size = args.training_config.batch_size
+        if train:
+            self.batch_size = args.training_config.batch_size
+        else:
+            self.batch_size = args.testing_config.batch_size
         self.shuffle = shuffle 
         
         self.acc = 0

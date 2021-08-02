@@ -94,7 +94,7 @@ class MujocoNonTable(MujocoObject):
         scale = kwargs['scale'] if not kwargs['scale'] is None else np.random.choice([0.75, 0.85, 1.0])
         self.actual_size = scale * self.canonical_size
         
-        if np.random.uniform(0,1) < self.upright_ratio:
+        if np.random.uniform(0,1) > self.upright_ratio:
             random_rotation = [
                 np.random.uniform(-90.0, 90),
                 np.random.uniform(-90.0, 90),
@@ -102,7 +102,6 @@ class MujocoNonTable(MujocoObject):
             ]
             self.upright = False
         else:
-            print("Upright: ", self.object_idx)
             random_rotation = [
                 0,
                 0,

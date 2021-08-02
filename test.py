@@ -1,18 +1,11 @@
 import torch
 import numpy as np
-import io
-import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
-import PIL.Image
-import copy
-import wandb
-import os 
 
-import utils.utils as uu
 import losses.loss as loss
-import utils.plot_image as uplot
-import utils.transforms as utrans
 import utils.distributed as du
+import utils.logging as logging 
+
+logger = logging.get_logger(__name__)
 
 def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, prediction_dir=None, wandb_enabled=False):
     model.eval()
@@ -61,13 +54,19 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
                     [image, img_embed, pose_pred]
                 )
 
+                cat_gt = torch.cat(du.all_gather_unaligned(cat_gt), dim=0)
+                id_gt = torch.cat(du.all_gather_unaligned(id_gt), dim=0)
                 scale_gt = torch.cat(du.all_gather_unaligned(scale_gt), dim=0)
                 pixel_gt = torch.cat(du.all_gather_unaligned(pixel_gt), dim=0)
                 sample_id = torch.cat(du.all_gather_unaligned(sample_id), dim=0)
                 area_type = torch.cat(du.all_gather_unaligned(area_type), dim=0)
             
-            pixel_pred = pose_pred[:,:2]
-            scale_pred = pose_pred[:,2:]          
+            if args.model_config.predict_center: 
+                scale_start_idx = 2
+                pixel_pred = pose_pred[:,:scale_start_idx]
+            else:
+                scale_start_idx = 0
+            scale_pred = pose_pred[:,scale_start_idx:]          
             
             iter_data = {
                 'loss_cat': c_loss.item(),
@@ -76,13 +75,18 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
                 'embeds': img_embed.detach().cpu(),
                 'scale_pred': scale_pred.detach().cpu(),
                 'scale_gt': scale_gt.detach().cpu(),
-                'pixel_pred': pixel_pred.detach().cpu(),
-                'pixel_gt': pixel_gt.detach().cpu(),
                 'sample_id': sample_id.detach().cpu(),
                 'area_type': area_type.detach().cpu(),
+                'cat_gt' : cat_gt.detach().cpu(),
+                'id_gt' : id_gt.detach().cpu(),
             }
+            if args.model_config.predict_center:
+                iter_data.update({
+                    'pixel_pred': pixel_pred.detach().cpu(),
+                    'pixel_gt': pixel_gt.detach().cpu(),
+                })
             plot_iter = batch_idx in plot_batch_idx and batch_idx != len(test_loader)-1
-            test_meter.log_iter_stats(iter_data, cnt, image_dir, wandb_enabled=wandb_enabled, plot=plot_iter)
+            test_meter.log_iter_stats(iter_data, cnt, batch_idx, image_dir, wandb_enabled=wandb_enabled, plot=plot_iter)
             torch.cuda.empty_cache()
     
     if du.is_master_proc(num_gpus=args.num_gpus):

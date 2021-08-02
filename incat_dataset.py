@@ -16,8 +16,11 @@ import matplotlib.image as mpimg
 import utils.transforms as utrans
 import PIL
 import torchvision
+import matplotlib.pyplot as plt
 
-import utils.dataset_utils as data_utils
+
+import utils.utils as uu
+import utils.plot_image as plot_utils
 
 class InCategoryClutterDataset(Dataset):
     
@@ -34,6 +37,8 @@ class InCategoryClutterDataset(Dataset):
         self.num_area_range =  args.dataset_config.superimpose_num_area_range
         if split == 'train':
             self.scene_dir = args.files.training_scene_dir
+        elif split == 'base':
+            self.scene_dir = args.files.base_scene_dir
         else:
             self.scene_dir = args.files.testing_scene_dir
         # In order to work well with perch's image annotation, use e.g.
@@ -46,15 +51,15 @@ class InCategoryClutterDataset(Dataset):
         self.img_mean = args.dataset_config.img_mean#[0.5,0.5,0.5]
         self.img_std = args.dataset_config.img_std#[0.5,0.5,0.5]
 
-        self.dir_list = data_utils.data_dir_list(self.scene_dir)
+        self.dir_list = uu.data_dir_list(self.scene_dir)
         if self.superimpose:
             file_ptr = open(self.canvas_file_path, 'r')
             self.all_canvas_path = file_ptr.read().split('\n')[:-1]
             file_ptr.close()
         
+        self.sample_id_to_idx = dict()
         self.all_data_dict = dict()
         self.all_scene_cam_dict = dict()
-        self.idx_to_same_object_dict = dict()
         idx = 0
         for dir_path in self.dir_list:
             data_dict, scene_dict, idx = self.load_annotations(dir_path, idx)
@@ -79,7 +84,7 @@ class InCategoryClutterDataset(Dataset):
                 idx2_obj_id = self.all_data_dict[idx2]['obj_id']
                 L = self.object_id_to_dict_idx.get(idx2_obj_id, [])
                 L.append(idx2)
-            self.object_id_to_dict_idx[idx2_obj_id] = L
+                self.object_id_to_dict_idx[idx2_obj_id] = L
 
         self.total_ele = 0
         for k,v in self.object_id_to_dict_idx.items():
@@ -101,11 +106,20 @@ class InCategoryClutterDataset(Dataset):
         rgb_all = mpimg.imread(sample['rgb_file'])
         self.img_h, self.img_w, _ = rgb_all.shape 
 
-    def parse_sample_id(self,sample_id):
-        scene_name, cam_num, object_idx = sample_id.rsplit('_',2)
-        object_idx = int(object_idx)
-        cam_num = int(cam_num)
-        return scene_name, cam_num, object_idx
+    def display_sample(self, idx, rgb=False, seg=True):
+        sample = self.all_data_dict[idx]
+        rgb_all = PIL.Image.open(sample['rgb_file'])
+        mask = mpimg.imread(sample['object_mask_path'])
+        img_masked = plot_utils.masked_image(np.asarray(rgb_all), mask)
+        sample
+        fig = plt.figure(figsize=(12, 12))
+        plt.imshow(img_masked)
+        plt.show()
+        if rgb:
+            fig = plt.figure(figsize=(12, 12))
+            plt.imshow(np.asarray(rgb_all))
+            plt.show()
+
     
     def load_annotations(self, dir_path, idx):
         '''
@@ -143,11 +157,13 @@ class InCategoryClutterDataset(Dataset):
 
             image_id = ann['image_id']
             category_id = ann['category_id']
-            sample_id =  f'scene_{scene_num:06}_{image_id}_{category_id}'
             sample_id_int = [scene_num, image_id, category_id]
+            sample_id = '-'.join([str(item) for item in sample_id_int])
             
-            if self.split == 'test' and self.args.dataset_config.test_cropped_area_position > 3:
-                area_type = hash(sample_id) % 4
+            #f'scene_{scene_num:06}_{image_id}_{category_id}'
+            
+            if self.split != 'train' and self.args.dataset_config.test_cropped_area_position > 3:
+                area_type = hash(f'scene_{scene_num:06}_{image_id}_{category_id}') % 4
             else:
                 area_type = self.args.dataset_config.test_cropped_area_position
             # 
@@ -179,14 +195,18 @@ class InCategoryClutterDataset(Dataset):
                 'area_type' : area_type,
                 'object_bbox_world_frame_2d' : bbox_2d,
             }
-
             scene_dict_l_must,  scene_dict_l_one = scene_dict.get((scene_num, image_id), ([],[]))
-            if (percentage_not_occluded <= 0.95): #or (cam_d['occlusion_target'] == object_idx):
-                scene_dict_l_must.append(idx_i)
+            if self.split == "train":
+                if (percentage_not_occluded <= 0.95): #or (cam_d['occlusion_target'] == object_idx):
+                    scene_dict_l_must.append(idx_i)
+                else:
+                    scene_dict_l_one.append(idx_i)
             else:
-                scene_dict_l_one.append(idx_i)
+                scene_dict_l_must.append(idx_i)
+            
             scene_dict[(scene_num, image_id)] = (scene_dict_l_must, scene_dict_l_one)
             data_dict[idx_i] = sample 
+            self.sample_id_to_idx[sample_id] = idx_i
             idx_i += 1
         
         return data_dict, scene_dict, idx_i
@@ -252,7 +272,6 @@ class InCategoryClutterDataset(Dataset):
             
             if self.split == "train":
                 num_pixels_final = np.random.uniform(self.min_num_pixel_in_final_tensor,self.max_num_pixel_in_final_tensor,1)[0]
-                print(num_pixels_final)
             else:
                 num_pixels_final = int(0.5*(self.min_num_pixel_in_final_tensor+self.max_num_pixel_in_final_tensor))
             patch_ratio = num_pixels_final * 900 / shape_ratio
@@ -278,7 +297,7 @@ class InCategoryClutterDataset(Dataset):
                 area_range_w, area_range_h = np.random.choice(np.arange(self.num_area_range),2)
                 area_step_w = (area_x_range[1] - area_x_range[0]) / self.num_area_range 
                 area_step_h = (area_y_range[1] - area_y_range[0]) / self.num_area_range 
-                # import pdb; pdb.set_trace()
+
                 area_x = int(np.random.uniform(area_x_range[0] + area_step_w*area_range_w, 
                                             area_x_range[0] + area_step_w*(area_range_w+1),1)[0])
                 area_y = int(np.random.uniform(area_y_range[0] + area_step_h*area_range_h, 
@@ -287,7 +306,6 @@ class InCategoryClutterDataset(Dataset):
                 area_type = sample['area_type']
                 area_x, area_y = self.determine_patch_x_y(area_type, area_x_range, area_y_range)
             area = (area_x, area_y, area_x+patch_w, area_y+patch_h)
-            print(area)
             
             # On the canvas, but mask showing the place that the objects will be
             # Produce input image
@@ -373,13 +391,13 @@ class InCategoryClutterDataset(Dataset):
                 "obj_points_features" : obj_points_features,
             }
             basic_data.update(pc_data)
-        elif self.split == 'train' and self.args.loss.use_consistency_loss:
-                pair_idx_arr = self.idx_to_same_object_dict[idx]
-                pair_idx = np.random.choice(pair_idx_arr, 1)[0]
-                pair_data = self.process_input(self.all_data_dict[pair_idx])
-                pair_data_add = {
-                    'pair_image' : pair_data["image"],
-                }
+        # elif self.split == 'train' and self.args.loss.use_consistency_loss:
+        #         pair_idx_arr = self.idx_to_same_object_dict[idx]
+        #         pair_idx = np.random.choice(pair_idx_arr, 1)[0]
+        #         pair_data = self.process_input(self.all_data_dict[pair_idx])
+        #         pair_data_add = {
+        #             'pair_image' : pair_data["image"],
+        #         }
                 
 
         return basic_data

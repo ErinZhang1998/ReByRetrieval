@@ -1,4 +1,5 @@
 import csv
+import pickle
 import pandas as pd
 from sklearn.model_selection import train_test_split
 import os 
@@ -11,9 +12,19 @@ from selected_shapenet_data_list import *
 parser = OptionParser()
 parser.add_option("--csv_file_dir", dest="csv_file_dir")
 parser.add_option("--shapenet_filepath", dest="shapenet_filepath")
+parser.add_option("--selected_filepath", dest="selected_filepath")
 
 (args, argss) = parser.parse_args()
 
+def write_to_csv(csv_file, dict_data, csv_columns):
+    try:
+        with open(csv_file, 'w') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=csv_columns)
+            writer.writeheader()
+            for data in dict_data:
+                writer.writerow(data)
+    except IOError:
+        print("I/O error")
 
 def output_selected(csv_file, selected_l):
     csv_df = pd.read_csv(csv_file)
@@ -22,9 +33,12 @@ def output_selected(csv_file, selected_l):
         res.append(csv_df.iloc[idx]["fullId"].split(".")[-1])
     return res
 
-
-preselect = [bag, bottle, bowl, can, clock, jar, laptop, camera, mug, basket]
-test_only_ids = [2801938]
+# preselect = [bag, bottle, bowl, can, clock, jar, laptop, camera, mug, basket]
+# preselect = [bag, bottle, bowl, can, clock, jar, laptop, camera, mug]
+# test_only_ids = [2801938]
+f = open(args.selected_filepath, 'rb')
+preselect = pickle.load(f)
+test_only_ids = []
 
 csv_columns = ['synsetId', 'catId', 'name', 'ShapeNetModelId', 'objId', 'half_or_whole', 'perch_rot_angle']
 dict_data = []
@@ -42,19 +56,17 @@ for cat_name, cat_synset_id, cat_objects in preselect:
                 'half_or_whole' : 0,
                 'perch_rot_angle' : 0,
             }
+
+            # obj_cat = int(row["synsetId"])
+            # obj_model_id = row["ShapeNetModelId"]
+            # obj_mesh_filename = os.path.join(args.shapenet_filepath,'0{}/{}/models/model_normalized.obj'.format(obj_cat, obj_model_id))
+            # object_mesh = trimesh.load(obj_mesh_filename, force='mesh')
+            # if object_mesh.faces.shape[0] >= 200000:
+            #     continue
             dict_data.append(row)
         obj_id += 1
     cat_id += 1
 
-def write_to_csv(csv_file, dict_data, csv_columns):
-    try:
-        with open(csv_file, 'w') as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=csv_columns)
-            writer.writeheader()
-            for data in dict_data:
-                writer.writerow(data)
-    except IOError:
-        print("I/O error")
 
 if not os.path.exists(args.csv_file_dir):
     os.mkdir(args.csv_file_dir)
@@ -83,12 +95,31 @@ for test_id in test_only_ids:
     df_2 = df_2[(df_2['synsetId'] == test_id)]
 test_data = df_2.to_dict('records')
 
-train,test = train_test_split(train_test_data, test_size=0.3)
+# train,test = train_test_split(train_test_data, test_size=0.3)
+# train_csv_file_path = os.path.join(args.csv_file_dir, "preselect_table_top_train.csv")
+# test_csv_file_path = os.path.join(args.csv_file_dir, "preselect_table_top_test.csv")
+
+# write_to_csv(train_csv_file_path, train, csv_columns)
+# write_to_csv(test_csv_file_path, test+test_data, csv_columns)
+
 train_csv_file_path = os.path.join(args.csv_file_dir, "preselect_table_top_train.csv")
 test_csv_file_path = os.path.join(args.csv_file_dir, "preselect_table_top_test.csv")
 
-write_to_csv(train_csv_file_path, train, csv_columns)
-write_to_csv(test_csv_file_path, test+test_data, csv_columns)
+df = pd.read_csv(csv_file)
+all_train, all_test = [],[]
+for synsetid in df['objId'].unique():
+    synset_data = df[df['objId'] == synsetid].to_dict('records')
+    if len(synset_data) == 1:
+        train = []
+        test = synset_data
+    else:
+        train,test = train_test_split(synset_data, test_size=0.3)
+    print(synsetid, len(train), len(test))
+    all_train += train
+    all_test += test
+
+write_to_csv(train_csv_file_path, all_train, csv_columns)
+write_to_csv(test_csv_file_path, all_test, csv_columns)
 
 
 

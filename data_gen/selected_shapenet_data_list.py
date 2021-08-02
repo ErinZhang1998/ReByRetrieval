@@ -1,3 +1,5 @@
+import pickle
+
 ######################################################################vvbag
 triangle_body_straps = ['adfe9029a1ca723eb8966aeece708f87',
  'd5881d42567baaf5dc19a9901b7e9a4f',
@@ -60,7 +62,6 @@ sprayers = ["cbc1cbc9cf65e9c2fd1d6016d24cc8d",
            "d45bf1487b41d2f630612f5c0ef21eb8"]
 round_bottles = ['1d4480abe9aa45ce51a99c0e19a8a54',
  'd9aee510fd5e8afb93fb5c975e8de2b7',
- '9eccbc942fc8c0011ee059e8e1a2ee9',
  '46b5318e39afe48a30eaaf40a8a562c1',
  'c5e425b9b1f4f42b6d7d15cb5e1928e',
  'defc45107217afb846564a8a219239b',
@@ -486,3 +487,9 @@ round_baskets = ['dc4a523b039e39bda843bb865a04c01a',
  '9e4a936285f32194e1a03d0bf111d109',
  '35bc440973661b91259e0fe12d9ec13d']
 basket = ['basket,handbasket', '02801938', [square_baskets, round_baskets]]
+
+preselect = [bag, bottle, bowl, can, clock, jar, laptop, camera, mug]
+
+if __name__ == '__main__':
+    with open('/raid/xiaoyuz1/preselect_july_perch_split_2021/selected_object.pkl', 'wb+') as f:
+        pickle.dump(preselect, f)

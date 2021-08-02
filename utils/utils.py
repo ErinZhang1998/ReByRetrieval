@@ -1,8 +1,12 @@
 import numpy as np
 import os 
 import time 
+import torch
 import datetime
+from collections import OrderedDict
+import utils.logging as logging
 
+logger = logging.get_logger(__name__)
 
 class Struct:
     '''The recursive class for building and representing objects with.'''
@@ -43,3 +47,99 @@ def get_timestamp():
 def create_dir(dir_path):
     if not os.path.exists(dir_path):
         os.mkdir(dir_path)
+
+def remove_module_key_transform(key):
+    parts = key.split(".")
+    if parts[0] == 'module':
+        return ".".join(parts[1:])
+    return key
+
+def rename_state_dict_keys(ckp_path, key_transformation):
+    state_dict = torch.load(ckp_path)['model_state_dict']
+    new_state_dict = OrderedDict()
+
+    for key, value in state_dict.items():
+        new_key = key_transformation(key)
+        new_state_dict[new_key] = value
+
+    return new_state_dict
+
+def load_model_from(args, model, data_parallel=False):
+    ms = model.module if data_parallel else model
+    if args.model_config.model_path is not None:
+        logger.info("=> Loading model file from: {}".format(args.model_config.model_path))
+        ckp_path = os.path.join(args.model_config.model_path)
+        checkpoint = torch.load(ckp_path)
+        try:
+            ms.load_state_dict(checkpoint['model_state_dict'])
+        except:
+            state_dict = rename_state_dict_keys(ckp_path, remove_module_key_transform)
+            ms.load_state_dict(state_dict)
+
+def save_model(epoch, model, model_dir):
+    model_path = os.path.join(model_dir, '{}.pth'.format(epoch))
+    try:
+        torch.save({
+                'epoch': epoch,
+                'model_state_dict': model.state_dict(),
+                }, model_path)
+    except:
+        logger.info(f"ERROR: Cannot save model at {model_path}")
+
+def create_experiment_dirs(args, wandb_run_name):
+    all_dir_in_experiment = []
+    dir_dict = {}
+    if args.experiment_save_dir is None:
+        experiment_save_dir_default = args.experiment_save_dir_default
+        this_experiment_dir = os.path.join(experiment_save_dir_default, wandb_run_name)
+        model_dir = os.path.join(this_experiment_dir, "models")
+        image_dir = os.path.join(this_experiment_dir, "images")
+        prediction_dir = os.path.join(this_experiment_dir, "predictions")
+        
+        all_dir_in_experiment += [
+            experiment_save_dir_default,
+            this_experiment_dir,
+            model_dir,
+            image_dir,
+            prediction_dir,
+        ]
+    else:
+        this_experiment_dir = args.experiment_save_dir
+        model_dir = os.path.join(this_experiment_dir, "models")            
+        image_dir = os.path.join(this_experiment_dir, "images")
+        prediction_dir = os.path.join(this_experiment_dir, "predictions")
+        all_dir_in_experiment += [
+            this_experiment_dir,
+            model_dir,
+            image_dir,
+            prediction_dir,
+        ]
+    
+    for d in all_dir_in_experiment:
+        create_dir(d)
+    
+    dir_dict = {
+        'this_experiment_dir' : this_experiment_dir,
+        'model_dir' : model_dir,
+        'image_dir' : image_dir,
+        'prediction_dir' : prediction_dir
+    }
+    
+    return dir_dict
+
+
+def data_dir_list(root_dir, must_contain_file = ['annotations.json']):
+    l = []
+    for subdir in os.listdir(root_dir):
+        if subdir.startswith('scene_'):
+            subdir_path = os.path.join(root_dir, subdir)
+            contain_all = True 
+            for file in must_contain_file:
+                scene_description_dir = os.path.join(subdir_path, file)
+                if not os.path.exists(scene_description_dir):
+                    contain_all = False 
+                    break 
+            if contain_all:
+                l.append(subdir_path)
+
+    return l 

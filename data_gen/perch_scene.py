@@ -158,7 +158,7 @@ class PerchScene(object):
         locations[:,0] += center_x
         locations[:,1] += center_y
         locations[:,2] += self.table_info.height + camera_z_above_table
-        targets = np.asarray([[center_x,center_y,self.table_info.height]] * len(locations))
+        targets = np.asarray([[center_x,center_y,self.table_info.height]] * len(locations)) #+0.1
         return locations, targets
         
     
@@ -224,7 +224,7 @@ class PerchScene(object):
                 'mesh_names': [wall_mesh_file],
                 'pos': pos,
                 'size': [1,1,1],
-                'color': [0,0,0],
+                'color': [0,0,0.1],
                 'quat': [0,0,0,0],
                 'mocap' : True,
             }
@@ -235,7 +235,8 @@ class PerchScene(object):
     
     def create_walls_on_table(self, xml_fname):
         outer_pts = self.table_info.table_top_corners
-        unit = self.object_info_dict[0].canonical_size
+        unit = self.object_info_dict[0].canonical_size + 0.1
+        self.wall_unit = unit
         low_x, low_y = -unit, -unit
         upper_x, upper_y = unit, unit
         inner_pts = [
@@ -263,17 +264,6 @@ class PerchScene(object):
                 'quat': quat,
                 'mocap' : True,
             }
-            # mujoco_add_dict = {
-            #     'object_name': f'wall_{wall_idx}_{self.scene_num}',
-            #     'mesh_names': [wall_mesh_file],
-            #     'site' : True,
-            #     'site_sizes' : [lx/2,ly/2,0.1],
-            #     'type' : 'box',
-            #     'pos': pos,
-            #     'size': [1,1,1],
-            #     'color': [0,0,0,0.3],
-            #     'quat': quat,
-            # }
             datagen_utils.add_objects(
                 xml_fname,
                 mujoco_add_dict,
@@ -342,9 +332,13 @@ class PerchScene(object):
             for object_idx in range(self.num_objects):
                 object_info = self.object_info_dict[object_idx]
                 convex_decomp_mesh_height = -object_info.convex_decomp_mesh.bounds[0,2]
-                pos_x, pos_y = object_info.pos_x, object_info.pos_y
                 
-                moved_location = [pos_x, pos_y, self.table_info.height+convex_decomp_mesh_height+0.01]
+                if self.args.single_object:
+                    moved_location = [0, 0, self.table_info.height+convex_decomp_mesh_height+0.01]
+                else:
+                    pos_x, pos_y = object_info.pos_x, object_info.pos_y
+                    moved_location = [pos_x, pos_y, self.table_info.height+convex_decomp_mesh_height+0.01]
+                
                 datagen_utils.move_object(
                     convex_decomp_mujoco_env, 
                     object_idx + self.num_meshes_before_object, 
@@ -354,18 +348,21 @@ class PerchScene(object):
                 error_object_idx = object_idx
                 for _ in range(4000):
                     convex_decomp_mujoco_env.model.step()
+                all_current_poses = convex_decomp_mujoco_env.data.qpos.ravel().copy().reshape(-1,7) 
+                
         except:
             print('\nERROR try to move object: ', self.scene_num, " at index: ", error_object_idx)
-            error_all_poses = convex_decomp_mujoco_env.data.qpos.ravel().copy().reshape(-1,7)
-            for object_idx in range(self.num_objects):
-                if object_idx > error_object_idx:
-                    break
-                object_info = self.object_info_dict[object_idx]
-                print(object_idx, [object_info.pos_x, object_info.pos_y, self.table_info.height+convex_decomp_mesh_height+0.05], object_info.rot.as_quat(), error_all_poses[object_idx+1])
+            # error_all_poses = convex_decomp_mujoco_env.data.qpos.ravel().copy().reshape(-1,7)
+            # for object_idx in range(self.num_objects):
+            #     if object_idx > error_object_idx:
+            #         break
+            #     object_info = self.object_info_dict[object_idx]
+            #     print(object_idx, [object_info.pos_x, object_info.pos_y, self.table_info.height+convex_decomp_mesh_height+0.05], object_info.rot.as_quat(), error_all_poses[object_idx+1])
             print("\n")
             raise
         
         self.convex_decomp_mujoco_env_state = convex_decomp_mujoco_env.get_env_state().copy()
+        np.set_printoptions(precision=4, suppress=True)
         all_current_poses = convex_decomp_mujoco_env.data.qpos.ravel().copy().reshape(-1,7) 
         
         objects_current_positions = all_current_poses[self.num_meshes_before_object:][:,:3]
@@ -378,24 +375,29 @@ class PerchScene(object):
         # new_cam_center_x, new_cam_center_y,_ = np.mean(objects_current_positions, axis=0)
         radius = np.max(np.linalg.norm(self.table_info.table_top_corners - table_current_position, axis=1))
         new_cam_center_x, new_cam_center_y = table_current_position[:2]
+        if self.args.single_object:
+            radius = self.wall_unit + 0.15
+        else:
+            radius = self.object_info_dict[0].canonical_size + self.wall_unit
+        
         self.add_cameras(
             sphere_sampling=True,
             center_x=new_cam_center_x, 
             center_y=new_cam_center_y, 
             camera_z_above_table=self.object_info_dict[0].canonical_size, 
             num_angles=20, 
-            radius=self.object_info_dict[0].canonical_size*2,
+            radius = radius,
         )
         self.add_cameras(
             sphere_sampling=True,
             center_x=new_cam_center_x, 
             center_y=new_cam_center_y, 
             camera_z_above_table=0.1, 
-            num_angles=200, 
-            radius=self.object_info_dict[0].canonical_size*2,
-            upper_limit = 0.1,
+            num_angles=100, 
+            radius = radius,
+            upper_limit = 0.15,
         )
-        ### DEBUG PERPOSE CAMERAs, bird-eye view to better see what is going on
+        # ### DEBUG PERPOSE CAMERAs, bird-eye view to better see what is going on
         # level_height = 2
         # locations = [
         #     [0,0,level_height+self.table_info.height],
@@ -483,13 +485,14 @@ class PerchScene(object):
             cam_name, cam_target_name_pair = new_camera.add_camera_to_file(self.cam_temp_scene_xml_file)
             self.camera_xml_name_tracker.camera_names[cam_num] = cam_name
             self.camera_xml_name_tracker.camera_target_names[cam_num] = cam_target_name_pair
-        
+
         mujoco_env = MujocoEnv(self.cam_temp_scene_xml_file, 1, has_robot=False)
         mujoco_env.set_env_state(self.convex_decomp_mujoco_env_state)
         mujoco_env.sim.physics.forward()
 
         ## Calculate object bounding box in the scene and save in the mujoco object 
         all_current_poses = mujoco_env.data.qpos.ravel().copy().reshape(-1,7)  
+        np.set_printoptions(precision=4, suppress=True)
                 
         ## Save the scaled object, which is used for perch in the models directory
         for object_idx in self.object_info_dict.keys():
@@ -507,6 +510,8 @@ class PerchScene(object):
             mesh_bounds, mesh_bbox, _ = datagen_utils.get_corners(mesh_bounds, current_pose[:3], final_rot_obj, f'object_{object_idx}')
             assert np.all(np.abs(np.linalg.norm(mesh_bbox - final_position, axis=1) - np.linalg.norm(mesh_bounds, axis=1)) < 1e-5)
             self.object_info_dict[object_idx].bbox = mesh_bbox
+            # assert np.all(mesh_bbox[:,2]+0.01 > self.table_info.height)
+            # print(object_idx, mesh_bbox[:,2] > self.table_info.height)
             self.object_info_dict[object_idx].final_position = final_position
             self.object_info_dict[object_idx].final_quat = final_quat
         
@@ -645,11 +650,15 @@ class PerchScene(object):
             # xmin, ymin, width, height
             xmin, ymin = np.min(bbox_2d, axis=0)
             xmax, ymax = np.max(bbox_2d, axis=0)
-            
+
             if not (0 <= xmin and xmin <= self.width) or not(0 <= xmax and xmax <= self.width):
+                if self.args.single_object:
+                    raise
                 continue 
             
             if not (0 <= ymin and ymin <= self.height) or not(0 <= ymax and ymax <= self.height):
+                if self.args.single_object:
+                    raise
                 continue
             bbox_ann = [xmin, ymin, xmax-xmin, ymax-ymin]
             model_annotation = self.object_info_dict[object_idx].get_model_annotation()
@@ -689,15 +698,18 @@ class PerchScene(object):
             }
             object_annotations.append(ImageAnnotation(object_annotation))
         
-        bbox_2ds = np.vstack(bbox_2ds)
-        cmin,rmin = np.min(bbox_2ds, axis=0).astype(float)
-        cmax,rmax = np.max(bbox_2ds, axis=0).astype(float)
-        self.camera_info_dict[cam_num].all_object_bbox = [
-                [cmin, rmin],
-                [cmax, rmin],
-                [cmin, rmax],
-                [cmax, rmax],
-            ]
+        if len(bbox_2ds) > 0:
+            bbox_2ds = np.vstack(bbox_2ds)
+            cmin,rmin = np.min(bbox_2ds, axis=0).astype(float)
+            cmax,rmax = np.max(bbox_2ds, axis=0).astype(float)
+            self.camera_info_dict[cam_num].all_object_bbox = [
+                    [cmin, rmin],
+                    [cmax, rmin],
+                    [cmin, rmax],
+                    [cmax, rmax],
+                ]
+        else:
+            self.camera_info_dict[cam_num].all_object_bbox = []
 
         if self.args.debug:
             ## DEBUG purpose
@@ -749,17 +761,24 @@ class PerchScene(object):
         
         # datagen_utils.output_json(images, os.path.join(self.scene_folder_path, 'images.json'))
         
+        total_upright = 0
+        total_shown_upright = 0
         for object_idx, object_info in self.object_info_dict.items():
+            shown_upright = int(np.all((object_info.bbox[0] - object_info.bbox[1])[:2] < 1e-3))
+            total_shown_upright += shown_upright
+            total_upright += int(object_info.upright)
             model_category = {
                 "id": object_idx,
                 "name" : object_info.model_name,
                 "shapenet_category_id" : int(self.selected_objects[object_idx][1]),
                 "shapenet_object_id" : int(self.selected_objects[object_idx][3]),
                 "supercategory": "shape",
+                "upright" : int(object_info.upright),
+                "shown_upright" : shown_upright,
             }
             model_category.update(object_info.get_model_annotation())
             categories.append(model_category)
-        
+        print("total_upright {} | total_shown_upright {}".format(total_upright, total_shown_upright))
         # datagen_utils.output_json(categories, os.path.join(self.scene_folder_path, 'categories.json'))
         
         for annotation in all_annotations:
@@ -821,8 +840,10 @@ class PerchScene(object):
                 "version": "0.1.0", 
                 "year": 2018, 
                 "contributor": "waspinator", 
-                "date_created": "2020-03-17 15:05:18.264435"
-                }, 
+                "date_created": "2020-03-17 15:05:18.264435",
+                "total_upright" : total_upright,
+                "total_shown_upright" : total_shown_upright,
+            }, 
             "licenses": [
                 {"id": 1, "name": 
                 "Attribution-NonCommercial-ShareAlike License", 

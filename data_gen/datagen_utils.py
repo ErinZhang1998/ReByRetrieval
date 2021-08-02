@@ -272,8 +272,7 @@ def get_light_pos_and_dir(num_lights):
     distance = np.random.uniform(1, 1.2, 1)[0]
     for light_id in range(num_lights):
         base_angle = light_angles[light_id]
-        theta = np.random.uniform(
-            base_angle - math.pi/9, base_angle + math.pi/9, 1)[0]
+        theta = np.random.uniform(base_angle - math.pi/9, base_angle + math.pi/9, 1)[0]
         x = np.cos(theta) * distance
         y = np.sin(theta) * distance
         z = np.random.uniform(2, 4, 1)[0]

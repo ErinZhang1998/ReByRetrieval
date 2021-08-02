@@ -13,7 +13,6 @@ parser.add_option("--csv_file_path", dest="csv_file_path")
 parser.add_option("--train_or_test", dest="train_or_test", default='training_set')
 parser.add_option("--scene_save_dir", dest="scene_save_dir")
 
-
 parser.add_option("--num_scenes", dest="num_scenes", type="int", default=1)
 parser.add_option("--min_num_objects", dest="min_num_objects", type="int", default=3)
 parser.add_option("--max_num_objects", dest="max_num_objects", type="int", default=6)
@@ -29,5 +28,8 @@ parser.add_option("--table_size", dest="table_size", type="int", default=2)
 parser.add_option("--debug", action="store_true", dest="debug")
 parser.add_option("--upright_ratio", dest="upright_ratio", type="float", default=0.5)
 
+parser.add_option("--single_object", action="store_true", dest="single_object")
+
+# parser.add_option("--camera_radius", dest="camera_radius", type="float", default=0)
 
 (args, argss) = parser.parse_args()

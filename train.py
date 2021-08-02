@@ -3,7 +3,6 @@ from __future__ import print_function
 import torch
 import numpy as np
 import os
-from collections import OrderedDict
 import torchvision
 import PIL
 import wandb
@@ -14,7 +13,8 @@ import utils.plot_image as uplot
 import utils.transforms as utrans
 import utils.utils as uu
 import utils.distributed as du
-from utils.meters import TestMeter
+import utils.logging as logging
+from utils.meters import TestMeter, FeatureExtractMeter
 
 import losses.loss as loss
 
@@ -23,49 +23,14 @@ import incat_dataset
 import incat_dataloader
 import test
 
+logger = logging.get_logger(__name__)
+
 def save_this_epoch(args, epoch):
 
     if args.save_freq < 0:
         return False 
     return epoch % args.save_freq == 0
 
-def remove_module_key_transform(key):
-    parts = key.split(".")
-    if parts[0] == 'module':
-        return ".".join(parts[1:])
-    return key
-
-def rename_state_dict_keys(ckp_path, key_transformation):
-    state_dict = torch.load(ckp_path)['model_state_dict']
-    new_state_dict = OrderedDict()
-
-    for key, value in state_dict.items():
-        new_key = key_transformation(key)
-        new_state_dict[new_key] = value
-
-    return new_state_dict
-
-def load_model_from(args, model, data_parallel=False):
-    ms = model.module if data_parallel else model
-    if args.model_config.model_path is not None:
-        print("=> Loading model file from: ", args.model_config.model_path)
-        ckp_path = os.path.join(args.model_config.model_path)
-        checkpoint = torch.load(ckp_path)
-        try:
-            ms.load_state_dict(checkpoint['model_state_dict'])
-        except:
-            state_dict = rename_state_dict_keys(ckp_path, remove_module_key_transform)
-            ms.load_state_dict(state_dict)
-
-def save_model(epoch, model, model_dir):
-    model_path = os.path.join(model_dir, '{}.pth'.format(epoch))
-    try:
-        torch.save({
-                'epoch': epoch,
-                'model_state_dict': model.state_dict(),
-                }, model_path)
-    except:
-        print("ERROR: Cannot save model at", model_path)
 
 def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None, wandb_enabled=False):
     model.train()
@@ -96,7 +61,7 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
         else:
             img_embed, pose_pred = model([image])
         # Position prediction
-        if args.predict_center: 
+        if args.model_config.predict_center: 
             scale_start_idx = 2
             pixel_pred = pose_pred[:,:scale_start_idx]
         else:
@@ -118,7 +83,7 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
         loss_obj_w = args.loss.lambda_obj * loss_obj
         loss_scale_w = args.loss.lambda_scale * loss_scale
 
-        if args.predict_center: 
+        if args.model_config.predict_center: 
             loss_pixel = loss_fun(pixel_pred, pixel_gt)
             loss_pixel_w = args.loss.lambda_pixel * loss_pixel
             total_loss = loss_cat_w + loss_obj_w + loss_scale_w + loss_pixel_w
@@ -129,7 +94,7 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
         optimizer.step()
 
         if args.num_gpus > 1:
-            if args.predict_center: 
+            if args.model_config.predict_center: 
                 total_loss, loss_cat_w, loss_obj_w, loss_scale_w, loss_pixel_w = du.all_reduce(
                     [total_loss, loss_cat_w, loss_obj_w, loss_scale_w, loss_pixel_w]
                 )
@@ -148,21 +113,24 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
                     'train/train_loss_scale': loss_scale_w.item(), 
                     'train/learning_rate': optimizer.param_groups[0]['lr']
                 }
-                if args.predict_center: 
+                if args.model_config.predict_center: 
                     wandb_dict.update({'train/train_loss_pixel': loss_pixel_w.item()})
                 wandb.log(wandb_dict, step=cnt)
 
             if cnt % args.training_config.log_every == 0:
-                if args.predict_center: 
+                if args.model_config.predict_center: 
                     loss_pixel_w_item = loss_pixel_w.item()
                 else:
                     loss_pixel_w_item = -1
-                print('Train Epoch: {} [{} ({:.0f}%)]\tTotal Loss={:.6f}, Triplet_Loss_Category ({}) = {:.6f}, Triplet_Loss_Object ({}) = {:.6f}, Object_Scale_Loss ({}) = {:.6f}, Object_2D_Center_Loss ({}) = {:.6f}'.format(
-                    epoch, cnt, 100. * batch_idx / len(train_loader), total_loss.item(), \
-                        args.loss.lambda_cat, loss_cat_w.item(), \
-                        args.loss.lambda_obj, loss_obj_w.item(), \
-                        args.loss.lambda_scale, loss_scale_w.item(), \
-                        args.loss.lambda_pixel, loss_pixel_w_item))
+
+                logger.info('\n')
+                logger.info('Train Epoch: {} [iter={} ({:.0f}%)]'.format(epoch, cnt, 100. * batch_idx / len(train_loader)))
+                logger.info('\tTotal Loss = {:.6f}'.format(total_loss.item()))
+                logger.info('\tTriplet_Loss_Category ({}) = {:.6f}'.format(args.loss.lambda_cat, loss_cat_w.item()))
+                logger.info('\tTriplet_Loss_Object ({}) = {:.6f}'.format(args.loss.lambda_obj, loss_obj_w.item()))
+                logger.info('\tObject_Scale_Loss ({}) = {:.6f}'.format(args.loss.lambda_scale, loss_scale_w.item()))
+                if args.model_config.predict_center: 
+                    logger.info('\tObject_2D_Center_Loss ({}) = {:.6f}'.format(args.loss.lambda_pixel, loss_pixel_w_item))
 
         if du.is_master_proc(num_gpus=args.num_gpus):
             
@@ -217,24 +185,11 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
     return cnt
 
 
-
 def train(args):
     if du.is_master_proc():
         if args.wandb.enable and args.training_config.train:
             wandb.login()
             wandb.init(project=args.wandb.wandb_project_name, entity=args.wandb.wandb_project_entity, config=args.obj_dict)
-    # import pdb; pdb.set_trace()
-    model = build_model(args)
-    load_model_from(args, model, data_parallel=args.num_gpus>1)
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.optimizer_config.lr)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.scheduler_config.step, gamma=args.scheduler_config.gamma)
-    
-    train_dataset = incat_dataset.InCategoryClutterDataset('train', args)
-    train_loader = incat_dataloader.InCategoryClutterDataloader(train_dataset, args, shuffle = True)
-
-    test_dataset = incat_dataset.InCategoryClutterDataset('test', args)
-    test_loader = incat_dataloader.InCategoryClutterDataloader(test_dataset, args, shuffle = False)
-    
     wandb_enabled = args.wandb.enable and not wandb.run is None
     if wandb_enabled:
         wandb_run_name = wandb.run.name 
@@ -242,50 +197,90 @@ def train(args):
         wandb_run_name = uu.get_timestamp()
     
     if du.is_master_proc(num_gpus=args.num_gpus):
-        if args.training_config.experiment_save_dir is None:
-            experiment_save_dir_default = args.training_config.experiment_save_dir_default
-            uu.create_dir(experiment_save_dir_default)
+        all_dir_in_experiment = []
+        if args.experiment_save_dir is None:
+            experiment_save_dir_default = args.experiment_save_dir_default
             this_experiment_dir = os.path.join(experiment_save_dir_default, wandb_run_name)
-            uu.create_dir(this_experiment_dir)
-
             model_dir = os.path.join(this_experiment_dir, "models")
-            uu.create_dir(model_dir)
-            
             image_dir = os.path.join(this_experiment_dir, "images")
-            uu.create_dir(image_dir)
-
             prediction_dir = os.path.join(this_experiment_dir, "predictions")
-            uu.create_dir(prediction_dir)
+            
+            all_dir_in_experiment += [
+                experiment_save_dir_default,
+                this_experiment_dir,
+                model_dir,
+                image_dir,
+                prediction_dir,
+            ]
         else:
-            this_experiment_dir = args.training_config.experiment_save_dir
+            this_experiment_dir = args.experiment_save_dir
             model_dir = os.path.join(this_experiment_dir, "models")            
             image_dir = os.path.join(this_experiment_dir, "images")
             prediction_dir = os.path.join(this_experiment_dir, "predictions")
+            all_dir_in_experiment += [
+                this_experiment_dir,
+                model_dir,
+                image_dir,
+                prediction_dir,
+            ]
+        
+        for d in all_dir_in_experiment:
+            uu.create_dir(d)
+        
+        logging.setup_logging(log_to_file=args.log_to_file, experiment_dir=this_experiment_dir)
     else:
         image_dir,model_dir,prediction_dir = None,None,None
+    
+    if not args.training_config.train and (args.model_config.model_path == '' or args.model_config.model_path is None):
+        logger.warning("Not training, but no provided model path")
+    model = build_model(args)
+    uu.load_model_from(args, model, data_parallel=args.num_gpus>1)
+    
+    test_dataset = incat_dataset.InCategoryClutterDataset('test', args)
+    test_loader = incat_dataloader.InCategoryClutterDataloader(test_dataset, args, shuffle = False)
+    if args.testing_config.feature_extract:
+        test_meter = FeatureExtractMeter(args)
+    else:
+        test_meter = TestMeter(args)
+    logger.info("Length of test_dataset: {}, Number of batches: {}".format(
+        len(test_dataset),
+        len(test_loader),
+    ))
+    
+    if args.training_config.train:
+        optimizer = torch.optim.Adam(model.parameters(), lr=args.optimizer_config.lr)
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.scheduler_config.step, gamma=args.scheduler_config.gamma)
+    
+        train_dataset = incat_dataset.InCategoryClutterDataset('train', args)
+        train_loader = incat_dataloader.InCategoryClutterDataloader(train_dataset, args, shuffle = True)
 
-    test_meter = TestMeter(args)
+        logger.info("Length of train_dataset: {}, Number of batches: {}".format(
+            len(train_dataset),
+            len(train_loader),
+        ))
+    
         
     cnt = 0
-    for epoch in range(args.training_config.start_epoch, args.training_config.epochs):
-        # test_loader.set_epoch(epoch)
-        # test.test(args, test_loader, test_meter, model, epoch, cnt, image_dir, prediction_dir, wandb_enabled)
+    if args.training_config.train:
+        for epoch in range(args.training_config.start_epoch, args.training_config.epochs):
+            # test_loader.set_epoch(epoch)
+            # test.test(args, test_loader, test_meter, model, epoch, cnt, image_dir, prediction_dir, wandb_enabled)
 
-        train_loader.set_epoch(epoch)
-        cnt = train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir, wandb_enabled)
+            train_loader.set_epoch(epoch)
+            cnt = train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir, wandb_enabled)
 
-        if du.is_master_proc(num_gpus=args.num_gpus):
-            if save_this_epoch(args.training_config, epoch):
-                save_model(epoch, model, model_dir)
+            if du.is_master_proc(num_gpus=args.num_gpus):
+                if save_this_epoch(args.training_config, epoch):
+                    uu.save_model(epoch, model, model_dir)
 
-        if scheduler is not None:
-            scheduler.step()
-        
-        test_loader.set_epoch(epoch)
-        test.test(args, test_loader, test_meter, model, epoch, cnt, image_dir, prediction_dir, wandb_enabled)
+            if scheduler is not None:
+                scheduler.step()
+            
+            test_loader.set_epoch(epoch)
+            test.test(args, test_loader, test_meter, model, epoch, cnt, image_dir, prediction_dir, wandb_enabled)
     
-    if du.is_master_proc(num_gpus=args.num_gpus):
-        if args.training_config.save_at_end:
-            save_model(args.training_config.epochs, model, model_dir)
+        if du.is_master_proc(num_gpus=args.num_gpus):
+            if args.training_config.save_at_end:
+                uu.save_model(args.training_config.epochs, model, model_dir)
 
-    # test.test(args, test_loader, test_meter, model, args.training_config.epochs, cnt, image_dir, prediction_dir, wandb_enabled)
+    test.test(args, test_loader, test_meter, model, args.training_config.epochs, cnt, image_dir, prediction_dir, wandb_enabled)

@@ -54,18 +54,3 @@ def compile_mask_files(dir_path):
             other_obj_masks.append(os.path.join(dir_path, seg_path))
             mask_all_d[l[1]] = other_obj_masks
     return mask_all_d
-
-def data_dir_list(root_dir):
-    l = []
-    for subdir in os.listdir(root_dir):
-        if subdir.startswith('scene_'):
-            subdir_path = os.path.join(root_dir, subdir)
-            scene_description_dir = os.path.join(subdir_path, 'annotations.json')
-            if not os.path.exists(scene_description_dir):
-                continue 
-            scene_name = subdir_path.split("/")[-1]
-            # if int(subdir_path[-3] ) < 2:
-            #     continue
-            l.append(subdir_path)
-
-    return l 

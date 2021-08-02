@@ -1,5 +1,6 @@
 import yaml 
-from optparse import OptionParser
+# from optparse import OptionParser
+import argparse
 import torch
 import wandb
 import os 
@@ -10,22 +11,39 @@ import utils.utils as uu
 import train
 import utils.distributed as du
 
-parser = OptionParser()
-parser.add_option("--config_file", dest="config_file")
-parser.add_option("--only_test", dest="only_test", action='store_true')
-parser.add_option("--only_test_epoch", dest="only_test_epoch", type=int, default=-1)
-parser.add_option(
+parser = argparse.ArgumentParser()
+parser.add_argument("--config_file", dest="config_file")
+parser.add_argument("--only_test", dest="only_test", action='store_true')
+parser.add_argument("--only_test_epoch", dest="only_test_epoch", type=int, default=-1)
+parser.add_argument(
         "--init_method",
         dest="init_method",
         help="Initialization method, includes TCP or shared file-system",
         default="tcp://localhost:9999",
         type=str,
     )
-parser.add_option("--model_path", dest="model_path", default='')
+parser.add_argument("--model_path", dest="model_path", default='')
+parser.add_argument("--experiment_save_dir", dest="experiment_save_dir", default='')
+parser.add_argument("--testing_scene_dir", dest="testing_scene_dir", default='')
 
+
+def fill_in_args_from_terminal(args, options):
+    if options.testing_scene_dir != '':
+        args.files.testing_scene_dir = options.testing_scene_dir
+    if options.experiment_save_dir != '':
+        args.experiment_save_dir = options.experiment_save_dir
+    if options.model_path != '':
+        args.model_config.model_path = options.model_path
+    if options.only_test_epoch > 0:
+        args.training_config.epochs = options.only_test_epoch
+    if options.only_test:
+        args.training_config.train = False
+
+    return args
 
 def main():
-    (options, args) = parser.parse_args()
+    # (options, args) = parser.parse_args()
+    options = parser.parse_args()
     f =  open(options.config_file)
     # f = open('configs/config_all_occlusion.yaml')
     args_dict = yaml.safe_load(f)
@@ -33,12 +51,7 @@ def main():
     args_dict_filled = uu.fill_in_args_from_default(args_dict, default_args_dict)
     args = uu.Struct(args_dict_filled)
 
-    if options.model_path != '':
-        args.model_config.model_path = options.model_path
-    if options.only_test_epoch > 0:
-        args.training_config.epochs = options.only_test_epoch
-    if options.only_test:
-        args.training_config.train = False
+    args = fill_in_args_from_terminal(args, options)
 
     if args.num_gpus > 1:
         torch.multiprocessing.spawn(

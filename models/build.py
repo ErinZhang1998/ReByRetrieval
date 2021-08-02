@@ -1,5 +1,8 @@
 import torch
 from fvcore.common.registry import Registry
+import utils.logging as logging
+
+logger = logging.get_logger(__name__)
 
 MODEL_REGISTRY = Registry("MODEL")
 MODEL_REGISTRY.__doc__ = """
@@ -11,10 +14,11 @@ def build_model(args):
     assert (
         args.num_gpus <= torch.cuda.device_count()
     ), "Cannot use more GPU devices than available"
-
+    
     # Construct the model
     # import pdb; pdb.set_trace()
     name = args.model_config.model_name
+    logger.info("Building model {}".format(name))
     model = MODEL_REGISTRY.get(name)(args)
     cur_device = torch.cuda.current_device()
     model = model.cuda(device=cur_device)
