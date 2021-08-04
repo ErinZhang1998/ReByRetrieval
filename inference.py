@@ -42,7 +42,7 @@ UPRIGHT_MAT[0:3, 0:3] = r.as_matrix()
 SHAPENET_PATH = '/raid/xiaoyuz1/ShapeNetCore.v2'
 MODEL_SAVE_ROOT_DIR = '/raid/xiaoyuz1/perch/perch_balance/models'
 
-def save_correct_size_model(model_save_root_dir, model_name, scale, shapenet_file_name):
+def save_correct_size_model(model_save_root_dir, model_name, actual_size, shapenet_file_name):
     model_save_dir = os.path.join(model_save_root_dir, model_name)
     model_fname = os.path.join(model_save_dir, 'textured.obj')
     model_ply_fname = os.path.join(model_save_dir, 'textured.ply')
@@ -59,7 +59,10 @@ def save_correct_size_model(model_save_root_dir, model_name, scale, shapenet_fil
 
     object_mesh = trimesh.load(shapenet_file_name, force='mesh')
     object_mesh.apply_transform(UPRIGHT_MAT)
-    object_mesh = datagen_utils.apply_scale_to_mesh(object_mesh, scale)
+    
+    # scale the object_mesh to have the actual_size
+    mesh_scale = actual_size / (object_mesh.bounds[1] - object_mesh.bounds[0])
+    object_mesh = datagen_utils.apply_scale_to_mesh(object_mesh, list(mesh_scale))
     object_mesh.export(model_fname)
 
     copy_textured_mesh = o3d.io.read_triangle_mesh(model_fname)
@@ -72,9 +75,12 @@ def save_correct_size_model(model_save_root_dir, model_name, scale, shapenet_fil
     # if cloud.shape[0] > 10000:
     #     import pdb; pdb.set_trace()
 
-    return object_mesh
+    return object_mesh, list(mesh_scale)
 
-def update_base_model_with_pred_pose(target_category_annotation, scale):
+def update_base_model_with_pred_pose(target_category_annotation, actual_size):
+    '''
+    actual_size: (3,) size of the mesh bounding box after it is turned "upright" according to perch_scene. 
+    '''
     synset_id = target_category_annotation['synset_id']
     model_id = target_category_annotation['model_id']
     shapenet_file_name = os.path.join(
@@ -82,7 +88,7 @@ def update_base_model_with_pred_pose(target_category_annotation, scale):
             '{}/{}/models/model_normalized.obj'.format(synset_id, model_id),
         )
     model_name = target_category_annotation['name']
-    save_correct_size_model(MODEL_SAVE_ROOT_DIR, model_name, scale, shapenet_file_name)
+    return save_correct_size_model(MODEL_SAVE_ROOT_DIR, model_name, actual_size, shapenet_file_name)
 
 class COCOAnnotationS(object):
 
@@ -217,13 +223,16 @@ def update_json_with(
     query_ann = query_annos.get_ann_with_image_category_id(scene_num, image_id, category_id)
     query_category_ann = query_annos.get_ann(scene_num, 'categories', query_ann['category_id'])
     target_category_annotation['name'] = query_ann['model_name']
-    update_base_model_with_pred_pose(target_category_annotation, query_category_ann['size'])
+    _, scale = update_base_model_with_pred_pose(target_category_annotation, query_category_ann['actual_size'])
     new_category_id = len(image_annotations['categories'])
     query_ann['category_id'] = new_category_id
     
     target_category_annotation['id'] = new_category_id
     if use_gt_scale:
-        target_category_annotation['size'] = query_category_ann['size']
+        # if scale != query_category_ann['size']:
+        #     import pdb; pdb.set_trace()
+        target_category_annotation['size'] = scale
+        target_category_annotation['actual_size'] = query_category_ann['actual_size']
     else:
         import pdb; pdb.set_trace()
     target_category_annotation['position'] = query_category_ann['position']
@@ -430,18 +439,23 @@ if __name__ == "__main__":
         query_annos = COCOAnnotationS(options.query_data_dir)
         category_bank = get_category_bank(options.base_data_dir)
         selected_model_ids = {}
-        scene_num = 28
-        # image_id = 0
         
-        for image_id, image_ann in query_annos.get_image_anns(scene_num).items():
-            D = run_random(scene_num, image_id, random = options.ran_random)
-            L = selected_model_ids.get(scene_num, {})
-            L[image_id] = D
-            selected_model_ids[scene_num] = L
+        for subdir in os.listdir(options.query_data_dir):
+            if not subdir.startswith('scene_'):
+                continue
+            scene_num = int(subdir.split('_')[-1])
+            # scene_num = 38
+            # image_id = 0
             
-        
-        if options.ran_random:
-            json_string = json.dumps(selected_model_ids)
-            json_file = open(os.path.join(options.result_save_dir, 'random_chosen.json'), "w+")
-            json_file.write(json_string)
-            json_file.close()
+            for image_id, image_ann in query_annos.get_image_anns(scene_num).items():
+                D = run_random(scene_num, image_id, random = options.ran_random)
+                L = selected_model_ids.get(scene_num, {})
+                L[image_id] = D
+                selected_model_ids[scene_num] = L
+                
+            
+            if options.ran_random:
+                json_string = json.dumps(selected_model_ids)
+                json_file = open(os.path.join(options.query_save_dir, 'random_chosen.json'), "w+")
+                json_file.write(json_string)
+                json_file.close()

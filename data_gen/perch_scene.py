@@ -91,7 +91,7 @@ class PerchScene(object):
         )
 
     def create_object(self, object_idx):
-        synset_category, shapenet_model_id = self.selected_objects[object_idx][0], self.selected_objects[object_idx][2]
+        synset_category, shapenet_model_id = self.selected_objects[object_idx]['synsetId'], self.selected_objects[object_idx]['ShapeNetModelId']
         mesh_fname = os.path.join(
             self.shapenet_filepath,
             '0{}/{}/models/model_normalized.obj'.format(synset_category, shapenet_model_id),
@@ -108,11 +108,12 @@ class PerchScene(object):
             num_objects_in_scene=self.num_objects,
             object_idx=object_idx,
             shapenet_convex_decomp_dir=self.args.shapenet_convex_decomp_dir,
-            scale=self.selected_objects[object_idx][4],
-            half_or_whole=self.selected_objects[object_idx][5],
-            perch_rot_angle=self.selected_objects[object_idx][6],
+            scale=self.selected_objects[object_idx]['size'],
+            half_or_whole=self.selected_objects[object_idx]['half_or_whole'],
+            perch_rot_angle=self.selected_objects[object_idx]['perch_rot_angle'],
             upright_ratio=self.args.upright_ratio,
             canonical_size=self.args.canonical_size,
+            size_xyz=self.args.size_xyz,
         )
         self.object_info_dict[object_idx] = object_info
     
@@ -147,7 +148,8 @@ class PerchScene(object):
         #     if z <= 0:
         #         continue
         #     locations.append((x, y, z))
-        num_pts = num_angles * 4
+        # num_pts = num_angles * 4
+        num_pts = num_angles * 2
         indices = np.arange(0, num_pts, dtype=float) + 0.5
         phi = np.arccos(1 - 2*indices/num_pts)
         theta = np.pi * (1 + 5**0.5) * indices
@@ -208,6 +210,7 @@ class PerchScene(object):
                 num_angles, 
                 radius,
             )
+
         for location, target in zip(locations, targets):
             new_camera = SceneCamera(location, target, self.total_camera_num)
             new_camera.rgb_save_path = os.path.join(f'{self.train_or_test}/scene_{self.scene_num:06}', f'rgb_{(self.total_camera_num):05}.png')
@@ -215,15 +218,17 @@ class PerchScene(object):
             self.camera_info_dict[self.total_camera_num] = new_camera
             self.total_camera_num += 1
 
-        with open(os.path.join(self.scene_folder_path, f'camera_locations_{center_x}_{center_y}_{camera_z_above_table}_{radius}_{upper_limit}'), 'wb+') as f:
-            pickle.dump([locations, targets], f)
+        # with open(os.path.join(self.scene_folder_path, f'camera_locations_{center_x}_{center_y}_{camera_z_above_table}_{radius}_{upper_limit}'), 'wb+') as f:
+        #     pickle.dump([locations, targets], f)
     
     def create_walls_on_table(self, xml_fname):
         outer_pts = self.table_info.table_top_corners
-        unit = self.object_info_dict[0].canonical_size + 0.1
-        self.wall_unit = unit
-        low_x, low_y = -unit, -unit
-        upper_x, upper_y = unit, unit
+        unit_x = self.args.wall_unit_x + 0.1
+        unit_y = self.args.wall_unit_y + 0.1
+        self.wall_unit_x = unit_x
+        self.wall_unit_y = unit_y
+        low_x, low_y = -unit_x, -unit_y
+        upper_x, upper_y = unit_x, unit_y
         inner_pts = [
             [low_x, low_y, self.table_info.height],
             [upper_x, low_y, self.table_info.height],
@@ -261,13 +266,14 @@ class PerchScene(object):
     
         for object_idx in range(self.num_objects):
             object_info = self.object_info_dict[object_idx]
-            convex_decomp_mesh_fnames = object_info.load_decomposed_mesh()
+            convex_decomp_mesh_fnames, size = object_info.load_decomposed_mesh()
             object_add_dict = object_info.get_mujoco_add_dict()
             
             start_position = datagen_utils.generate_default_add_position(object_idx, self.num_objects)
             object_add_dict.update({
                 'mesh_names' : convex_decomp_mesh_fnames,
                 'pos' : start_position,
+                'size' : size,
             })
             datagen_utils.add_objects(
                 self.convex_decomp_xml_file,
@@ -312,7 +318,7 @@ class PerchScene(object):
         self.convex_decomp_mujoco_env_state = convex_decomp_mujoco_env.get_env_state().copy()
         np.set_printoptions(precision=4, suppress=True)
         all_current_poses = convex_decomp_mujoco_env.data.qpos.ravel().copy().reshape(-1,7) 
-        
+
         objects_current_positions = all_current_poses[self.num_meshes_before_object:][:,:3]
         for _,_,cur_z in objects_current_positions:
             assert cur_z > self.table_info.height
@@ -323,29 +329,41 @@ class PerchScene(object):
         # new_cam_center_x, new_cam_center_y,_ = np.mean(objects_current_positions, axis=0)
         radius = np.max(np.linalg.norm(self.table_info.table_top_corners - table_current_position, axis=1))
         new_cam_center_x, new_cam_center_y = table_current_position[:2]
+        wall_max_unit = max(self.args.wall_unit_x, self.args.wall_unit_y)
         if self.args.single_object:
-            radius = self.wall_unit + 0.15
+            radius = 0.45
         else:
-            radius = self.object_info_dict[0].canonical_size + self.wall_unit
+            # radius = self.object_info_dict[0].canonical_size + wall_max_unit
+            radius = max(self.args.wall_unit_y, self.args.wall_unit_x) + 0.5
         
         self.add_cameras(
             sphere_sampling=True,
             center_x=new_cam_center_x, 
             center_y=new_cam_center_y, 
-            camera_z_above_table=self.object_info_dict[0].canonical_size, 
-            num_angles=20, 
+            camera_z_above_table=0.4, 
+            num_angles = 60, 
             radius = radius,
+            upper_limit = 0.15,
+        )
+        self.add_cameras(
+            sphere_sampling=True,
+            center_x=new_cam_center_x, 
+            center_y=new_cam_center_y, 
+            camera_z_above_table=0.2, 
+            num_angles = 60, 
+            radius = radius,
+            upper_limit = 0.15,
         )
         self.add_cameras(
             sphere_sampling=True,
             center_x=new_cam_center_x, 
             center_y=new_cam_center_y, 
             camera_z_above_table=0.1, 
-            num_angles=100, 
+            num_angles = 60, 
             radius = radius,
             upper_limit = 0.15,
         )
-        # ### DEBUG PERPOSE CAMERAs, bird-eye view to better see what is going on
+        # # ### DEBUG PERPOSE CAMERAs, bird-eye view to better see what is going on
         # level_height = 2
         # locations = [
         #     [0,0,level_height+self.table_info.height],
@@ -445,7 +463,6 @@ class PerchScene(object):
         ## Save the scaled object, which is used for perch in the models directory
         for object_idx in self.object_info_dict.keys():
             model_name = f'{self.train_or_test}_scene_{self.scene_num}_object_{object_idx}'
-            
             object_info = self.object_info_dict[object_idx]
             object_mesh = object_info.save_correct_size_model(os.path.join(self.args.scene_save_dir, 'models'), model_name)
 
@@ -718,8 +735,8 @@ class PerchScene(object):
             model_category = {
                 "id": object_idx,
                 "name" : object_info.model_name,
-                "shapenet_category_id" : int(self.selected_objects[object_idx][1]),
-                "shapenet_object_id" : int(self.selected_objects[object_idx][3]),
+                "shapenet_category_id" : int(self.selected_objects[object_idx]['catId']),
+                "shapenet_object_id" : int(self.selected_objects[object_idx]['objId']),
                 "supercategory": "shape",
                 "upright" : int(object_info.upright),
                 "shown_upright" : shown_upright,
