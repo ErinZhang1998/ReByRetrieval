@@ -7,7 +7,6 @@ from datagen_args import *
 from datagen_utils import *
 from perch_scene import *
 
-# import utils.dataset_utils as data_utils
 
 def run_single_object(acc_scene_num, selected_objects, args):
     scene_folder_path = None

@@ -14,7 +14,7 @@ import open3d as o3d
 import utils.qualitative_utils as q_utils
 import utils.utils as uu
 import incat_dataset
-import utils.dataset_utils as data_utils
+
 import data_gen.datagen_utils as datagen_utils
 from scipy.spatial.transform import Rotation as R, rotation        
 
@@ -43,6 +43,13 @@ SHAPENET_PATH = '/raid/xiaoyuz1/ShapeNetCore.v2'
 MODEL_SAVE_ROOT_DIR = '/raid/xiaoyuz1/perch/perch_balance/models'
 
 def save_correct_size_model(model_save_root_dir, model_name, actual_size, shapenet_file_name):
+    '''
+    Args:
+        model_save_root_dir: the "model_dir" directory used in Perch 
+        model_name: name of model used by Perch 
+        actual_size: the size (x,y,z) that the model will be scaled to 
+        shapenet_file_name: 
+    '''
     model_save_dir = os.path.join(model_save_root_dir, model_name)
     model_fname = os.path.join(model_save_dir, 'textured.obj')
     model_ply_fname = os.path.join(model_save_dir, 'textured.ply')
