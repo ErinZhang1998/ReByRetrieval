@@ -23,8 +23,9 @@ from scene_camera import SceneCamera
 
 class PerchScene(object):
     
-    def __init__(self, scene_num, selected_objects, args):
+    def __init__(self, scene_num, selected_objects, args, camera_locations=None):
         self.args = args
+        self.camera_locations = camera_locations
         self.scene_num = scene_num
         self.selected_objects = selected_objects
         self.shapenet_filepath, top_dir, self.train_or_test = args.shapenet_filepath, args.top_dir, args.train_or_test
@@ -35,7 +36,7 @@ class PerchScene(object):
         self.width = args.width
         self.height = args.height 
         self.scene_save_dir = args.scene_save_dir
-        self.num_meshes_before_object = 1#args.use_walls + 1
+        self.num_meshes_before_object = 1
         if not os.path.exists(args.scene_save_dir):
             os.mkdir(args.scene_save_dir)
         
@@ -108,12 +109,8 @@ class PerchScene(object):
             num_objects_in_scene=self.num_objects,
             object_idx=object_idx,
             shapenet_convex_decomp_dir=self.args.shapenet_convex_decomp_dir,
-            scale=self.selected_objects[object_idx]['size'],
-            half_or_whole=self.selected_objects[object_idx]['half_or_whole'],
-            perch_rot_angle=self.selected_objects[object_idx]['perch_rot_angle'],
+            selected_object_info=self.selected_objects[object_idx],
             upright_ratio=self.args.upright_ratio,
-            canonical_size=self.args.canonical_size,
-            size_xyz=self.args.size_xyz,
         )
         self.object_info_dict[object_idx] = object_info
     
@@ -137,18 +134,6 @@ class PerchScene(object):
             )
     
     def generate_cameras_fibonacci_sphere_grid(self, center_x=0, center_y=0, camera_z_above_table=1.5, num_angles=20, radius=5, upper_limit=0.5):
-        # locations = []
-        # phi = math.pi * (3. - math.sqrt(5.))  # golden angle in radians
-        # for i in range(num_angles*2):
-        #     y = 1 - (i / float(num_angles*2 - 1)) * 2  # y goes from 1 to 0
-        #     y_radius = math.sqrt(1 - y * y) * radius  # radius at y
-        #     theta = phi * i  # golden angle increment
-        #     x = math.cos(theta) * y_radius
-        #     z = math.sin(theta) * y_radius
-        #     if z <= 0:
-        #         continue
-        #     locations.append((x, y, z))
-        # num_pts = num_angles * 4
         num_pts = num_angles * 2
         indices = np.arange(0, num_pts, dtype=float) + 0.5
         phi = np.arccos(1 - 2*indices/num_pts)
@@ -171,20 +156,19 @@ class PerchScene(object):
         table_width = np.max(self.table_info.object_mesh.bounds[1,:2] - self.table_info.object_mesh.bounds[0,:2])
         
         locations = []
-        targets = []
         for theta in normal_thetas:
             cam_x = np.cos(theta) * radius + center_x
             cam_y = np.sin(theta) * radius + center_y
             location = [cam_x, cam_y, self.table_info.height + camera_z_above_table]
-            target = [center_x,center_y,self.table_info.height]
 
             locations.append(location)
-            targets.append(target)
 
-        return locations, targets
+        return locations
+    
     
     def add_cameras(
         self, 
+        locations = None, 
         sphere_sampling=True,
         center_x=0, 
         center_y=0, 
@@ -193,25 +177,28 @@ class PerchScene(object):
         radius=1,
         upper_limit=0.5,
     ):
-        if sphere_sampling:
-            locations, targets = self.generate_cameras_fibonacci_sphere_grid(
-                center_x, 
-                center_y, 
-                camera_z_above_table, 
-                num_angles, 
-                radius,
-                upper_limit,
-            )
-        else:
-            locations, targets = self.generate_cameras_around(
-                center_x, 
-                center_y, 
-                camera_z_above_table, 
-                num_angles, 
-                radius,
-            )
+        
+        if locations is None:
+            if sphere_sampling:
+                locations = self.generate_cameras_fibonacci_sphere_grid(
+                    center_x, 
+                    center_y, 
+                    camera_z_above_table, 
+                    num_angles, 
+                    radius,
+                    upper_limit,
+                )
+            else:
+                locations = self.generate_cameras_around(
+                    center_x, 
+                    center_y, 
+                    camera_z_above_table, 
+                    num_angles, 
+                    radius,
+                )
 
-        for location, target in zip(locations, targets):
+        for location in locations:
+            target = [center_x, center_y, self.table_info.height]
             new_camera = SceneCamera(location, target, self.total_camera_num)
             new_camera.rgb_save_path = os.path.join(f'{self.train_or_test}/scene_{self.scene_num:06}', f'rgb_{(self.total_camera_num):05}.png')
             new_camera.depth_save_path = os.path.join(f'{self.train_or_test}/scene_{self.scene_num:06}', f'depth_{(self.total_camera_num):05}.png')
@@ -291,7 +278,11 @@ class PerchScene(object):
                     moved_location = [0, 0, self.table_info.height+convex_decomp_mesh_height+0.01]
                 else:
                     pos_x, pos_y = object_info.pos_x, object_info.pos_y
-                    moved_location = [pos_x, pos_y, self.table_info.height+convex_decomp_mesh_height+0.01]
+                    if object_info.pos_z is not None:
+                        pos_z = object_info.pos_z
+                    else:
+                        pos_z = self.table_info.height+convex_decomp_mesh_height+0.01
+                    moved_location = [pos_x, pos_y, pos_z]
                 
                 datagen_utils.move_object(
                     convex_decomp_mujoco_env, 
@@ -300,10 +291,9 @@ class PerchScene(object):
                     datagen_utils.quat_xyzw_to_wxyz(object_info.rot.as_quat()),
                 )
                 error_object_idx = object_idx
-                for _ in range(4000):
-                    convex_decomp_mujoco_env.model.step()
-                all_current_poses = convex_decomp_mujoco_env.data.qpos.ravel().copy().reshape(-1,7) 
-                
+                if not self.args.not_step_mujoco:
+                    for _ in range(4000):
+                        convex_decomp_mujoco_env.model.step()                
         except:
             print('\nERROR try to move object: ', self.scene_num, " at index: ", error_object_idx)
             # error_all_poses = convex_decomp_mujoco_env.data.qpos.ravel().copy().reshape(-1,7)
@@ -322,47 +312,59 @@ class PerchScene(object):
         objects_current_positions = all_current_poses[self.num_meshes_before_object:][:,:3]
         for _,_,cur_z in objects_current_positions:
             assert cur_z > self.table_info.height
+        
         table_current_position = all_current_poses[self.num_meshes_before_object-1][:3].reshape(-1,)
-        table_current_position[2] = self.table_info.height
-        # object_closest_to_table_center = np.argmin(np.linalg.norm(objects_current_positions - table_current_position, axis=1)) 
-        # new_cam_center_x, new_cam_center_y,_ = objects_current_positions[object_closest_to_table_center]
-        # new_cam_center_x, new_cam_center_y,_ = np.mean(objects_current_positions, axis=0)
-        radius = np.max(np.linalg.norm(self.table_info.table_top_corners - table_current_position, axis=1))
         new_cam_center_x, new_cam_center_y = table_current_position[:2]
         wall_max_unit = max(self.args.wall_unit_x, self.args.wall_unit_y)
         if self.args.single_object:
             radius = 0.45
         else:
-            # radius = self.object_info_dict[0].canonical_size + wall_max_unit
-            radius = max(self.args.wall_unit_y, self.args.wall_unit_x) + 0.5
+            radius = wall_max_unit + 0.5
+
+        if not self.args.predefined_camera_locations:
+            self.add_cameras(
+                locations=None,
+                sphere_sampling=True,
+                center_x=new_cam_center_x, 
+                center_y=new_cam_center_y, 
+                camera_z_above_table=0.4, 
+                num_angles = 60, 
+                radius = radius,
+                upper_limit = 0.15,
+            )
+            self.add_cameras(
+                locations=None,
+                sphere_sampling=True,
+                center_x=new_cam_center_x, 
+                center_y=new_cam_center_y, 
+                camera_z_above_table=0.2, 
+                num_angles = 60, 
+                radius = radius,
+                upper_limit = 0.15,
+            )
+            self.add_cameras(
+                locations=None,
+                sphere_sampling=True,
+                center_x=new_cam_center_x, 
+                center_y=new_cam_center_y, 
+                camera_z_above_table=0.1, 
+                num_angles = 60, 
+                radius = radius,
+                upper_limit = 0.15,
+            )
+        else:
+            self.add_cameras(
+                locations=self.camera_locations,
+                sphere_sampling=True,
+                center_x=new_cam_center_x, 
+                center_y=new_cam_center_y, 
+                camera_z_above_table=0.1, 
+                num_angles = 60, 
+                radius = radius,
+                upper_limit = 0.15,
+            )
+            
         
-        self.add_cameras(
-            sphere_sampling=True,
-            center_x=new_cam_center_x, 
-            center_y=new_cam_center_y, 
-            camera_z_above_table=0.4, 
-            num_angles = 60, 
-            radius = radius,
-            upper_limit = 0.15,
-        )
-        self.add_cameras(
-            sphere_sampling=True,
-            center_x=new_cam_center_x, 
-            center_y=new_cam_center_y, 
-            camera_z_above_table=0.2, 
-            num_angles = 60, 
-            radius = radius,
-            upper_limit = 0.15,
-        )
-        self.add_cameras(
-            sphere_sampling=True,
-            center_x=new_cam_center_x, 
-            center_y=new_cam_center_y, 
-            camera_z_above_table=0.1, 
-            num_angles = 60, 
-            radius = radius,
-            upper_limit = 0.15,
-        )
         # # ### DEBUG PERPOSE CAMERAs, bird-eye view to better see what is going on
         # level_height = 2
         # locations = [
@@ -399,52 +401,6 @@ class PerchScene(object):
             )
 
             self.camera_xml_name_tracker.set_object_dicts(object_idx, body_name, added_mesh_names, geom_names, joint_name)
-            
-        # mujoco_env = MujocoEnv(self.cam_temp_scene_xml_file, 1, has_robot=False)
-        # mujoco_env.set_env_state(self.convex_decomp_mujoco_env_state)
-        # mujoco_env.sim.physics.forward()
-        # all_current_poses = mujoco_env.data.qpos.ravel().copy().reshape(-1,7)  
-
-        # # all_bboxs = []
-        # for object_idx in self.object_info_dict.keys(): 
-        #     model_name = f'{self.train_or_test}_scene_{self.scene_num}_object_{object_idx}'           
-        #     object_info = self.object_info_dict[object_idx]
-        #     object_mesh = object_info.save_correct_size_model(os.path.join(args.scene_save_dir, 'models'), model_name)
-
-        #     mesh_bounds = object_mesh.bounds
-        #     current_pose = all_current_poses[object_idx+1]
-            
-        #     final_position = current_pose[:3]
-        #     final_quat = quat_wxyz_to_xyzw(current_pose[3:])
-        #     final_rot_obj = R.from_quat(final_quat)
-        #     mesh_bounds, mesh_bbox, _ = get_corners(mesh_bounds, current_pose[:3], final_rot_obj, f'object_{object_idx}')
-        #     assert np.all(np.abs(np.linalg.norm(mesh_bbox - final_position, axis=1) - np.linalg.norm(mesh_bounds, axis=1)) < 1e-5)
-
-        #     locations, targets = self.generate_cameras_around(
-        #         center_x=final_position[0], 
-        #         center_y=final_position[1],
-        #         num_angles=8, 
-        #         radius=1,
-        #     )
-        #     for location, target in zip(locations, targets):
-        #         new_camera = SceneCamera(location, target, self.total_camera_num)
-        #         new_camera.rgb_save_path = os.path.join(f'{self.train_or_test}/scene_{self.scene_num:06}', f'rgb_{(self.total_camera_num):05}.png')
-        #         new_camera.depth_save_path = os.path.join(f'{self.train_or_test}/scene_{self.scene_num:06}', f'depth_{(self.total_camera_num):05}.png')
-        #         self.camera_info_dict[self.total_camera_num] = new_camera
-        #         self.total_camera_num += 1
-            
-        #     self.object_info_dict[object_idx].bbox = mesh_bbox
-        #     self.object_info_dict[object_idx].final_position = final_position
-        #     self.object_info_dict[object_idx].final_quat = final_quat
-
-        
-        # # Generate around the center of all the bounding boxes
-        # all_bboxs = np.hstack(all_bboxs)
-        # avg_pt = np.mean(all_bboxs, axis=0)
-        # locations, targets = self.generate_cameras_around(center_x=avg_pt[0], center_y=avg_pt[1])
-        # for cam_num, (location, target) in enumerate(zip(locations, targets)):
-        #     self.camera_info_dict[cam_num].pos = location
-        #     self.camera_info_dict[cam_num].target = target
 
         for cam_num in self.camera_info_dict.keys():
             new_camera = self.camera_info_dict[cam_num]
@@ -691,21 +647,9 @@ class PerchScene(object):
             camera_info = self.camera_info_dict[cam_num]
             anno_dict_list = camera_info.get_annotations_dict()
             all_annotations += anno_dict_list
-        
-        # json_string = json.dumps(all_annotations)
-        # annotation_fname = os.path.join(self.scene_folder_path, 'annotations.json')
-        # json_file = open(annotation_fname, "w+")
-        # json_file.write(json_string)
-        # json_file.close()
 
         images = []
-        image_id_acc = -1
-        image_id_dict = dict()
-
         categories = []
-        category_id_acc = -1
-        category_id_dict = {}
-
         annotation_id_acc = 0
         annotations = []
 
@@ -723,9 +667,7 @@ class PerchScene(object):
             }
             image_anno.update(cam_info.get_camera_annotation())
             images.append(image_anno)
-        
-        # datagen_utils.output_json(images, os.path.join(self.scene_folder_path, 'images.json'))
-        
+                
         total_upright = 0
         total_shown_upright = 0
         for object_idx, object_info in self.object_info_dict.items():
@@ -747,39 +689,6 @@ class PerchScene(object):
         # datagen_utils.output_json(categories, os.path.join(self.scene_folder_path, 'categories.json'))
         
         for annotation in all_annotations:
-            # image_id = image_id_dict.get(annotation['cam_num'], -1)
-            # if image_id < 0:
-            #     image_id_acc += 1
-            #     image_id_dict[annotation['rgb_file_path']] = image_id_acc
-            #     image_anno = {
-            #         "id" : image_id_acc,
-            #         "file_name" : annotation['rgb_file_path'],
-            #         "all_object_bbox" : annotation["all_object_bbox"],
-            #         "width" : annotation['width'],
-            #         "height" : annotation['height'],
-            #         "date_captured" : "2021",
-            #         "license" : 1,
-            #         "coco_url": "", 
-            #         "flickr_url": "",
-            #     }
-            #     images.append(image_anno)
-            #     image_id = image_id_acc
-
-            # model_name = annotation['model_name']
-            # category_id = category_id_dict.get(model_name, -1)
-
-            # if category_id < 0:
-            #     category_id_acc += 1
-            #     category_id_dict[model_name] = category_id_acc
-            #     model_category = {
-            #         "id": category_id_acc,
-            #         "name" : model_name,
-            #         "supercategory": "shape",
-            #     }
-            #     model_category.update(annotation['model_annotation'])
-            #     categories.append(model_category)
-            #     category_id = category_id_acc
-
             annotation.update({
                 "id" : annotation_id_acc,
                 "image_id" : annotation['cam_num'],
@@ -844,3 +753,4 @@ class PerchScene(object):
         o3d_depth = o3d.geometry.Image(depth)
         o3d_cloud = o3d.geometry.PointCloud.create_from_depth_image(o3d_depth, o3d_intrinsics)
         return None 
+

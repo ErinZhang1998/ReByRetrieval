@@ -89,77 +89,7 @@ def update_base_model_with_pred_pose(target_category_annotation, actual_size):
         )
     model_name = target_category_annotation['name']
     return save_correct_size_model(MODEL_SAVE_ROOT_DIR, model_name, actual_size, shapenet_file_name)
-
-class COCOAnnotationS(object):
-
-    def __init__(self, root_data_dir):
-        '''
-        Unit = json 
-        '''
-        self.root_data_dir = root_data_dir
-        self.annotations_bank = {}
-        self.model_name_to_model_full_name = {}
-    
-    def add_scene(self, scene_num):
-        scene_dir = os.path.join(self.root_data_dir, f'scene_{scene_num:06}')
-        json_path = os.path.join(scene_dir, 'annotations.json')
-        annotations = json.load(open(json_path))
-
-        image_id_to_ann = dict()
-        for ann in annotations['images']:
-            image_id_to_ann[ann['id']] = ann 
-        
-        category_id_to_ann = dict()
-        for ann in annotations['categories']:
-            category_id_to_ann[ann['id']] = ann
-            model_name = ann['name']
-            cat = ann['synset_id']
-            model_id = ann['model_id']
-            shapenet_category_id = ann['shapenet_category_id']
-            shapenet_object_id = ann['shapenet_object_id']
-    
-            # category_name = category_dict[f'{cat}_{model_id}']
-            self.model_name_to_model_full_name[model_name] = f'{shapenet_category_id}_{shapenet_object_id}' #f'{cat}_{model_id}'
-        
-        ann_id_to_ann = dict()
-        image_category_id_to_ann = dict()
-        for ann in annotations['annotations']:
-            ann_id_to_ann[ann['id']] = ann
-
-            D = image_category_id_to_ann.get(ann['image_id'], {})
-            D[ann['category_id']] = ann
-            image_category_id_to_ann[ann['image_id']] = D
-
-        total_ann_dict = {
-            'images' : image_id_to_ann,
-            'categories' : category_id_to_ann,
-            'annotations' : ann_id_to_ann,
-            'annotations2' : image_category_id_to_ann,
-        } 
-        
-        self.annotations_bank[scene_num] = (scene_dir, total_ann_dict)
-    
-    def get_ann(self, scene_num, key, key_id):
-        if not scene_num in self.annotations_bank:
-            self.add_scene(scene_num)
-        assert key in ['images', 'categories', 'annotations']
-        ann_dict = self.annotations_bank[scene_num][1][key]
-        return ann_dict[key_id]
-    
-    def get_ann_with_image_category_id(self, scene_num, image_id, category_id=None):
-        if not scene_num in self.annotations_bank:
-            self.add_scene(scene_num)
-        if category_id is None:
-            return self.annotations_bank[scene_num][1]['annotations2'][image_id]
-        ann_dict = self.annotations_bank[scene_num][1]['annotations2'][image_id][category_id]
-        return ann_dict
-    
-    def get_image_anns(self, scene_num):
-        if not scene_num in self.annotations_bank:
-            self.add_scene(scene_num)
-        
-        return self.annotations_bank[scene_num][1]['images']
-    
+   
 class CategoryBank(object):
 
     def __init__(self, json_path_list):
@@ -436,7 +366,7 @@ if __name__ == "__main__":
         # args_dict_filled = uu.fill_in_args_from_default(args_dict, default_args_dict)
         # args = uu.Struct(args_dict_filled)
         # inference(args, options)
-        query_annos = COCOAnnotationS(options.query_data_dir)
+        query_annos = uu.COCOAnnotationScene(options.query_data_dir)
         category_bank = get_category_bank(options.base_data_dir)
         selected_model_ids = {}
         

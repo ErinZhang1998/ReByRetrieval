@@ -2,6 +2,7 @@ import numpy as np
 import os 
 import time 
 import torch
+import json
 import datetime
 from collections import OrderedDict
 import utils.logging as logging
@@ -143,3 +144,99 @@ def data_dir_list(root_dir, must_contain_file = ['annotations.json']):
                 l.append(subdir_path)
 
     return l 
+
+class COCOAnnotation(object):
+
+    def __init__(self, json_path):
+        '''
+        Unit = json 
+        '''
+        self.model_name_to_model_full_name = {}
+        annotations = json.load(open(json_path))
+
+        image_id_to_ann = dict()
+        for ann in annotations['images']:
+            image_id_to_ann[ann['id']] = ann 
+        
+        category_id_to_ann = dict()
+        for ann in annotations['categories']:
+            category_id_to_ann[ann['id']] = ann
+            model_name = ann['name']
+            cat = ann['synset_id']
+            model_id = ann['model_id']
+            shapenet_category_id = ann['shapenet_category_id']
+            shapenet_object_id = ann['shapenet_object_id']
+    
+            # category_name = category_dict[f'{cat}_{model_id}']
+            self.model_name_to_model_full_name[model_name] = f'{shapenet_category_id}_{shapenet_object_id}' #f'{cat}_{model_id}'
+        
+        ann_id_to_ann = dict()
+        image_category_id_to_ann = dict()
+        for ann in annotations['annotations']:
+            ann_id_to_ann[ann['id']] = ann
+
+            D = image_category_id_to_ann.get(ann['image_id'], {})
+            D[ann['category_id']] = ann
+            image_category_id_to_ann[ann['image_id']] = D
+
+        total_ann_dict = {
+            'images' : image_id_to_ann,
+            'categories' : category_id_to_ann,
+            'annotations' : ann_id_to_ann,
+            'annotations2' : image_category_id_to_ann,
+        } 
+        
+        # self.scene_dir = scene_dir
+        self.json_path = json_path
+        self.total_ann_dict = total_ann_dict
+        
+    def get_ann(self, key, key_id):
+        assert key in ['images', 'categories', 'annotations']
+        ann_dict = self.total_ann_dict[key]
+        return ann_dict[key_id]
+    
+    def get_ann_with_image_category_id(self, image_id, category_id=None):
+        if category_id is None:
+            return self.total_ann_dict['annotations2'][image_id]
+
+        return self.total_ann_dict['annotations2'][image_id][category_id]
+    
+    def get_image_anns(self):
+        return self.total_ann_dict['images']
+  
+
+class COCOAnnotationScene(object):
+
+    def __init__(self, root_data_dir):
+        '''
+        Unit = json 
+        '''
+        self.root_data_dir = root_data_dir
+        self.annotations_bank = {}
+        self.model_name_to_model_full_name = {}
+    
+    def add_scene(self, scene_num):
+        scene_dir = os.path.join(self.root_data_dir, f'scene_{scene_num:06}')
+        json_path = os.path.join(scene_dir, 'annotations.json')
+        new_coco_anno = COCOAnnotation(json_path)
+        self.annotations_bank[scene_num] = (scene_dir, new_coco_anno)
+        self.model_name_to_model_full_name.update(new_coco_anno.model_name_to_model_full_name)
+    
+    def get_ann(self, scene_num, key, key_id):
+        if not scene_num in self.annotations_bank:
+            self.add_scene(scene_num)
+        
+        return self.annotations_bank[scene_num][1].get_ann(key, key_id)
+    
+    def get_ann_with_image_category_id(self, scene_num, image_id, category_id=None):
+        if not scene_num in self.annotations_bank:
+            self.add_scene(scene_num)
+        
+        return self.annotations_bank[scene_num][1].get_ann_with_image_category_id(image_id, category_id)
+    
+    def get_image_anns(self, scene_num):
+        if not scene_num in self.annotations_bank:
+            self.add_scene(scene_num)
+        
+        return self.annotations_bank[scene_num][1].get_image_anns()
+  

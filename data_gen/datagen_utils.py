@@ -236,6 +236,9 @@ class XmlObjectNameTracker(object):
         self.object_joint_names[object_idx] = joint_name
 
     def get_object_geom_name(self, object_idx):
+        '''
+        -1 --> table
+        '''
         geom_names = self.object_geom_names[object_idx]
         if len(geom_names) == 1:
             return geom_names[0]
@@ -546,3 +549,55 @@ def output_json(json_dict, path):
     json_file = open(path, "w+")
     json_file.write(json_string)
     json_file.close()
+
+
+def from_perch_cam_annotations_to_world_frame(position, quaternion_xywz, image_ann):
+    gt_to_perch_cam = np.array([[1, 0, 0, 0],
+                        [0, -1, 0, 0],
+                        [0, 0, -1, 0],
+                        [0, 0, 0, 1]])
+    perch_gt_to_cam = np.linalg.inv(gt_to_perch_cam)
+    
+    cam_to_world = image_ann['camera_frame_to_world_frame_mat']
+    cam_to_world = np.asarray(cam_to_world)
+    object_position_perch = np.asarray(position)
+    object_position_world = transform_3d_frame(perch_gt_to_cam, object_position_perch.reshape(-1,3))
+    object_position_world = transform_3d_frame(cam_to_world, object_position_world)
+    
+    
+    object_quat_perch = np.array(quaternion_xywz)
+    perch_gt_mat = np.zeros((4,4))
+    perch_gt_mat[:3,:3] = R.from_quat(object_quat_perch).as_matrix()
+    perch_gt_mat[:,3] = list(object_position_perch) + [1]
+
+    cam_mat = perch_gt_to_cam @ perch_gt_mat 
+    perch_gt_to_world = cam_to_world @ cam_mat
+    quat_world = R.from_matrix(perch_gt_to_world[:3,:3]).as_quat().reshape(4,)
+    
+    return object_position_world.reshape(-1,), quat_world.reshape(-1,)
+
+def from_world_frame_annotations_to_perch_cam(position, quaternion_xywz, image_ann):
+    gt_to_perch_cam = np.array([[1, 0, 0, 0],
+                        [0, -1, 0, 0],
+                        [0, 0, -1, 0],
+                        [0, 0, 0, 1]])
+    
+    world_to_cam = image_ann['world_frame_to_camera_frame_mat']
+    world_to_cam = np.asarray(world_to_cam)
+
+    object_position = np.asarray(position)
+    object_position_cam = transform_3d_frame(world_to_cam, object_position.reshape(-1,3))
+    object_position_cam = transform_3d_frame(gt_to_perch_cam, object_position_cam)
+    
+    object_quat_world = np.array(quaternion_xywz)
+
+    object_to_world_mat = np.zeros((4,4))
+    object_to_world_mat[:3,:3] = R.from_quat(object_quat_world).as_matrix()
+    object_to_world_mat[:,3] = list(object_position) + [1]
+
+    object_to_cam_mat = world_to_cam @ object_to_world_mat 
+    object_to_cam_mat = gt_to_perch_cam @ object_to_cam_mat
+    new_quat_cam = R.from_matrix(object_to_cam_mat[:3,:3]).as_quat().reshape(4,)
+    
+    return object_position_cam.reshape(-1,), new_quat_cam.reshape(-1,)
+        

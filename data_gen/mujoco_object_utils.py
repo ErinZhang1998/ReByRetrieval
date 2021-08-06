@@ -64,7 +64,6 @@ class MujocoObject(object):
         self.pos = np.zeros(3)
         # Chaning size scale changes the object mesh
         self.size = None
-        self.canonical_size = 0.3
 
     def from_mesh_fname_to_ids(self):
         fname_list = self.shapenet_file_name.split('/')
@@ -97,44 +96,48 @@ class MujocoNonTable(MujocoObject):
         '''
         When initialized, generate random rotation and position
         '''
-
         self.shapenet_convex_decomp_dir = kwargs['shapenet_convex_decomp_dir']
         self.object_idx = kwargs['object_idx']
-        self.half_or_whole = kwargs['half_or_whole']
-        self.perch_rot_angle = kwargs['perch_rot_angle']
+        self.half_or_whole = kwargs['selected_object_info']['half_or_whole']
+        self.perch_rot_angle = kwargs['selected_object_info']['perch_rot_angle']
         self.upright_ratio = kwargs['upright_ratio']
-        
-        self.canonical_size = kwargs['canonical_size'] if not kwargs['canonical_size'] is None else self.canonical_size
-        # scale = kwargs['scale'] #if not kwargs['scale'] is None else np.random.choice([0.75, 0.85, 1.0])
-        # actual_size: the actual size of the object mesh and not the scale that is passed into creating the mujoco scene
-        # self.size_xyz = kwargs['size_xyz'] if not kwargs['size_xyz'] is None else False
-        
-        actual_limit = kwargs['scale'] #scale * ACTUAL_LIMIT_DICT[self.synset_id]
-        xy_range_max = max((self.object_mesh.bounds[1] - self.object_mesh.bounds[0])[:2])        
-        
-        self.actual_size = (self.object_mesh.bounds[1] - self.object_mesh.bounds[0]) * (actual_limit / xy_range_max)
-        mesh_scale = self.actual_size / (self.object_mesh.bounds[1] - self.object_mesh.bounds[0])
-        self.size = list(mesh_scale)
 
-        if np.random.uniform(0,1) > self.upright_ratio:
-            random_rotation = [
-                np.random.uniform(-90.0, 90),
-                np.random.uniform(-90.0, 90),
-                np.random.uniform(0, 360),
-            ]
-            self.upright = False
+        if 'size_xyz' in kwargs['selected_object_info']:
+            self.actual_size = kwargs['selected_object_info']['size']  
+            mesh_scale = kwargs['selected_object_info']['size'] / (self.object_mesh.bounds[1] - self.object_mesh.bounds[0])
+            self.size = list(mesh_scale)
         else:
-            random_rotation = [
-                0,
-                0,
-                np.random.uniform(0, 360),
-            ]
-            self.upright = True
+            xy_range_max = max((self.object_mesh.bounds[1] - self.object_mesh.bounds[0])[:2])        
+            self.actual_size = (self.object_mesh.bounds[1] - self.object_mesh.bounds[0]) * (kwargs['selected_object_info']['size'] / xy_range_max)
+            mesh_scale = self.actual_size / (self.object_mesh.bounds[1] - self.object_mesh.bounds[0])
+            self.size = list(mesh_scale)
 
-        self.rot = R.from_euler('xyz', random_rotation, degrees=True)
-        pos_var_x = self.canonical_size * 0.5
-        pos_var_y = self.canonical_size * 0.5
-        self.pos_x, self.pos_y = np.random.normal(loc=[0,0], scale=np.array([pos_var_x, pos_var_y]))
+        if 'quaternion_xyzw' in kwargs['selected_object_info']:
+            self.rot = R.from_quat(kwargs['selected_object_info']['quaternion_xyzw'])
+            self.upright = True
+        else:
+            if np.random.uniform(0,1) > self.upright_ratio:
+                random_rotation = [
+                    np.random.uniform(-90.0, 90),
+                    np.random.uniform(-90.0, 90),
+                    np.random.uniform(0, 360),
+                ]
+                self.upright = False
+            else:
+                random_rotation = [
+                    0,
+                    0,
+                    np.random.uniform(0, 360),
+                ]
+                self.upright = True
+            self.rot = R.from_euler('xyz', random_rotation, degrees=True)
+
+        if 'position' in kwargs['selected_object_info']:
+            self.pos_x, self.pos_y, self.pos_z = kwargs['selected_object_info']['position']
+        else:
+            self.pos_x, self.pos_y = np.random.normal(loc=[0,0], scale=np.array([0.15, 0.15]))
+            self.pos_z = None
+
         self.bbox = None
 
     def load_decomposed_mesh(self):
@@ -144,21 +147,13 @@ class MujocoNonTable(MujocoObject):
             self.synset_id, 
             model_id=self.model_id,
         )
-        # make mesh stand upright
         comb_mesh.apply_transform(self.upright_mat) 
         comb_mesh.export(os.path.join(obj_convex_decomp_dir, 'convex_decomp.stl'))
-        # range_max = np.linalg.norm(comb_mesh.bounds[1] - comb_mesh.bounds[0])
-        # comb_mesh_scale = self.actual_size / range_max
-        # comb_mesh_scale = [comb_mesh_scale] * 3
         comb_mesh_scale = self.actual_size / (comb_mesh.bounds[1] - comb_mesh.bounds[0])
-        # scale the mesh
-        # self.size = list(comb_mesh_scale)
         comb_mesh = datagen_utils.apply_scale_to_mesh(comb_mesh, comb_mesh_scale)
         
-        # comb_mesh.export(os.path.join(obj_convex_decomp_dir, 'convex_decomp.stl'))
         mesh_names = [os.path.join(obj_convex_decomp_dir, 'convex_decomp.stl')]
         self.convex_decomp_mesh_fnames = mesh_names
-        # Apply rotation, generated during initialization
         self.convex_decomp_mesh = datagen_utils.apply_rot_to_mesh(comb_mesh, self.rot)
         return mesh_names, list(comb_mesh_scale)
     
@@ -172,8 +167,6 @@ class MujocoNonTable(MujocoObject):
 
         object_mesh = trimesh.load(self.shapenet_file_name, force='mesh')
         object_mesh.apply_transform(self.upright_mat)
-        # mesh_scale = self.actual_size / (object_mesh.bounds[1] - object_mesh.bounds[0])
-        # self.size = list(mesh_scale)
         object_mesh = datagen_utils.apply_scale_to_mesh(object_mesh, self.size)
         object_mesh.export(model_fname)
         self.model_name = model_name
