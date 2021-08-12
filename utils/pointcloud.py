@@ -1,6 +1,6 @@
 import numpy as np
 import utils.transforms as utrans
-from data_gen.datagen_utils import from_depth_img_to_pc, process_pointcloud
+from utils.datagen_utils import from_depth_img_to_pc, process_pointcloud
 import torchvision
 
 def get_pointcloud(rgb_all, depth_all, mask, mask_all, rot, img_mean, img_std):

@@ -4,7 +4,7 @@ import pickle
 import pandas as pd
 
 from datagen_args import *
-from datagen_utils import *
+from utils.datagen_utils import *
 from perch_scene import *
 
 

@@ -5,7 +5,7 @@ import open3d as o3d
 from scipy.spatial.transform import Rotation as R
 from dm_control.mujoco.engine import Camera 
 
-import datagen_utils
+import utils.datagen_utils as datagen_utils
 
 class SceneCamera(object):
     def __init__(self, location, target, cam_num):

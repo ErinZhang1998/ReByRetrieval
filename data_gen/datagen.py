@@ -7,9 +7,10 @@ import numpy as np
 import pandas as pd
 
 from datagen_args import *
-from datagen_utils import *
+from utils.datagen_utils import *
 from perch_scene import *
-from utils.utils import COCOAnnotation
+from utils.perch_utils import COCOAnnotation
+from blender_proc_datagen import BlenderProcScene
 
 # bag, bottle, bowl, can, clock, jar, laptop, camera, mug
 _ACTUAL_LIMIT_DICT = {
@@ -22,9 +23,9 @@ _ACTUAL_LIMIT_DICT = {
     6 : (0.08, 0.11),
     7 : (0.14, 0.2),
     8 : (0.08, 0.11),
-    9 : (0.1, 0.16),
+    9 : (0.12, 0.16),
     10 : (0.12, 0.18),
-    11 : (0.1, 0.16),
+    11 : (0.12, 0.16),
     12 : (0.15, 0.2),
     13 : (0.08, 0.14),
     14 : (0.08, 0.14),
@@ -113,7 +114,7 @@ def from_file(args, scene_num, output_poses_txt, json_annotation_file, camera_an
         
         
         position_world, quat_world = from_perch_cam_annotations_to_world_frame(position, quaternion_xyzw, image_ann)
-        # import pdb; pdb.set_trace()
+        # 
         # [1:] because '0' at the front
         selected_dict = {
             'synsetId' : category_ann['synset_id'][1:],
@@ -185,7 +186,7 @@ def create_one_6d_scene(scene_num, selected_objects, args):
         scene_folder_path = perch_scene.scene_folder_path
         perch_scene.create_convex_decomposed_scene()
         perch_scene.create_camera_scene()
-        # import pdb; pdb.set_trace()
+        # 
     except:
         print('##################################### GEN Error!')
         if scene_folder_path is not None:
@@ -193,14 +194,21 @@ def create_one_6d_scene(scene_num, selected_objects, args):
         print(selected_objects)
         traceback.print_exc()
 
-def generate_random(args):
+
+def get_selected_objects(args):
+    unit_x, unit_y = args.wall_unit_x / 2, args.wall_unit_y / 2
+    axis_grid_x = np.linspace(-unit_x, unit_x, 3)
+    axis_grid_y = np.linspace(-unit_y, unit_y, 3)
+    x_pos, y_pos = np.meshgrid(axis_grid_x, axis_grid_y)
+    LOCATION_GRID = np.hstack([x_pos.reshape(-1,1), y_pos.reshape(-1,1)])
+    
     df = pd.read_csv(args.csv_file_path)
 
-    scale_choices = {}
+    actual_size_choices = {}
     for i in range(len(df)):
         size_low, size_high = _ACTUAL_LIMIT_DICT[df.iloc[i]['objId']]
         # num_steps = (size_high - size_low) / 0.01 + 1
-        scale_choices[i] = list(np.linspace(size_low, size_high, 5))
+        actual_size_choices[i] = list(np.linspace(size_low, size_high, 5))
 
     # TO CREATE A MORE BALANCED DATASET 
     unique_object_ids = df['objId'].unique()
@@ -224,37 +232,67 @@ def generate_random(args):
 
     for selected_indices in selected_object_indices:
         selected_objects_i = []
-        scale_choices_i = copy.deepcopy(scale_choices)
+        actual_size_choices_i = copy.deepcopy(actual_size_choices)
+        location_grid_choice = copy.deepcopy(LOCATION_GRID)
+        
         for idx in selected_indices:
+            if len(location_grid_choice) < 1:
+                break 
+            
+            loc = np.random.choice(len(location_grid_choice))
+            x,y = location_grid_choice[loc]
+            location_grid_choice = np.delete(location_grid_choice, loc, 0)
+
             row = df.iloc[idx]
-            cat_scale_choice = scale_choices_i[idx]
-            if len(cat_scale_choice) == 0:
+            cat_actual_size_choice = actual_size_choices_i[idx]
+            if len(cat_actual_size_choice) == 0:
                 continue
-            sample_scale = np.random.choice(cat_scale_choice)
-            scale_choices_i[idx].remove(sample_scale)
+            sampled_actual_size = np.random.choice(cat_actual_size_choice)
+            actual_size_choices_i[idx].remove(sampled_actual_size)
             selected_dict = {
                 'synsetId' : row['synsetId'],
                 'catId' : row['catId'],
                 'ShapeNetModelId' : row['ShapeNetModelId'],
                 'objId' : row['objId'],
-                'size' : sample_scale,
+                'size' : sampled_actual_size,
                 'half_or_whole' : row['half_or_whole'],
                 'perch_rot_angle' : row['perch_rot_angle'],
+                'position' : np.asarray([x,y]),
             }
             selected_objects_i.append(selected_dict)
             category_list.append(row['catId'])
             object_list.append(row['objId'])
 
         selected_objects.append(selected_objects_i)
-    
+    return selected_objects
+
+def generate_random(args):
+    selected_objects = get_selected_objects(args)
     for scene_num in range(args.num_scenes):
         acc_scene_num = scene_num + args.start_scene_idx
         create_one_6d_scene(acc_scene_num, selected_objects[scene_num], args)
+
+def generate_blender(args):
+    selected_objects = get_selected_objects(args)
+    for scene_num in range(args.num_scenes):
+        acc_scene_num = scene_num + args.start_scene_idx
+        scene_folder_path = None
+        try:
+            blender_proc_scene = BlenderProcScene(acc_scene_num, selected_objects[scene_num], args)
+            scene_folder_path = blender_proc_scene.scene_folder_path
+            blender_proc_scene.output_yaml()
+        except:
+            print('##################################### GEN Error!')
+            if scene_folder_path is not None:
+                shutil.rmtree(scene_folder_path)
+            traceback.print_exc()
 
 
 if __name__ == '__main__':
     if args.from_file:
         run_all_images(args)
+    elif args.blender_proc:
+        generate_blender(args)
     else:
         generate_random(args)
     

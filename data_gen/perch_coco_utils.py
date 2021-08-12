@@ -1,5 +1,4 @@
 import numpy as np 
-import datagen_utils
 
 class ImageAnnotation(object):
     def __init__(self, ann):

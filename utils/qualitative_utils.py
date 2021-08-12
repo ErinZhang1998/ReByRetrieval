@@ -97,7 +97,7 @@ def general_comparison_bar_plot(
     splot.set_xticklabels(splot.get_xticklabels(), rotation=45, horizontalalignment='right')
 
     for p in splot.patches:
-        splot.annotate(format(p.get_height(), '.2f'), 
+        splot.annotate(format(p.get_height(), '.3f'), 
                     (p.get_x() + p.get_width() / 2., p.get_height()), 
                     ha = 'center', va = 'center', 
                     xytext = (0, 9), 

@@ -162,6 +162,15 @@ def check_too_many_faces(csv_fname, shapenet_dir):
 
 
 '''
+Problematic meshes:
+b95ca4fa91a57394e4b68d3b17c43658
+6b78948484df58cdc664c3d4e2d59341
+1497a7a1871af20162360e5e854659a
+6d036fd1c70e5a5849493d905c02fa86
+9726bf2b38d817eab169d2793795b997
+'''
+
+'''
 # def output_selected(csv_file, selected_l):
 #     csv_df = pd.read_csv(csv_file)
 #     res = []

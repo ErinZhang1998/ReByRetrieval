@@ -16,7 +16,7 @@ from mujoco_env import MujocoEnv
 from dm_control.mujoco.engine import Camera 
 
 from datagen_args import *
-import datagen_utils
+import utils.datagen_utils as datagen_utils
 from mujoco_object_utils import MujocoNonTable, MujocoTable
 from perch_coco_utils import ImageAnnotation
 from scene_camera import SceneCamera
@@ -146,8 +146,8 @@ class PerchScene(object):
         locations[:,0] += center_x
         locations[:,1] += center_y
         locations[:,2] += self.table_info.height + camera_z_above_table
-        targets = np.asarray([[center_x,center_y,self.table_info.height]] * len(locations)) #+0.1
-        return locations, targets
+        # targets = np.asarray([[center_x,center_y,self.table_info.height]] * len(locations)) #+0.1
+        return locations
         
     
     def generate_cameras_around(self, center_x=0, center_y=0, camera_z_above_table=1.5, num_angles=20, radius=5):
@@ -363,8 +363,7 @@ class PerchScene(object):
                 radius = radius,
                 upper_limit = 0.15,
             )
-            
-        
+
         # # ### DEBUG PERPOSE CAMERAs, bird-eye view to better see what is going on
         # level_height = 2
         # locations = [

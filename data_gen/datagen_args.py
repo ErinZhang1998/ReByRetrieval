@@ -2,7 +2,7 @@ import argparse
 
 parser = argparse.ArgumentParser()
 
-parser.add_argument("--shapenet_filepath", dest="shapenet_filepath")
+parser.add_argument("--shapenet_filepath", dest="shapenet_filepath", default='/raid/xiaoyuz1/ShapeNetCore.v2')
 parser.add_argument("--shapenet_convex_decomp_dir", dest="shapenet_convex_decomp_dir")
 parser.add_argument("--top_dir", dest="top_dir", help='Directory where base.xml resides')
 parser.add_argument("--csv_file_path", dest="csv_file_path", help='CSV file of Shapenet object model annotations')
@@ -36,6 +36,11 @@ parser.add_argument("--perch_dir", dest="perch_dir", help='directory that stores
 parser.add_argument("--perch_annotation_file", dest="perch_annotation_file", help='output_poses.txt file from perch')
 parser.add_argument("--json_annotation_file", dest="json_annotation_file", help='annotations_i.json file for one image to reconstruct scene')
 parser.add_argument("--camera_annotation_file", dest="camera_annotation_file", help='annotations.json file for getting camera locations and targets from the `images` fileds')
+
+# For blender proc
+parser.add_argument("--blender_proc", action="store_true", dest="blender_proc")
+parser.add_argument("--blender_model_root_dir", dest="blender_model_root_dir", default='/raid/xiaoyuz1/perch/blender_models')
+# parser.add_argument("--output_root_dir", dest="output_root_dir", default='/raid/xiaoyuz1/perch/blender_proc')
 
 
 args = parser.parse_args()

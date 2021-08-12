@@ -6,7 +6,7 @@ import trimesh
 import open3d as o3d
 import autolab_core
 from scipy.spatial.transform import Rotation as R, rotation        
-import datagen_utils
+import utils.datagen_utils as datagen_utils
 
 # # bag, bottle, bowl, can, clock, jar, laptop, camera, mug
 # ACTUAL_LIMIT_DICT = {
@@ -133,7 +133,12 @@ class MujocoNonTable(MujocoObject):
             self.rot = R.from_euler('xyz', random_rotation, degrees=True)
 
         if 'position' in kwargs['selected_object_info']:
-            self.pos_x, self.pos_y, self.pos_z = kwargs['selected_object_info']['position']
+            pre_selected_position = kwargs['selected_object_info']['position']
+            if len(pre_selected_position) == 2:
+                self.pos_x, self.pos_y = pre_selected_position
+                self.pos_z = None
+            else:
+                self.pos_x, self.pos_y, self.pos_z = pre_selected_position
         else:
             self.pos_x, self.pos_y = np.random.normal(loc=[0,0], scale=np.array([0.15, 0.15]))
             self.pos_z = None

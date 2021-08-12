@@ -39,6 +39,8 @@ def fill_in_args_from_terminal(args, options):
     
     if options.model_path != '':
         args.model_config.model_path = options.model_path
+        args.training_config.epochs = int(options.model_path.split('/')[-1].split('.')[0])
+    
     if options.only_test_epoch > 0:
         args.training_config.epochs = options.only_test_epoch
     if options.only_test:
