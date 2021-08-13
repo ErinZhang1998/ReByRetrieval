@@ -32,6 +32,7 @@ class BlenderProcObject(object):
         self.rot = R.from_euler('xyz', np.zeros(3), degrees=False) 
         self.pos = np.zeros(3)
         self.actual_size = np.ones(3)
+        self.scale = np.ones(3)
     
     def get_blender_proc_dict(self):
         upright_rot = self.upright_mat[0:3, 0:3]
@@ -44,6 +45,7 @@ class BlenderProcObject(object):
                 'actual_size': self.actual_size,
                 'position': self.pos,
                 'euler' : final_rot.as_euler('xyz'),
+                'scale' : self.scale,
             }
 
 
@@ -57,7 +59,7 @@ class BlenderProcTable(BlenderProcObject):
             num_objects_in_scene = kwargs['num_objects_in_scene'],
         )
         self.table_size = kwargs['table_size']
-        self.pos = np.array([0.0, 0.0, -self.object_mesh.bounds[0][2]])
+        
         self.rot = R.from_euler('xyz', np.zeros(3), degrees=False) 
         
 
@@ -68,9 +70,14 @@ class BlenderProcTable(BlenderProcObject):
         scale_matrix = np.eye(4)
         scale_matrix[:3, :3] *= scale_vec
         self.object_mesh.apply_transform(scale_matrix)
+        
         table_bounds = self.object_mesh.bounds
+        
         self.actual_size = table_bounds[1] - table_bounds[0]
+        
         self.height = self.object_mesh.bounds[1][2] - self.object_mesh.bounds[0][2]
+        self.pos = np.array([0.0, 0.0, -self.object_mesh.bounds[0][2]])
+        self.scale = scale_vec
         
 
     
@@ -181,7 +188,7 @@ def normalize_points(in_points, padding = 0.1):
     return vertices, total_size, centroid
 
 
-def normalize_obj_file(input_obj_file, output_obj_file, padding = 0.1):
+def normalize_obj_file(input_obj_file, output_obj_file, padding = 0.1, add_name = None):
     """
     normalize vertices into [-0.5, 0.5]^3, and write the result into another .obj file.
     :param input_obj_file: input .obj file
@@ -195,13 +202,28 @@ def normalize_obj_file(input_obj_file, output_obj_file, padding = 0.1):
     input_fid = open(input_obj_file, 'r', encoding='utf-8')
     output_fid = open(output_obj_file, 'w', encoding='utf-8')
 
+    # v_id = 0
+    # for line in input_fid:
+    #     if line.strip().split(' ')[0] != 'v':
+    #         output_fid.write(line)
+    #     else:
+    #         output_fid.write(('v' + ' %f' * len(vertices[v_id]) + '\n') % tuple(vertices[v_id]))
+    #         v_id = v_id + 1
     v_id = 0
     for line in input_fid:
-        if line.strip().split(' ')[0] != 'v':
+        first_char = line.strip().split(' ')[0]
+        if first_char != 'v':
             output_fid.write(line)
+            if first_char == 'mtllib':
+                if add_name is not None:
+                    name_line = 'o {}\n'.format(add_name)
+                    output_fid.write(name_line)
+                    name_added = True
         else:
             output_fid.write(('v' + ' %f' * len(vertices[v_id]) + '\n') % tuple(vertices[v_id]))
             v_id = v_id + 1
+    if add_name is not None:
+        assert name_added
 
     output_fid.close()
     input_fid.close()

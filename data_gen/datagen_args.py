@@ -17,7 +17,7 @@ parser.add_argument("--depth_factor", dest="depth_factor", type=int, default=100
 parser.add_argument("--width", dest="width", type=int, default=640, help='Width of output images')
 parser.add_argument("--height", dest="height", type=int, default=480, help='Height of output images')
 parser.add_argument("--use_walls", dest="use_walls", type=int, default=1, help='NO USAGE')
-parser.add_argument("--table_size", dest="table_size", type=int, default=2)
+parser.add_argument("--table_size", dest="table_size", type=float, default=2)
 parser.add_argument("--debug", action="store_true", dest="debug")
 parser.add_argument("--upright_ratio", dest="upright_ratio", type=float, default=0.5)
 parser.add_argument("--single_object", action="store_true", dest="single_object")

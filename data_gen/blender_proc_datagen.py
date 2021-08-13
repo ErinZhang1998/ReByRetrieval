@@ -75,233 +75,57 @@ class BlenderProcScene(object):
         # self.total_camera_num = 0
         # self.camera_info_dict = dict()
 
+        self.camera_intrinsics = {
+            "cam_K": [376.72453850819767, 0.0, 320.0, 0.0, 376.72453850819767, 240.0, 0.0, 0.0, 1.0],
+            "resolution_x": self.width,
+            "resolution_y": self.height,
+            "fov": 45,
+        }
+
     def add_camera_to_scene(self):
-        # "cp_is_object": True,
-        # float(self.table_info.height + 0.1)
-        location_dict = {
-            "provider": "sampler.UpperRegionSampler",
-            "to_sample_on": {
-                "provider": "getter.Entity",
-                "index": 0,
-                "conditions": {
-                    "cp_shape_net_table": True,
-                    "type": "MESH",
-                }
-            },
-            "min_height": 0.5,
-            "max_height": 1,
-            "use_ray_trace_check": False,
-        }
-        # location_dict = {
-        #     "provider": "sampler.Shell",
-        #     "center": {
-        #         "provider": "getter.POI",
-        #         "selector": {
-        #             "provider": "getter.Entity",
-        #             "conditions": {
-        #                 "cp_is_object": True,
-        #                 "type": "MESH"
-        #             }
-        #         }
-        #     },
-        #     "radius_min": 0.2,
-        #     "radius_max": 0.5,
-        #     "elevation_min": 30,
-        #     "elevation_max": 60,
-        #     "uniform_elevation": True
-        # }
-
-        rotation_dict = {
-            "format": "look_at",
-            "value": {
-                "provider": "getter.AttributeMerger",
-                "elements": [
-                    {
-                        "provider": "getter.POI",
-                        "selector": {
-                            "provider": "getter.Entity",
-                            "conditions": {
-                                "cp_is_object": True,
-                                "type": "MESH"
-                            }
-                        }
-                    },
-                    {
-                        "provider": "sampler.Uniform3d",
-                        "min": [-0.1]*3,
-                        "max": [0.1]*3,
-                    },
-                ],
-                "transform_by": "sum"
-            },
-        }
-        rotation_dict = {
-            "format": "look_at",
-            "value": {
-                "provider": "getter.POI",
-                "selector": {
-                    "provider": "getter.Entity",
-                    "conditions": {
-                        "cp_is_object": True,
-                        "type": "MESH"
-                    }
-                }
-            },
-        }
-        '''
-        "inplane_rot": {
-                "provider": "sampler.Value",
-                "type": "float",
-                "min": -0.7854,
-                "max": 0.7854
-            }
-        '''
-
-        # rotation_dict = {
-        #     "format": "look_at",
-        #     "value": {
-        #         "provider": "getter.POI"
-        #     },
-        #     "inplane_rot": {
-        #         "provider": "sampler.Value",
-        #         "type": "float",
-        #         "min": -0.7854,
-        #         "max": 0.7854
-        #     }
-        # }
-
-        camera_pose_sampler = {
-            "number_of_samples": 5,
-            "check_if_objects_visible": {
+        mean_position_center = {
+            "provider": "getter.POI",
+            "selector": {
                 "provider": "getter.Entity",
                 "conditions": {
                     "cp_is_object": True,
                     "type": "MESH"
                 }
-            },
-            "location" : location_dict,
-            "rotation" : rotation_dict,
-        }
-
-        camera_pose_sampler = {
-            "number_of_samples": 5,
-            "check_if_objects_visible": {
-                "provider": "getter.Entity",
-                "conditions": {
-                    "cp_physics": True,
-                    "type": "MESH"
-                }
-            },
-            "location": {
-                "provider":"sampler.Uniform3d",
-                "max":[1, 1, float(0.5+self.table_info.height)],
-                "min":[-1, -1, float(0.2+self.table_info.height)]
-            },
-            "rotation": {
-                "format": "look_at",
-                "value": {
-                    "provider": "getter.POI",
-                    "selector": {
-                        "provider": "getter.Entity",
-                        "conditions": {
-                            "cp_physics": True,
-                            "type": "MESH"
-                        }
-                    }
-                },
             }
+        }
+        mean_position_part_sphere_location = {
+            "provider":"sampler.PartSphere",
+            "center": mean_position_center,
+            "radius": 1,
+            "distance_above_center": 0.1,
+            "mode": "SURFACE"
+        }
+        mean_position_shell_location = {
+            "provider":"sampler.Shell",
+            "center": mean_position_center,
+            "radius_min": 0.6,
+            "radius_max": 1,
+            "elevation_min": 30,
+            "elevation_max": 60,
+            "uniform_elevation": True,
         }
         
-        camera_sampler_dict = {
+        camera_sampler_dict = camera_sampler_dict = {
             "module": "camera.CameraSampler",
-            "config" : {
-                "cam_poses": [ 
-                    camera_pose_sampler,
+            "config": {
+                "cam_poses": [
+                    {
+                        "number_of_samples": 20,
+                        "location": mean_position_shell_location,
+                        "rotation": {
+                            "format": "look_at",
+                            "value": mean_position_center,
+                        }
+                    }
                 ],
-                "intrinsics": {
-                    "cam_K": [376.72453850819767, 0.0, 320.0, 0.0, 376.72453850819767, 240.0, 0.0, 0.0, 1.0],
-                    "resolution_x": self.width,
-                    "resolution_y": self.height,
-                    "fov": 45,
-                }
+                "intrinsics": self.camera_intrinsics,
             }
         }
-
-        camera_sampler_dict = {
-            "module": "camera.CameraSampler",
-            "config": {
-            "cam_poses": [
-            {
-                "number_of_samples": 5,
-                "location": {
-                "provider":"sampler.PartSphere",
-                "center": {
-                    "provider": "getter.POI",
-                    "selector": {
-                    "provider": "getter.Entity",
-                    "conditions": {
-                        "cp_category_id": 0,
-                        "type": "MESH"
-                    }
-                    }
-                },
-                "distance_above_center": 0.5,
-                "radius": 1,
-                "mode": "SURFACE"
-                },
-                "rotation": {
-                "format": "look_at",
-                "value": {
-                    "provider": "getter.POI",
-                    "selector": {
-                    "provider": "getter.Entity",
-                    "conditions": {
-                        "cp_category_id": 0,
-                        "type": "MESH"
-                    }
-                    }
-                }
-                }
-            }
-            ]
-            }
-        }
-
-        json_file_name = '/raid/xiaoyuz1/perch/perch_balance/testing_set_3/scene_000010/annotations.json'
-        coco_anno = json.load(open(json_file_name))
-
-        camera_pose_fname = os.path.join(self.scene_folder_path, '{}_CameraPositions'.format(self.scene_name))
-        camear_pose_output_fid = open(camera_pose_fname, 'w+', encoding='utf-8')
-        # cam_poses = []
-        for ann in coco_anno['images']:
-            euler_rot = R.from_quat(ann['rot_quat']).as_euler('xyz')
-            euler_rot = [float(item) for item in euler_rot]
-            location = [float(item) for item in ann['pos']]
-            # pose_dict = {
-            #     "location" : ann['pos'],
-            #     "rotation" : {
-            #         "value" : euler_rot,
-            #     }
-            # }
-            # cam_poses.append(pose_dict)
-
-            line = f'{location[0]} {location[1]} {location[2]} {euler_rot[0]} {euler_rot[1]} {euler_rot[2]}\n'
-            camear_pose_output_fid.write(line)
-        camear_pose_output_fid.close()
-
-        camera_sampler_dict = {
-            "module": "camera.CameraLoader",
-            "config": {
-            "path": camera_pose_fname,
-            "file_format": "location rotation/value",
-            "intrinsics": {
-                "cam_K": [376.72453850819767, 0.0, 320.0, 0.0, 376.72453850819767, 240.0, 0.0, 0.0, 1.0],
-                "resolution_x": 640,
-                "resolution_y": 480,
-            }
-            }
-        }
-
 
         return [camera_sampler_dict]
 
@@ -394,9 +218,105 @@ class BlenderProcScene(object):
         # 
         return output_obj_file
     
+    def get_model_path(self, ann):
+        shapenet_dir = os.path.join(
+            self.shapenet_filepath,
+            '{}/{}'.format(ann['synset_id'], ann['model_id']),
+        )
+        input_obj_file = os.path.join(shapenet_dir, 'models', 'model_normalized.obj')
+        mtl_path = os.path.join(shapenet_dir, 'models', 'model_normalized.mtl')
+        image_material_dir = os.path.join(shapenet_dir, 'images')
+
+        synset_model_dir = os.path.join(self.args.blender_model_root_dir, ann['synset_id'])
+        if not os.path.exists(synset_model_dir):
+            os.mkdir(synset_model_dir)
+        model_dir = os.path.join(synset_model_dir, ann['model_id'])
+        if not os.path.exists(model_dir):
+            os.mkdir(model_dir)
+        model_dir_models = os.path.join(model_dir, 'models')
+        if not os.path.exists(model_dir_models):
+            os.mkdir(model_dir_models)
+        
+        output_obj_file = os.path.join(model_dir_models, 'model_normalized.obj')
+        new_mtl_path = os.path.join(model_dir_models, 'model_normalized.mtl')
+        new_image_dir = os.path.join(model_dir, 'images')
+        if not os.path.exists(new_mtl_path):
+            shutil.copyfile(mtl_path, new_mtl_path)
+
+        if os.path.exists(image_material_dir):
+            if not os.path.exists(new_image_dir):
+                #shutil.rmtree(new_image_dir)
+                shutil.copytree(image_material_dir, new_image_dir) 
+        else:
+            print("WARNING: NO IMAGE DIR FOR TEXTURE", ann)
+        
+        if not os.path.exists(output_obj_file):
+            bp_utils.normalize_obj_file(input_obj_file, output_obj_file)
+        
+        
+        # object_mesh = trimesh.load(output_obj_file, force='mesh')
+        # import pdb; pdb.set_trace()
+        return output_obj_file
+    
     # name, synset_id, model_id
     # actual_size, position, euler
     def create_table(self):
+        synset_id = '04379243'
+        table_id = '97b3dfb3af4487b2b7d2794d2db4b0e7'
+        table_mesh_fname = os.path.join(self.shapenet_filepath, f'{synset_id}/{table_id}/models/model_normalized.obj')
+        # self.table_info = bp_utils.BlenderProcTable(
+        #     model_name=f'{self.train_or_test}_scene_{self.scene_num}_table',
+        #     synset_id=synset_id,
+        #     model_id=table_id,
+        #     shapenet_file_name=table_mesh_fname,
+        #     num_objects_in_scene=self.num_objects,
+        #     table_size=self.args.table_size,
+        # )
+        # ann = self.table_info.get_blender_proc_dict()
+        # table_path = self.save_object_to_file(ann)
+        # table_module = {
+        #     "module": "loader.ObjectLoader",
+        #     "config": {
+        #         "paths": [table_path],
+        #         "add_properties": {
+        #             "cp_physics": False,
+        #             "cp_category_id" : self.num_objects,
+        #             "cp_shape_net_table" : True,
+        #         }
+        #     }
+        # }
+        table_module = {
+            "module": "loader.ShapeNetLoader",
+            "config": {
+                "data_path": self.shapenet_filepath,
+                "used_synset_id": "04379243",
+                "add_properties": {
+                    "cp_physics": False,
+                    "cp_category_id" : self.num_objects,
+                    "cp_shape_net_table" : True,
+                }
+            }
+        }
+        table_rotation = [(1/2)*np.pi,0,0]
+        entity_manipulator = {
+            "module": "manipulators.EntityManipulator",
+            "config": {
+                "selector" : {
+                    "provider" : "getter.Entity",
+                    "check_empty": True,
+                    "conditions": {
+                        "cp_shape_net_table": True,
+                        "type": "MESH"  # this guarantees that the object is a mesh, and not for example a camera
+                    }
+                },
+                "location" : [0,0,0],
+                "scale" : [3] * 3,
+                "rotation_euler" : [float(item) for item in table_rotation],
+            },
+        }
+        return table_module, entity_manipulator
+
+    def create_table_old(self):
         synset_id = '04379243'
         table_id = '97b3dfb3af4487b2b7d2794d2db4b0e7'
         table_mesh_fname = os.path.join(self.shapenet_filepath, f'{synset_id}/{table_id}/models/model_normalized.obj')
@@ -421,6 +341,7 @@ class BlenderProcScene(object):
                 }
             }
         }
+        
         entity_manipulator = {
             "module": "manipulators.EntityManipulator",
             "config": {
@@ -428,7 +349,7 @@ class BlenderProcScene(object):
                     "provider" : "getter.Entity",
                     "check_empty": True,
                     "conditions": {
-                        "name": ann['model_name'],
+                        "cp_shape_net_table": True,
                         "type": "MESH"  # this guarantees that the object is a mesh, and not for example a camera
                     }
                 },
@@ -438,26 +359,28 @@ class BlenderProcScene(object):
         }
         return table_module, entity_manipulator
 
+    
     def create_object(self, object_idx):
         synset_id = '0{}'.format(self.selected_objects[object_idx]['synsetId'])
         model_id = self.selected_objects[object_idx]['ShapeNetModelId']
-        model_name=f'{self.train_or_test}_scene_{self.scene_num}_object_{object_idx}'
+        model_name = f'{self.train_or_test}_scene_{self.scene_num}_object_{object_idx}'
         actual_size = self.selected_objects[object_idx]['size']
+        scale = self.selected_objects[object_idx]['scale']
         
-        shapnet_file_name = os.path.join(self.shapenet_filepath, f'{synset_id}/{model_id}/models/model_normalized.obj')
-        object_info = bp_utils.BlenderProcNonTable(
-            model_name=model_name,
-            synset_id=synset_id,
-            model_id=model_id,
-            shapenet_file_name=shapnet_file_name,
-            num_objects_in_scene=self.num_objects,
-            table_size=self.args.table_size,
-            object_idx=object_idx,
-            selected_object_info=self.selected_objects[object_idx],
-            table_height=self.table_info.height,
-            upright_ratio=self.args.upright_ratio,
-        )
-        self.object_info_dict[object_idx] = object_info
+        # shapnet_file_name = os.path.join(self.shapenet_filepath, f'{synset_id}/{model_id}/models/model_normalized.obj')
+        # object_info = bp_utils.BlenderProcNonTable(
+        #     model_name=model_name,
+        #     synset_id=synset_id,
+        #     model_id=model_id,
+        #     shapenet_file_name=shapnet_file_name,
+        #     num_objects_in_scene=self.num_objects,
+        #     table_size=self.args.table_size,
+        #     object_idx=object_idx,
+        #     selected_object_info=self.selected_objects[object_idx],
+        #     table_height=self.table_info.height,
+        #     upright_ratio=self.args.upright_ratio,
+        # )
+        # self.object_info_dict[object_idx] = object_info
         
         ann = {
             'synset_id' : synset_id,
@@ -465,8 +388,9 @@ class BlenderProcScene(object):
             'model_name' : model_name,
             'actual_size' : actual_size,
         }
-        ann = object_info.get_blender_proc_dict()
-        output_obj_file = self.save_object_to_file(ann)
+        # ann = object_info.get_blender_proc_dict()
+        # output_obj_file = self.save_object_to_file(ann)
+        output_obj_file = self.get_model_path(ann)
         object_module = {
             "module": "loader.ObjectLoader",
             "config": {
@@ -475,17 +399,99 @@ class BlenderProcScene(object):
                     "cp_physics": True,
                     "cp_category_id" : object_idx,
                     "cp_is_object" : True,
+                    "cp_model_name" : ann['model_name'],
                 }
             }
         }
-        # 
+
+        entity_manipulator = {
+            "module": "manipulators.EntityManipulator",
+            "config": {
+                "selector" : {
+                    "provider" : "getter.Entity",
+                    "check_empty": True,
+                    "conditions": {
+                        "cp_model_name": ann['model_name'],
+                        "type": "MESH"  # this guarantees that the object is a mesh, and not for example a camera
+                    }
+                },
+                "scale" : [float(item) for item in scale]
+                # "location" : [float(item) for item in ann['position']],
+                # "rotation_euler" : [float(item) for item in ann['euler']],
+            },
+        }
+
+        # About rotation:
+        if np.random.uniform(0,1) > self.args.upright_ratio:
+            max_rotation = [0,0,0]
+            min_rotation = [6.28,6.28,6.28]
+        else:
+            max_rotation = [(1/2)*np.pi,0,0]
+            min_rotation = [(1/2)*np.pi,0,6.28]
+        
         surface_pose_sampler = {
             "module": "object.OnSurfaceSampler",
             "config": {
                 "objects_to_sample": {
                     "provider": "getter.Entity",
                     "conditions": {
-                        "name": model_name
+                        "cp_model_name": model_name
+                    }
+                },
+                "surface": {
+                    "provider": "getter.Entity",
+                    "index": 0,
+                    "conditions": {
+                       "cp_shape_net_table": True,
+                       "type": "MESH",
+                    }
+                },
+                "pos_sampler": {
+                    "provider": "sampler.UpperRegionSampler",
+                    "to_sample_on": {
+                        "provider": "getter.Entity",
+                        "index": 0,
+                        "conditions": {
+                            "cp_shape_net_table": True,
+                            "type": "MESH",
+                        }
+                    },
+                    "min_height": 0.1,
+                    "max_height": 0.2,
+                    "face_sample_range": [-0.3,0.3],
+                },
+                "min_distance": 0.1,
+                "max_distance": 0.2,
+                "rot_sampler": {
+                    "provider": "sampler.Uniform3d",
+                    "max": max_rotation,
+                    "min": min_rotation,
+                }
+            }
+        }
+
+        
+        # 
+        return object_module, surface_pose_sampler, entity_manipulator
+        
+    def output_yaml(self):
+        table_module, table_manipulator = self.create_table_old()
+        object_loader_module = []
+        object_manipulator_module = []
+        object_surface_sampler_module = []
+        for object_idx in range(len(self.selected_objects)):
+            object_module, surface_pose_sampler, object_manipulator = self.create_object(object_idx)
+            object_loader_module += [object_module]
+            object_manipulator_module += [object_manipulator]
+            object_surface_sampler_module += [surface_pose_sampler]
+        
+        surface_sampler_module_old = [{
+            "module": "object.OnSurfaceSampler",
+            "config": {
+                "objects_to_sample": {
+                    "provider": "getter.Entity",
+                    "conditions": {
+                        "cp_is_object" : True,
                     }
                 },
                 "surface": {
@@ -507,11 +513,11 @@ class BlenderProcScene(object):
                         }
                     },
                     "min_height": 0,
-                    "max_height": 0.5,
+                    "max_height": 0.1,
                     "use_ray_trace_check": False,
                 },
                 "min_distance": 0.1,
-                "max_distance": 0.5,
+                "max_distance": 0.2,
                 "rot_sampler": {
                     "provider": "sampler.Uniform3d",
                     "max": [0,0,0],
@@ -519,33 +525,7 @@ class BlenderProcScene(object):
                 }
             }
         }
-
-        entity_manipulator = {
-            "module": "manipulators.EntityManipulator",
-            "config": {
-                "selector" : {
-                    "provider" : "getter.Entity",
-                    "check_empty": True,
-                    "conditions": {
-                        "name": ann['model_name'],
-                        "type": "MESH"  # this guarantees that the object is a mesh, and not for example a camera
-                    }
-                },
-                "location" : [float(item) for item in ann['position']],
-                "rotation_euler" : [float(item) for item in ann['euler']],
-            },
-        }
-        # import pdb; pdb.set_trace()
-        return object_module, surface_pose_sampler, entity_manipulator
-        
-    def output_yaml(self):
-        table_module, table_manipulator = self.create_table()
-        object_loader_module = [table_module]
-        surface_sampler_module = []
-        for object_idx in range(len(self.selected_objects)):
-            object_module, surface_pose_sampler, object_manipulator = self.create_object(object_idx)
-            object_loader_module += [object_module]
-            surface_sampler_module += [object_manipulator]
+        ]
 
         camera_module = self.add_camera_to_scene()
         light_module = self.add_lights_to_scene()
@@ -561,10 +541,10 @@ class BlenderProcScene(object):
         ]
         write_module = [
             {
-                "module": "writer.ShapeNetWriter"
-            },
-            {
-                "module": "writer.ObjectStateWriter"
+                "module": "writer.ObjectStateWriter",
+                "config" : {
+                    "attributes_to_write" : ["location", "rotation_euler", "matrix_world"]
+                }
             },
             {
                 "module": "writer.CameraStateWriter",
@@ -609,12 +589,14 @@ class BlenderProcScene(object):
             }
         ]
         modules = initialize_module 
+        modules += [table_module]
         modules += object_loader_module
         modules += [table_manipulator]
-        modules += surface_sampler_module
+        modules += object_manipulator_module
+        modules += object_surface_sampler_module
+        modules = modules + physics_positioning_module
         modules = modules + light_module 
         modules = modules + camera_module 
-        modules = modules + physics_positioning_module
         modules = modules + rgb_renderer_module
         modules = modules + write_module
         
@@ -634,6 +616,7 @@ class BlenderProcScene(object):
         print("Output to: ", yaml_fname)
         with open(yaml_fname, 'w+') as outfile:
             yaml.dump(final_yaml_dict, outfile, default_flow_style=False)
+        self.yaml_fname = yaml_fname
 
 
 # obj_paths = []

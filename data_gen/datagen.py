@@ -36,6 +36,29 @@ _ACTUAL_LIMIT_DICT = {
     19 : (0.13, 0.16),
 }
 
+_ACTUAL_LIMIT_BLENDER_DICT = {
+    0 : (0.25, 0.4),
+    1 : (0.25, 0.4),
+    2 : (0.20, 0.3),
+    3 : (0.15, 0.3),
+    4 : (0.15, 0.3),
+    5 : (0.15, 0.3),
+    6 : (0.15, 0.3),
+    7 : (0.15, 0.2),
+    8 : (0.10, 0.20),
+    9 : (0.15, 0.3),
+    10 : (0.15, 0.3),
+    11 : (0.15, 0.3),
+    12 : (0.2, 0.3),
+    13 : (0.2, 0.4),
+    14 : (0.2, 0.4),
+    15 : (0.3, 0.4),
+    16 : (0.15, 0.2),
+    17 : (0.13, 0.18),
+    18 : (0.13, 0.18),
+    19 : (0.13, 0.18),
+}
+
 def read_perch_output_poses(fname):
     annotations = []
     f = open(fname, "r")
@@ -206,7 +229,10 @@ def get_selected_objects(args):
 
     actual_size_choices = {}
     for i in range(len(df)):
-        size_low, size_high = _ACTUAL_LIMIT_DICT[df.iloc[i]['objId']]
+        if not args.blender_proc:
+            size_low, size_high = _ACTUAL_LIMIT_DICT[df.iloc[i]['objId']]
+        else:
+            size_low, size_high = _ACTUAL_LIMIT_BLENDER_DICT[df.iloc[i]['objId']]
         # num_steps = (size_high - size_low) / 0.01 + 1
         actual_size_choices[i] = list(np.linspace(size_low, size_high, 5))
 
@@ -255,6 +281,7 @@ def get_selected_objects(args):
                 'ShapeNetModelId' : row['ShapeNetModelId'],
                 'objId' : row['objId'],
                 'size' : sampled_actual_size,
+                'scale' : [sampled_actual_size / 0.9] * 3,
                 'half_or_whole' : row['half_or_whole'],
                 'perch_rot_angle' : row['perch_rot_angle'],
                 'position' : np.asarray([x,y]),
@@ -274,6 +301,7 @@ def generate_random(args):
 
 def generate_blender(args):
     selected_objects = get_selected_objects(args)
+    all_yaml_file_name = []
     for scene_num in range(args.num_scenes):
         acc_scene_num = scene_num + args.start_scene_idx
         scene_folder_path = None
@@ -281,12 +309,22 @@ def generate_blender(args):
             blender_proc_scene = BlenderProcScene(acc_scene_num, selected_objects[scene_num], args)
             scene_folder_path = blender_proc_scene.scene_folder_path
             blender_proc_scene.output_yaml()
+            all_yaml_file_name.append(blender_proc_scene.yaml_fname)
         except:
             print('##################################### GEN Error!')
             if scene_folder_path is not None:
                 shutil.rmtree(scene_folder_path)
             traceback.print_exc()
 
+    # output to .sh file
+    output_save_dir = os.path.join(args.scene_save_dir, args.train_or_test)
+    sh_fname = os.path.join(output_save_dir, 'blender_proc.sh')
+    output_fid = open(sh_fname, 'w+', encoding='utf-8')
+    tmp_dir = os.path.join(args.scene_save_dir, 'tmp')
+    for yaml_fname in all_yaml_file_name:
+        line = f'python run.py {yaml_fname} --temp-dir {tmp_dir}\n'
+        output_fid.write(line)
+    output_fid.close()
 
 if __name__ == '__main__':
     if args.from_file:
