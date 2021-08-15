@@ -10,20 +10,6 @@ import trimesh
 
 import utils.blender_proc_utils as bp_utils
 import utils.datagen_utils as datagen_utils
-# camera_pos_dir = os.path.join(options.output_root_dir, 'camera_positions')
-# yaml_dir = os.path.join(options.output_root_dir, 'yaml_files')
-# if not os.path.exists(yaml_dir):
-#     os.mkdir(yaml_dir)
-# if not os.path.exists(camera_pos_dir):
-#     os.mkdir(camera_pos_dir)
-
-# json_file_name = '/raid/xiaoyuz1/perch/perch_balance/testing_set_3/scene_000010/annotations.json'
-# coco_anno = json.load(open(json_file_name))
-
-# experiment_name = '_'.join(json_file_name.split('/')[-3:-1])
-# print("Experiment name: ", experiment_name)
-# blender_proc_output_dir = os.path.join(options.output_root_dir, experiment_name)
-# print("Output directory name: ", blender_proc_output_dir)
 
 class BlenderProcScene(object):
     
@@ -74,6 +60,9 @@ class BlenderProcScene(object):
         #     self.create_object(object_idx)
         # self.total_camera_num = 0
         # self.camera_info_dict = dict()
+        
+        self.config = yaml.load(open(args.blender_proc_config), Loader=yaml.SafeLoader)
+        self.all_available_tables = json.load(open(self.config['table_json']))
 
         self.camera_intrinsics = {
             "cam_K": [376.72453850819767, 0.0, 320.0, 0.0, 376.72453850819767, 240.0, 0.0, 0.0, 1.0],
@@ -93,20 +82,20 @@ class BlenderProcScene(object):
                 }
             }
         }
-        mean_position_part_sphere_location = {
-            "provider":"sampler.PartSphere",
-            "center": mean_position_center,
-            "radius": 1,
-            "distance_above_center": 0.1,
-            "mode": "SURFACE"
-        }
+        # mean_position_part_sphere_location = {
+        #     "provider":"sampler.PartSphere",
+        #     "center": mean_position_center,
+        #     "radius": 1,
+        #     "distance_above_center": 0.1,
+        #     "mode": "SURFACE"
+        # }
         mean_position_shell_location = {
             "provider":"sampler.Shell",
             "center": mean_position_center,
-            "radius_min": 0.6,
-            "radius_max": 1,
-            "elevation_min": 30,
-            "elevation_max": 60,
+            "radius_min": float(self.config['camera']['radius_min']),
+            "radius_max": float(self.config['camera']['radius_max']),
+            "elevation_min": float(self.config['camera']['elevation_min']),
+            "elevation_max": float(self.config['camera']['elevation_max']),
             "uniform_elevation": True,
         }
         
@@ -115,7 +104,32 @@ class BlenderProcScene(object):
             "config": {
                 "cam_poses": [
                     {
-                        "number_of_samples": 20,
+                        "proximity_checks": {
+                            "min": 0.3,
+                        },
+                        "excluded_objs_in_proximity_check":  [
+                            {
+                                "provider": "getter.Entity",
+                                "conditions": {
+                                    "cp_physics": False,
+                                }
+                            },
+                            # {
+                            #     "provider": "getter.Entity",
+                            #     "conditions": {
+                            #         "name": "ground_plane.*",
+                            #         "type": "MESH",
+                            #     }
+                            # },
+                        ],
+                        "number_of_samples": int(self.config['camera']['number_of_samples']),
+                        "check_if_objects_visible": {
+                            "provider": "getter.Entity",
+                            "conditions": {
+                                "cp_is_object": True,
+                                "type": "MESH"
+                            }
+                        },
                         "location": mean_position_shell_location,
                         "rotation": {
                             "format": "look_at",
@@ -129,22 +143,19 @@ class BlenderProcScene(object):
 
         return [camera_sampler_dict]
 
-
     def add_lights_to_scene(self):
-        light_module = [
-            {
-            "module": "lighting.LightLoader",
-            "config": {
-                "lights": [
-                {
-                    "type": "POINT",
-                    "location": [1, 1, 1],
-                    "energy": 1000
-                }
-                ]
-            }
-            }
-        ]
+        # light_module = {
+        #     "module": "lighting.LightLoader",
+        #     "config": {
+        #         "lights": [
+        #             {
+        #                 "type": "POINT",
+        #                 "location": [1, 1, 1],
+        #                 "energy": 1000
+        #             },
+        #         ]
+        #     },
+        # }
         light_location = {
             "provider": "sampler.Shell",
             "center": {
@@ -157,12 +168,18 @@ class BlenderProcScene(object):
                     }
                 }
             },
-            "radius_min": 1,
-            "radius_max": 5,
-            "elevation_min": 1,
-            "elevation_max": 89,
+            "radius_min": self.config['light']['radius_min'],
+            "radius_max": self.config['light']['radius_max'],
+            "elevation_min": self.config['light']['elevation_min'],
+            "elevation_max": self.config['light']['elevation_max'],
             "uniform_elevation": True
         }
+        
+        
+        
+        min_number_of_samples = self.config['light']['min_number_of_samples']
+        max_number_of_samples = self.config['light']['max_number_of_samples']+1
+        num_lights = np.random.randint(min_number_of_samples, max_number_of_samples)
         light_module = [{
             "module": "lighting.LightSampler",
             "config": {
@@ -173,16 +190,132 @@ class BlenderProcScene(object):
                         "energy": {
                             "provider": "sampler.Value",
                             "type": "int",
-                            "min": 100,
-                            "max": 1000
+                            "min": self.config['light']['min_intensity'],
+                            "max": self.config['light']['max_intensity'],
                         }
                     }
-                ] * self.num_lights 
+                ] * num_lights
             }
         }]
         return light_module
     
-    def save_object_to_file(self, ann):
+    def add_random_room(self):
+        room_constructor = {
+            "module": "constructor.RandomRoomConstructor",
+            "config": {
+                "floor_area": 100,
+                "amount_of_extrusions": 5,
+                "used_loader_config": [
+                    # {
+                    #     "module": "loader.ShapeNetLoader",
+                    #     "config": {
+                    #         "data_path": self.shapenet_filepath,
+                    #         "used_synset_id": "04256520",
+                    #     },
+                    #     "amount_of_repetitions": 1,
+                    # },
+                ],
+                "add_properties": {
+                    "cp_category_id" : 0,
+                }
+            }
+        }
+        return [room_constructor]
+    
+    def add_walls(self):
+        area_size = 5
+        walls = {
+            "module": "constructor.BasicMeshInitializer",
+            "config": {
+                "meshes_to_add": [
+                {
+                    "type": "plane",
+                    "name": "ground_plane0",
+                    "scale": [area_size, area_size, 1]
+                    },
+                {
+                    "type": "plane",
+                    "name": "ground_plane1",
+                    "scale": [area_size, area_size, 1],
+                    "location": [0, -area_size, area_size],
+                    "rotation": [-1.570796, 0, 0] # switch the sign to turn the normals to the outside
+                    },
+                {
+                    "type": "plane",
+                    "name": "ground_plane2",
+                    "scale": [area_size, area_size, 1],
+                    "location": [0, area_size, area_size],
+                    "rotation": [1.570796, 0, 0]
+                    },
+                {
+                    "type": "plane",
+                    "name": "ground_plane3",
+                    "scale": [area_size, area_size, 1],
+                    "location": [area_size, 0, area_size],
+                    "rotation": [0, -1.570796, 0]
+                    },
+                {
+                    "type": "plane",
+                    "name": "ground_plane4",
+                    "scale": [area_size, area_size, 1],
+                    "location": [-area_size, 0, area_size],
+                    "rotation": [0, 1.570796, 0]
+                    },
+                # {
+                #     "type": "plane",
+                #     "name": "light_plane",
+                #     "location": [0, 0, 10],
+                #     "scale": [area_size, area_size, 1]
+                #     }
+                ]
+            }
+        }
+        plane_physics = {
+            "module": "manipulators.EntityManipulator",
+            "config": {
+                "selector": {
+                "provider": "getter.Entity",
+                "conditions": {
+                    "name": '.*plane.*'
+                }
+                },
+                "cp_physics": False,
+                "cp_category_id": 0,
+            }
+        }
+        # self.num_objects+2
+
+        wall_material_module = []
+        for wall_idx in range(5):
+            wall_name = f"ground_plane{wall_idx}"
+            wall_material_module.append(
+                {
+                    "module": "manipulators.EntityManipulator",
+                    "config": {
+                        "selector": {
+                        "provider": "getter.Entity",
+                        "conditions": {
+                            "name": wall_name,
+                        }
+                        },
+                        "mode": "once_for_all",
+                        "cf_randomize_materials": {
+                            "randomization_level": 1,
+                            "materials_to_replace_with": {
+                                "provider": "getter.Material",
+                                "random_samples": 1,
+                                "conditions": {
+                                    "cp_is_cc_texture": True
+                                }
+                            }
+                        }
+                    }
+                }
+            )
+        
+        return [walls, plane_physics] + wall_material_module
+    
+    def save_object_to_file(self, ann, actual_size_used=True):
         shapenet_dir = os.path.join(
             self.shapenet_filepath,
             '{}/{}'.format(ann['synset_id'], ann['model_id']),
@@ -211,11 +344,12 @@ class BlenderProcScene(object):
             
             shutil.copytree(image_material_dir, new_image_dir) 
 
-        x,y,z = ann['actual_size']
-        bp_utils.scale_obj_file(input_obj_file, output_obj_file, np.array([x,z,y]), add_name=ann['model_name'])
+        if actual_size_used:
+            x,y,z = ann['actual_size']
+            bp_utils.scale_obj_file(input_obj_file, output_obj_file, np.array([x,z,y]), add_name=ann['model_name'])
+        else:
+            bp_utils.normalize_obj_file(input_obj_file, output_obj_file, add_name=ann['model_name'])
 
-        # object_mesh = trimesh.load(output_obj_file, force='mesh')
-        # 
         return output_obj_file
     
     def get_model_path(self, ann):
@@ -262,29 +396,8 @@ class BlenderProcScene(object):
     # actual_size, position, euler
     def create_table(self):
         synset_id = '04379243'
-        table_id = '97b3dfb3af4487b2b7d2794d2db4b0e7'
+        table_id = np.random.choice(self.all_available_tables)
         table_mesh_fname = os.path.join(self.shapenet_filepath, f'{synset_id}/{table_id}/models/model_normalized.obj')
-        # self.table_info = bp_utils.BlenderProcTable(
-        #     model_name=f'{self.train_or_test}_scene_{self.scene_num}_table',
-        #     synset_id=synset_id,
-        #     model_id=table_id,
-        #     shapenet_file_name=table_mesh_fname,
-        #     num_objects_in_scene=self.num_objects,
-        #     table_size=self.args.table_size,
-        # )
-        # ann = self.table_info.get_blender_proc_dict()
-        # table_path = self.save_object_to_file(ann)
-        # table_module = {
-        #     "module": "loader.ObjectLoader",
-        #     "config": {
-        #         "paths": [table_path],
-        #         "add_properties": {
-        #             "cp_physics": False,
-        #             "cp_category_id" : self.num_objects,
-        #             "cp_shape_net_table" : True,
-        #         }
-        #     }
-        # }
         table_module = {
             "module": "loader.ShapeNetLoader",
             "config": {
@@ -292,7 +405,7 @@ class BlenderProcScene(object):
                 "used_synset_id": "04379243",
                 "add_properties": {
                     "cp_physics": False,
-                    "cp_category_id" : self.num_objects,
+                    "cp_category_id" : self.num_objects+1,
                     "cp_shape_net_table" : True,
                 }
             }
@@ -318,15 +431,17 @@ class BlenderProcScene(object):
 
     def create_table_old(self):
         synset_id = '04379243'
-        table_id = '97b3dfb3af4487b2b7d2794d2db4b0e7'
-        table_mesh_fname = os.path.join(self.shapenet_filepath, f'{synset_id}/{table_id}/models/model_normalized.obj')
+        # table_id = '97b3dfb3af4487b2b7d2794d2db4b0e7'
+        # table_id = np.random.choice(self.all_available_tables)
+        # table_mesh_fname = os.path.join(self.shapenet_filepath, f'{synset_id}/{table_id}/models/model_normalized.obj')
         self.table_info = bp_utils.BlenderProcTable(
             model_name=f'{self.train_or_test}_scene_{self.scene_num}_table',
             synset_id=synset_id,
-            model_id=table_id,
-            shapenet_file_name=table_mesh_fname,
+            model_id_available=self.all_available_tables,
+            shapenet_filepath=self.shapenet_filepath,
             num_objects_in_scene=self.num_objects,
             table_size=self.args.table_size,
+            table_size_xyz = self.args.table_size_xyz,
         )
         ann = self.table_info.get_blender_proc_dict()
         table_path = self.save_object_to_file(ann)
@@ -336,7 +451,7 @@ class BlenderProcScene(object):
                 "paths": [table_path],
                 "add_properties": {
                     "cp_physics": False,
-                    "cp_category_id" : self.num_objects,
+                    "cp_category_id" : self.num_objects+1,
                     "cp_shape_net_table" : True,
                 }
             }
@@ -389,15 +504,15 @@ class BlenderProcScene(object):
             'actual_size' : actual_size,
         }
         # ann = object_info.get_blender_proc_dict()
-        # output_obj_file = self.save_object_to_file(ann)
-        output_obj_file = self.get_model_path(ann)
+        output_obj_file = self.save_object_to_file(ann, actual_size_used=False)
+        # output_obj_file = self.get_model_path(ann)
         object_module = {
             "module": "loader.ObjectLoader",
             "config": {
                 "path": output_obj_file,
                 "add_properties": {
                     "cp_physics": True,
-                    "cp_category_id" : object_idx,
+                    "cp_category_id" : object_idx+1,
                     "cp_is_object" : True,
                     "cp_model_name" : ann['model_name'],
                 }
@@ -411,6 +526,7 @@ class BlenderProcScene(object):
                     "provider" : "getter.Entity",
                     "check_empty": True,
                     "conditions": {
+                        "name" : ann['model_name'],
                         "cp_model_name": ann['model_name'],
                         "type": "MESH"  # this guarantees that the object is a mesh, and not for example a camera
                     }
@@ -429,53 +545,58 @@ class BlenderProcScene(object):
             max_rotation = [(1/2)*np.pi,0,0]
             min_rotation = [(1/2)*np.pi,0,6.28]
         
-        surface_pose_sampler = {
-            "module": "object.OnSurfaceSampler",
-            "config": {
-                "objects_to_sample": {
-                    "provider": "getter.Entity",
-                    "conditions": {
-                        "cp_model_name": model_name
-                    }
-                },
-                "surface": {
-                    "provider": "getter.Entity",
-                    "index": 0,
-                    "conditions": {
-                       "cp_shape_net_table": True,
-                       "type": "MESH",
-                    }
-                },
-                "pos_sampler": {
-                    "provider": "sampler.UpperRegionSampler",
-                    "to_sample_on": {
-                        "provider": "getter.Entity",
-                        "index": 0,
-                        "conditions": {
-                            "cp_shape_net_table": True,
-                            "type": "MESH",
-                        }
-                    },
-                    "min_height": 0.1,
-                    "max_height": 0.2,
-                    "face_sample_range": [-0.3,0.3],
-                },
-                "min_distance": 0.1,
-                "max_distance": 0.2,
-                "rot_sampler": {
-                    "provider": "sampler.Uniform3d",
-                    "max": max_rotation,
-                    "min": min_rotation,
-                }
-            }
-        }
+        face_sample_range_min = self.config['object_on_surface_sampler']['face_sample_range_min']
+        face_sample_range_min = float(face_sample_range_min)
+        face_sample_range_max = self.config['object_on_surface_sampler']['face_sample_range_max']
+        face_sample_range_max = float(face_sample_range_max)
+
+        # surface_pose_sampler = {
+        #     "module": "object.OnSurfaceSampler",
+        #     "config": {
+        #         "objects_to_sample": {
+        #             "provider": "getter.Entity",
+        #             "conditions": {
+        #                 "cp_model_name": model_name
+        #             }
+        #         },
+        #         "surface": {
+        #             "provider": "getter.Entity",
+        #             "index": 0,
+        #             "conditions": {
+        #                "cp_shape_net_table": True,
+        #                "type": "MESH",
+        #             }
+        #         },
+        #         "pos_sampler": {
+        #             "provider": "sampler.UpperRegionSampler",
+        #             "to_sample_on": {
+        #                 "provider": "getter.Entity",
+        #                 "index": 0,
+        #                 "conditions": {
+        #                     "cp_shape_net_table": True,
+        #                     "type": "MESH",
+        #                 }
+        #             },
+        #             "min_height": 0.1,
+        #             "max_height": 0.2,
+        #             "face_sample_range": [face_sample_range_min,face_sample_range_max],
+        #         },
+        #         "min_distance": 0.1,
+        #         "max_distance": 0.2,
+        #         "rot_sampler": {
+        #             "provider": "sampler.Uniform3d",
+        #             "max": max_rotation,
+        #             "min": min_rotation,
+        #         }
+        #     }
+        # }
 
         
         # 
-        return object_module, surface_pose_sampler, entity_manipulator
+        return object_module, None, entity_manipulator
         
     def output_yaml(self):
-        table_module, table_manipulator = self.create_table_old()
+        # table_module, table_manipulator = self.create_table_old()
         object_loader_module = []
         object_manipulator_module = []
         object_surface_sampler_module = []
@@ -485,21 +606,33 @@ class BlenderProcScene(object):
             object_manipulator_module += [object_manipulator]
             object_surface_sampler_module += [surface_pose_sampler]
         
-        surface_sampler_module_old = [{
+
+        # About rotation:
+        if np.random.uniform(0,1) > self.args.upright_ratio:
+            max_rotation = [0,0,0]
+            min_rotation = [6.28,6.28,6.28]
+        else:
+            max_rotation = [(1/2)*np.pi,0,0]
+            min_rotation = [(1/2)*np.pi,0,6.28]
+        
+        face_sample_range_min = self.config['object_on_surface_sampler']['face_sample_range_min']
+        face_sample_range_min = float(face_sample_range_min)
+        face_sample_range_max = self.config['object_on_surface_sampler']['face_sample_range_max']
+        face_sample_range_max = float(face_sample_range_max)
+        object_surface_sampler_module = [{
             "module": "object.OnSurfaceSampler",
             "config": {
                 "objects_to_sample": {
                     "provider": "getter.Entity",
                     "conditions": {
-                        "cp_is_object" : True,
+                        "cp_physics": True
                     }
                 },
                 "surface": {
                     "provider": "getter.Entity",
                     "index": 0,
                     "conditions": {
-                       "cp_shape_net_table": True,
-                       "type": "MESH",
+                       "name": "ground_plane0"
                     }
                 },
                 "pos_sampler": {
@@ -508,20 +641,19 @@ class BlenderProcScene(object):
                         "provider": "getter.Entity",
                         "index": 0,
                         "conditions": {
-                            "cp_shape_net_table": True,
-                            "type": "MESH",
+                            "name": "ground_plane0"
                         }
                     },
-                    "min_height": 0,
-                    "max_height": 0.1,
-                    "use_ray_trace_check": False,
+                    "min_height": 0.5,
+                    "max_height": 1,
+                    "face_sample_range": [0.4, 0.6],
                 },
-                "min_distance": 0.1,
-                "max_distance": 0.2,
+                "min_distance": 0.01,
+                "max_distance": 0.20,
                 "rot_sampler": {
                     "provider": "sampler.Uniform3d",
-                    "max": [0,0,0],
-                    "min": [0,0,6.28],
+                    "max": max_rotation,
+                    "min": min_rotation,
                 }
             }
         }
@@ -539,17 +671,37 @@ class BlenderProcScene(object):
                 }
             },
         ]
+        seg_renderer_module = [
+            {
+                "module": "renderer.SegMapRenderer",
+                "config": {
+                    "map_by": ["instance", "class", "name"],
+                    "default_values": {
+                        "class": 0,
+                        "cp_category_id" : 0,
+                    },
+                }
+            },
+        ]
         write_module = [
             {
                 "module": "writer.ObjectStateWriter",
                 "config" : {
-                    "attributes_to_write" : ["location", "rotation_euler", "matrix_world"]
+                    "attributes_to_write" : ["name", "location", "rotation_euler", "matrix_world"]
                 }
+            },
+            {
+                "module": "writer.LightStateWriter"
             },
             {
                 "module": "writer.CameraStateWriter",
                 "config": {
                     "attributes_to_write": ["location", "rotation_euler", "fov_x", "fov_y", "shift_x", "shift_y", "cam_K", "cam2world_matrix"]
+                }
+            },
+            {
+                "module": "writer.CocoAnnotationsWriter",
+                "config": {
                 }
             },
             {
@@ -588,17 +740,123 @@ class BlenderProcScene(object):
                 }
             }
         ]
+        additional_light_module = [{
+            "module": "lighting.SurfaceLighting",
+            "config": {
+                "selector": {
+                "provider": "getter.Entity",
+                "conditions": {
+                    "name": "Ceiling"
+                },
+                "emission_strength": 4.0
+                }
+            }
+        }]
+        world_module = [
+            {
+                "module": "manipulators.WorldManipulator",
+                "config": {
+                    "cf_set_world_category_id": self.num_objects+1,
+                }
+            }
+        ]
+        cc_preload = [{
+            "module": "loader.CCMaterialLoader",
+            "config": {
+                # "used_assets": [
+                #     "Bricks", 
+                #     "Wood", 
+                #     "Carpet", 
+                #     "Tiles", 
+                #     "Marble",
+                #     "OfficeCeiling",
+                #     "Concrete",
+                # ],
+                "folder_path": self.args.cctextures_path,
+                "preload": True,
+            }
+        }]
+        material_manipulator = [{
+            "module": "manipulators.EntityManipulator",
+            "config": {
+                "selector": {
+                    "provider": "getter.Entity",
+                    "conditions": {
+                        "type": "MESH"
+                    }
+                },
+                "cf_randomize_materials": {
+                    "randomization_level": float(self.config['material_randomization_level']),
+                    "materials_to_replace_with": {
+                        "provider": "getter.Material",
+                        "random_samples": 1,
+                        "conditions": {
+                            "cp_is_cc_texture": True  # this will return one random loaded cc textures
+                        }
+                    }
+                }
+            }
+        },
+        ]
+        cc_fill_in = [
+            {
+                "module": "loader.CCMaterialLoader",
+                "config": {
+                    "folder_path": self.args.cctextures_path,
+                    "fill_used_empty_materials": True
+                }
+            },
+        ]
+        wall_material_module = [{
+            "module": "manipulators.EntityManipulator",
+            "config": {
+                "selector": {
+                "provider": "getter.Entity",
+                "conditions": {
+                    "name": "ground_plane.*"
+                }
+                },
+                "mode": "once_for_all",
+                "cf_randomize_materials": {
+                    "randomization_level": 1,
+                    "materials_to_replace_with": {
+                        "provider": "getter.Material",
+                        "random_samples": 1,
+                        "conditions": {
+                            "cp_is_cc_texture": True
+                        }
+                    }
+                }
+            }
+        }]
         modules = initialize_module 
-        modules += [table_module]
+        # modules += [table_module]
         modules += object_loader_module
-        modules += [table_manipulator]
+        # modules += [table_manipulator]
         modules += object_manipulator_module
+
+        modules += cc_preload
+        modules += material_manipulator
+        # modules += self.add_random_room()
+        modules += self.add_walls()
+        
+
+
         modules += object_surface_sampler_module
-        modules = modules + physics_positioning_module
-        modules = modules + light_module 
-        modules = modules + camera_module 
-        modules = modules + rgb_renderer_module
-        modules = modules + write_module
+        modules += physics_positioning_module
+        modules += world_module
+        # modules += cc_preload
+        # modules += material_manipulator
+        # # modules += self.add_random_room()
+        # modules += self.add_walls()
+        # # modules += wall_material_module
+        modules += cc_fill_in
+        modules += light_module 
+        # modules += additional_light_module
+        modules += camera_module 
+        modules += rgb_renderer_module
+        modules += seg_renderer_module
+        modules += write_module
         
         final_yaml_dict = {
             "version": 3,

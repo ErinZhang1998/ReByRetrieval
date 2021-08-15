@@ -40,7 +40,9 @@ parser.add_argument("--camera_annotation_file", dest="camera_annotation_file", h
 # For blender proc
 parser.add_argument("--blender_proc", action="store_true", dest="blender_proc")
 parser.add_argument("--blender_model_root_dir", dest="blender_model_root_dir", default='/raid/xiaoyuz1/perch/blender_models')
-# parser.add_argument("--output_root_dir", dest="output_root_dir", default='/raid/xiaoyuz1/perch/blender_proc')
+parser.add_argument("--cctextures_path", dest="cctextures_path", default='/raid/xiaoyuz1/cctextures')
+parser.add_argument("--blender_proc_config", dest="blender_proc_config")
+parser.add_argument('--table_size_xyz', dest='table_size_xyz', nargs='+', type=float)
 
 
 args = parser.parse_args()

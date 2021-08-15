@@ -119,6 +119,72 @@ class InCategoryClutterDataset(Dataset):
             fig = plt.figure(figsize=(12, 12))
             plt.imshow(np.asarray(rgb_all))
             plt.show()
+    
+    def load_annotations_blender_proc(self, dir_path, idx):
+        annotations = json.load(open(os.path.join(dir_path, 'annotations.json')))
+        scene_num = annotations['info']['scene_num']
+
+        image_id_to_image_fname = {}
+        for v in annotations['images']:
+            image_id_to_image_fname[v['id']] = v
+        
+        category_id_to_model = {}
+        for v in annotations['categories']:
+            category_id_to_model[v['id']] = v
+        
+        data_dict = dict()
+        scene_dict = dict()
+        idx_i = idx
+
+        for ann in annotations['annotations']:
+            image_id = ann['image_id']
+            category_id = ann['category_id']
+            sample_id_int = [scene_num, image_id, category_id]
+            sample_id = '-'.join([str(item) for item in sample_id_int])
+                        
+            rgb_file = image_id_to_image_fname[image_id]['file_name']
+            object_mask_path = ann['mask_file_path']
+            all_object_mask_path = image_id_to_image_fname[image_id]['all_object_segmentation_path']
+            all_object_with_table_mask_path = image_id_to_image_fname[image_id]['all_object_with_table_segmentation_path']
+            corners = image_id_to_image_fname[image_id]['all_object_bbox']
+            cmin, rmin, cleng, rleng = ann['bbox']
+            rmax = rmin + rleng
+            cmax = cmin + cleng
+            bbox_2d = np.array([[cmin, rmin],[cmax, rmax]])
+            
+            sample = {
+                'sample_id' : sample_id,
+                'sample_id_int' : sample_id_int,
+                'position' : np.asarray(ann['location']),
+                'scale' : category_id_to_model[category_id]["size"][0],
+                'obj_cat' : category_id_to_model[category_id]["shapenet_category_id"],
+                'obj_id' : category_id_to_model[category_id]["shapenet_object_id"],
+                'rgb_file' : os.path.join(self.scene_dir_parent, rgb_file),
+                'object_mask_path' : os.path.join(self.scene_dir_parent, object_mask_path),
+                'all_object_mask_path' : os.path.join(self.scene_dir_parent, all_object_mask_path),
+                'all_object_with_table_mask_path' : os.path.join(self.scene_dir_parent, all_object_with_table_mask_path),
+                'object_position_2d' : np.asarray(ann['center']),
+                'scene_bounds' : np.asarray(corners),
+                'total_pixel_in_scene' : ann['number_pixels'],
+                'pix_left_ratio' : percentage_not_occluded,
+                'area_type' : area_type,
+                'object_bbox_world_frame_2d' : bbox_2d,
+            }
+            scene_dict_l_must,  scene_dict_l_one = scene_dict.get((scene_num, image_id), ([],[]))
+            if self.split == "train":
+                if (percentage_not_occluded <= 0.95): #or (cam_d['occlusion_target'] == object_idx):
+                    scene_dict_l_must.append(idx_i)
+                else:
+                    scene_dict_l_one.append(idx_i)
+            else:
+                scene_dict_l_must.append(idx_i)
+            
+            scene_dict[(scene_num, image_id)] = (scene_dict_l_must, scene_dict_l_one)
+            data_dict[idx_i] = sample 
+            self.sample_id_to_idx[sample_id] = idx_i
+            idx_i += 1
+        
+        return data_dict, scene_dict, idx_i
 
     
     def load_annotations(self, dir_path, idx):

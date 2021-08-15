@@ -1,10 +1,13 @@
 import re 
 import os 
+import json
+import ast 
 import numpy as np 
 import trimesh
 import h5py
 
 from scipy.spatial.transform import Rotation as R, rotation        
+
 
 class BlenderProcObject(object):
     def __init__(
@@ -51,22 +54,28 @@ class BlenderProcObject(object):
 
 class BlenderProcTable(BlenderProcObject):
     def __init__(self, **kwargs):
+        
+        table_id = np.random.choice(kwargs['model_id_available'])
+        synset_id = kwargs['synset_id']
+        table_mesh_fname = os.path.join(kwargs['shapenet_filepath'], f'{synset_id}/{table_id}/models/model_normalized.obj')
         super().__init__(
             model_name = kwargs['model_name'],
             synset_id = kwargs['synset_id'],
-            model_id = kwargs['model_id'],
-            shapenet_file_name = kwargs['shapenet_file_name'],
+            model_id = table_id,
+            shapenet_file_name = table_mesh_fname,
             num_objects_in_scene = kwargs['num_objects_in_scene'],
-        )
+        )  
+        
         self.table_size = kwargs['table_size']
-        
+        self.table_size_xyz = kwargs['table_size_xyz']
         self.rot = R.from_euler('xyz', np.zeros(3), degrees=False) 
-        
 
         table_bounds = self.object_mesh.bounds
-        table_xyz_range = np.min(table_bounds[1, :2] - table_bounds[0, :2])
-        table_scale = self.table_size/table_xyz_range
-        scale_vec = np.array([table_scale]*3)
+        # table_xyz_range = np.min(table_bounds[1, :2] - table_bounds[0, :2])
+        # table_scale = self.table_size/table_xyz_range
+        # scale_vec = np.array([table_scale]*3)
+        scale_vec = np.asarray(self.table_size_xyz) / (table_bounds[1] - table_bounds[0])
+       
         scale_matrix = np.eye(4)
         scale_matrix[:3, :3] *= scale_vec
         self.object_mesh.apply_transform(scale_matrix)
@@ -78,7 +87,8 @@ class BlenderProcTable(BlenderProcObject):
         self.height = self.object_mesh.bounds[1][2] - self.object_mesh.bounds[0][2]
         self.pos = np.array([0.0, 0.0, -self.object_mesh.bounds[0][2]])
         self.scale = scale_vec
-        
+
+              
 
     
 class BlenderProcNonTable(BlenderProcObject):
@@ -278,22 +288,11 @@ def scale_obj_file(input_obj_file, output_obj_file, actual_size, add_name = None
     return total_size, centroid
 
 
-def load_h5py_result(path):
-    output_dict = {}
-    if os.path.exists(path):
-        if os.path.isfile(path):
-            fh = h5py.File(path, 'r')
-            print(path + " contains the following keys: " + str(data.keys()))
-            keys = [key for key in data.keys()]
 
-            # Visualize every key
-            for key in keys:
-                value = np.array(data[key])
-                output_dict[key] = data[key]
-                
-            fh.close()
-        else:
-            print("The path is not a file")
-    else:
-        print("The file does not exist")
-    return output_dict
+def load_h5py_result(scene_dir, image_id):
+    # coco_annos = json.load(open(os.path.join(scene_dir, 'coco_data', 'coco_annotations.json')))
+    # for ann in coco_annos['images']:
+        # image_id = ann['id']
+    fh = h5py.File(os.path.join(scene_dir, '{}.hdf5'.format(image_id)), 'r')
+    # object_mask_path = ann['mask_file_path']
+    segcolormap = ast.literal_eval(np.array(fh.get('segcolormap')).tolist().decode('UTF-8'))

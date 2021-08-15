@@ -1,0 +1,20 @@
+table_json : /raid/xiaoyuz1/training_shapenet_tables.json
+camera:
+    number_of_samples : 5
+    elevation_min : 5
+    elevation_max : 30
+    radius_min : 0.6
+    radius_max : 0.9
+light:
+    min_number_of_samples : 3
+    max_number_of_samples : 5
+    elevation_min : 1
+    elevation_max : 89
+    radius_min : 2
+    radius_max : 10
+    min_intensity : 500
+    max_intensity : 800
+object_on_surface_sampler:
+    face_sample_range_min : 0.25
+    face_sample_range_max : 0.75
+material_randomization_level : 1.0
