@@ -333,7 +333,7 @@ def save_normalized_object_to_file(shapenet_filepath, normalized_model_save_dir,
 
     max_min_info_fname = os.path.join(model_dir, 'info.pkl')
     with open(max_min_info_fname, 'wb+') as fh:
-        pickle.dump([bb_max, bb_min], max_min_info_fname)
+        pickle.dump([bb_max, bb_min], fh)
 
     return output_obj_file, bb_max, bb_min
 
@@ -341,9 +341,61 @@ def load_max_min_info(model_dir):
     bb_max, bb_min = None, None 
     max_min_info_fname = os.path.join(model_dir, 'info.pkl')
     with open(max_min_info_fname, 'rb') as fh:
-        bb_max, bb_min = pickle.load(max_min_info_fname)
+        bb_max, bb_min = pickle.load(fh)
 
     return bb_max, bb_min
+
+def rleToMask(rleNumbers, height, width):
+    rlePairs = np.array(rleNumbers).reshape(-1,2)
+    img = np.zeros(height*width,dtype=np.uint8)
+    for index,length in rlePairs:
+        index -= 1
+        img[index:index+length] = 255
+    img = img.reshape(width,height)
+    img = img.T
+    return img
+
+def from_yaml_to_object_information(yami_file_obj, df):
+    object_from_yaml = {}
+    for module in yami_file_obj['modules']:
+        if module['module'] == 'loader.ObjectLoader':
+            model_name = module['config']['add_properties']['cp_model_name']
+            model_info = {}
+            if 'path' in module['config']:
+                path = module['config']['path']
+            else:
+                path = module['config']['paths'][0]
+            
+            model_info = {
+                'category_id' : module['config']['add_properties']['cp_category_id'],
+                'path' : path,
+            }
+            if model_name.split('_')[-2] == 'object':
+                synset_id = path.split('/')[-4]
+                model_id = path.split('/')[-3]
+                obj_cat = df[df['ShapeNetModelId'] == model_id].catId.values[0]
+                obj_id = df[df['ShapeNetModelId'] == model_id].objId.values[0]
+                
+                model_info.update({
+                    'obj_cat' : obj_cat,
+                    'obj_id' : obj_id,
+                })
+                
+            object_from_yaml[model_name] = model_info
+
+        if module['module'] == 'manipulators.EntityManipulator':
+            if 'scale' not in module['config']:
+                continue
+            model_name = module['config']['selector']['conditions']['cp_model_name']
+            model_info = object_from_yaml.get(model_name, {})
+            model_info.update({
+                'scale' : module['config']['scale'][0]
+            })
+    
+    model_info_category_id = {}
+    for model_name, model_info in object_from_yaml.items():
+        model_info_category_id[int(model_info['category_id'])] = model_info
+    return model_info_category_id
 
 def load_h5py_result(scene_dir, image_id):
     # coco_annos = json.load(open(os.path.join(scene_dir, 'coco_data', 'coco_annotations.json')))

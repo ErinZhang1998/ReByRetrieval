@@ -60,8 +60,14 @@ class BlenderProcScene(object):
             "resolution_y": self.height,
         }
 
-    def add_camera_to_scene(self):
+    def add_camera_to_scene(self, radius_min=None):
         camera_config = self.config['camera']
+        if radius_min is not None:
+            radius_min = radius_min #+ camera_config['radius_gap']
+            radius_max = radius_min + camera_config['radius_gap'] #* 2
+        else:
+            radius_min = camera_config['radius_min']
+            radius_max = camera_config['radius_max']
         mean_position_center = {
             "provider": "getter.POI",
             "selector": {
@@ -75,8 +81,8 @@ class BlenderProcScene(object):
         mean_position_shell_location = {
             "provider":"sampler.Shell",
             "center": mean_position_center,
-            "radius_min": float(camera_config['radius_min']),
-            "radius_max": float(camera_config['radius_max']),
+            "radius_min": float(radius_min),
+            "radius_max": float(radius_max),
             "elevation_min": float(camera_config['elevation_min']),
             "elevation_max": float(camera_config['elevation_max']),
             "uniform_elevation": True,
@@ -88,6 +94,12 @@ class BlenderProcScene(object):
                 "cam_poses": [
                     {
                         "max_tries" : camera_config["max_tries"],
+                        "number_of_samples": int(camera_config['number_of_samples']),
+                        "location": mean_position_shell_location,
+                        "rotation": {
+                            "format": "look_at",
+                            "value": mean_position_center,
+                        },
                         # "check_pose_novelty_rot" : camera_config['check_pose_novelty_rot'],
                         # "min_var_diff_rot" : camera_config['min_var_diff_rot'],
                         # "check_pose_novelty_translation" : camera_config['check_pose_novelty_translation'], 
@@ -104,7 +116,6 @@ class BlenderProcScene(object):
                         #         }
                         #     },
                         # ],
-                        "number_of_samples": int(camera_config['number_of_samples']),
                         # "check_if_objects_visible": {
                         #     "provider": "getter.Entity",
                         #     "conditions": {
@@ -112,11 +123,6 @@ class BlenderProcScene(object):
                         #         "type": "MESH"
                         #     }
                         # },
-                        "location": mean_position_shell_location,
-                        "rotation": {
-                            "format": "look_at",
-                            "value": mean_position_center,
-                        }
                     }
                 ],
                 "intrinsics": self.camera_intrinsics,
@@ -177,35 +183,55 @@ class BlenderProcScene(object):
                 {
                     "type": "plane",
                     "name": "ground_plane0",
-                    "scale": [area_size, area_size, 1]
+                    "scale": [area_size, area_size, 1],
+                    "add_properties": {
+                        "cp_model_name": "ground_plane0",
+                        "cp_category_id" : 0,
+                    },
                     },
                 {
                     "type": "plane",
                     "name": "ground_plane1",
                     "scale": [area_size, area_size, 1],
                     "location": [0, -area_size, area_size],
-                    "rotation": [-1.570796, 0, 0] # switch the sign to turn the normals to the outside
+                    "rotation": [-1.570796, 0, 0], # switch the sign to turn the normals to the outside
+                    "add_properties": {
+                        "cp_model_name": "ground_plane1",
+                        "cp_category_id" : 0,
+                    },
                     },
                 {
                     "type": "plane",
                     "name": "ground_plane2",
                     "scale": [area_size, area_size, 1],
                     "location": [0, area_size, area_size],
-                    "rotation": [1.570796, 0, 0]
+                    "rotation": [1.570796, 0, 0],
+                    "add_properties": {
+                        "cp_model_name": "ground_plane2",
+                        "cp_category_id" : 0,
+                    },
                     },
                 {
                     "type": "plane",
                     "name": "ground_plane3",
                     "scale": [area_size, area_size, 1],
                     "location": [area_size, 0, area_size],
-                    "rotation": [0, -1.570796, 0]
+                    "rotation": [0, -1.570796, 0],
+                    "add_properties": {
+                        "cp_model_name": "ground_plane3",
+                        "cp_category_id" : 0,
+                    },
                     },
                 {
                     "type": "plane",
                     "name": "ground_plane4",
                     "scale": [area_size, area_size, 1],
                     "location": [-area_size, 0, area_size],
-                    "rotation": [0, 1.570796, 0]
+                    "rotation": [0, 1.570796, 0],
+                    "add_properties": {
+                        "cp_model_name": "ground_plane4",
+                        "cp_category_id" : 0,
+                    },
                     },
                 ]
             }
@@ -291,6 +317,7 @@ class BlenderProcScene(object):
                     "cp_physics": False,
                     "cp_category_id" : self.num_objects+1,
                     "cp_shape_net_table" : True,
+                    "cp_model_name": f'{self.train_or_test}_scene_{self.scene_num}_table',
                 }
             }
         }
@@ -320,7 +347,10 @@ class BlenderProcScene(object):
         model_dir = os.path.join(self.args.blender_model_root_dir, '{}/{}'.format(synset_id, model_id))
         output_obj_file = os.path.join(model_dir, 'models', 'model_normalized.obj')
         bb_max, bb_min = bp_utils.load_max_min_info(model_dir) 
-        sampled_scale = float(np.random.uniform(object_config['scale_min'], object_config['scale_max']))
+        sampled_xy_size = float(np.random.uniform(object_config[synset_id][0], object_config[synset_id][1]))
+        x_length,_,y_length = bb_max - bb_min
+        sampled_scale = sampled_xy_size / max(x_length, y_length)
+
         object_module = {
             "module": "loader.ObjectLoader",
             "config": {
@@ -346,7 +376,7 @@ class BlenderProcScene(object):
                         "type": "MESH"  
                     }
                 },
-                "scale" : [sampled_scale] * 3,
+                "scale" : [float(sampled_scale)] * 3,
             },
         }
         
@@ -464,7 +494,7 @@ class BlenderProcScene(object):
             {
                 "module": "writer.ObjectStateWriter",
                 "config" : {
-                    "attributes_to_write" : ["name", "location", "rotation_euler", "matrix_world"]
+                    "attributes_to_write" : ["customprop_model_name", "customprop_category_id", "name", "location", "rotation_euler", "matrix_world"]
                 }
             },
             {
@@ -496,15 +526,25 @@ class BlenderProcScene(object):
         ]
         return write_module
     
-    def get_object_surface_sampler(self, object_x_ranges, object_y_ranges):
+    def get_object_surface_sampler(self, object_x_ranges=None, object_y_ranges=None):
         on_surface_config = self.config['object_on_surface_sampler']
-        max_x = np.max(object_x_ranges)
-        sum_y = np.sum(object_y_ranges)
-        total_area = max_x * sum_y
-        range_side_length = float(np.sqrt(total_area))
-        face_sample_range_min = 0.5 * (1 - (range_side_length / self.config['table']['size'][0]))
-        face_sample_range_max = 1 - face_sample_range_min
-
+        if on_surface_config['use_range'] and object_x_ranges is not None and object_y_ranges is not None:
+            max_x = np.max(object_x_ranges)
+            sum_y = np.sum(object_y_ranges)
+            total_area = max_x * sum_y
+            range_side_length = float(np.sqrt(total_area))
+            all_ranges = np.sort(list(object_x_ranges) + list(object_y_ranges))[::-1]
+            largest_range = np.max(all_ranges)
+            range_side_length = largest_range * 3 + 0.3
+            face_sample_range_min = 0.5 * (1 - (range_side_length / self.config['table']['size'][0]))
+            face_sample_range_max = 1 - face_sample_range_min
+            max_distance = 0.5 * (all_ranges[0] + all_ranges[1]) * np.sqrt(2) 
+            # import pdb; pdb.set_trace()
+        else:
+            face_sample_range_min = on_surface_config['face_sample_range_min']
+            face_sample_range_max = on_surface_config['face_sample_range_max']
+            range_side_length = self.config['table']['size'][0] * (face_sample_range_max - face_sample_range_min)
+            max_distance = on_surface_config['max_distance']
         # About rotation:
         if np.random.uniform(0,1) > self.args.upright_ratio:
             max_rotation = [0,0,0]
@@ -512,11 +552,6 @@ class BlenderProcScene(object):
         else:
             max_rotation = [(1/2)*np.pi,0,0]
             min_rotation = [(1/2)*np.pi,0,6.28]
-        
-        # face_sample_range_min = self.config['object_on_surface_sampler']['face_sample_range_min']
-        # face_sample_range_min = float(face_sample_range_min)
-        # face_sample_range_max = self.config['object_on_surface_sampler']['face_sample_range_max']
-        # face_sample_range_max = float(face_sample_range_max)
 
         object_surface_sampler_module = [{
             "module": "object.OnSurfaceSampler",
@@ -546,10 +581,10 @@ class BlenderProcScene(object):
                     },
                     "min_height": on_surface_config['min_height'],
                     "max_height": on_surface_config['max_height'],
-                    "face_sample_range": [face_sample_range_min, face_sample_range_max],
+                    "face_sample_range": [float(face_sample_range_min), float(face_sample_range_max)],
                 },
                 "min_distance": on_surface_config['min_distance'],
-                "max_distance": on_surface_config['max_distance'],
+                "max_distance": float(max_distance),
                 "rot_sampler": {
                     "provider": "sampler.Uniform3d",
                     "max": max_rotation,
@@ -558,8 +593,18 @@ class BlenderProcScene(object):
             }
         }]
 
-        return object_surface_sampler_module
+        return object_surface_sampler_module, range_side_length
 
+    def get_world_module(self):
+        world_module = [
+            {
+                "module": "manipulators.WorldManipulator",
+                "config": {
+                    "cf_set_world_category_id": 0,
+                }
+            }
+        ]
+        return world_module
     
     def output_yaml(self):
         table_module, table_manipulator = self.create_table_old()
@@ -576,6 +621,9 @@ class BlenderProcScene(object):
             object_x_ranges += [x_range]
             object_y_ranges += [y_range]
 
+        # object_surface_sampler_module, range_side_length = self.get_object_surface_sampler()
+        object_surface_sampler_module, range_side_length = self.get_object_surface_sampler(object_x_ranges, object_y_ranges)
+
         modules = [
             {
             "module": "main.Initializer",
@@ -591,20 +639,9 @@ class BlenderProcScene(object):
         modules += self.get_cc_preload()
         modules += self.get_object_material_manipulator()
         modules += self.get_walls()
-        
-        modules += self.get_object_surface_sampler(object_x_ranges, object_y_ranges)
+        modules += object_surface_sampler_module
         # modules += self.object_physics_positioning()
-        
-
-        world_module = [
-            {
-                "module": "manipulators.WorldManipulator",
-                "config": {
-                    "cf_set_world_category_id": 0,
-                }
-            }
-        ]
-        modules += world_module
+        modules += self.get_world_module()
         
         cc_fill_in = [
             {
@@ -617,7 +654,8 @@ class BlenderProcScene(object):
         ]
         modules += cc_fill_in
         modules += self.add_lights_to_scene() 
-        modules += self.add_camera_to_scene() 
+        print("range_side_length: ", range_side_length)
+        modules += self.add_camera_to_scene(radius_min=None) 
 
         rgb_renderer_module = [
             {
@@ -1054,7 +1092,7 @@ class BlenderProcSceneOld(object):
         
         
         # object_mesh = trimesh.load(output_obj_file, force='mesh')
-        # import pdb; pdb.set_trace()
+        # 
         return output_obj_file
     
     # name, synset_id, model_id

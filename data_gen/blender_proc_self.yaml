@@ -2,19 +2,27 @@ table:
     random : False 
     synset_id : '04379243'
     model_id : '97b3dfb3af4487b2b7d2794d2db4b0e7'
-    size : [1.5, 1.5, 1]
+    size : [2, 2, 1]
     table_json : /raid/xiaoyuz1/training_shapenet_tables.json
     always_overwrite : True
 object:
-    scale_min: 0.15
-    scale_max: 0.4
+    '02773838' : [0.15, 0.35]
+    '02876657' : [0.10, 0.15]
+    '02880940' : [0.15, 0.25]
+    '02946921' : [0.10, 0.15]
+    '03046257' : [0.15, 0.20]
+    '03593526' : [0.15, 0.20]
+    '03642806' : [0.25, 0.35]
+    '02942699' : [0.15, 0.20]
+    '03797390' : [0.10, 0.17]
 camera:
     max_tries : 20000
     number_of_samples : 10
-    elevation_min : 1
+    elevation_min : 5
     elevation_max : 30
-    radius_min : 0.5
-    radius_max : 0.7
+    radius_min : 0.7
+    radius_max : 0.9
+    radius_gap : 0.2
     check_pose_novelty_rot : False
     min_var_diff_rot : 20
     check_pose_novelty_translation : False
@@ -23,21 +31,22 @@ camera:
     proximity_checks_max : 1
 light:
     min_number_of_samples : 3
-    max_number_of_samples : 5
+    max_number_of_samples : 7
     elevation_min : 1
     elevation_max : 89
     radius_min : 2
     radius_max : 8
-    min_intensity : 500
+    min_intensity : 600
     max_intensity : 800
 object_on_surface_sampler:
+    use_range : False
     max_iterations : 200
     min_distance : 0.01
-    max_distance : 0.30
+    max_distance : 0.35
     min_height : 0.1 
     max_height : 0.3
     face_sample_range_min : 0.35
-    face_sample_range_max : 0.65
+    face_sample_range_max : 0.75
 material_randomization_level : 1.0
 wall_width : 10
 texture_to_use_file : /raid/xiaoyuz1/cctextures_to_use.pkl

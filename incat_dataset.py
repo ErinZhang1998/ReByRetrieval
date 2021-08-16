@@ -2,6 +2,9 @@ import pickle
 import os 
 import copy
 import json 
+import yaml
+import h5py
+import ast 
 import numpy as np
 import pandas as pd
 
@@ -18,8 +21,11 @@ import PIL
 import torchvision
 import matplotlib.pyplot as plt
 
+import pycocotools.mask as coco_mask
+from pycocotools.coco import COCO
 
 import utils.utils as uu
+import utils.blender_proc_utils as bp_utils
 import utils.plot_image as plot_utils
 
 class InCategoryClutterDataset(Dataset):
@@ -41,9 +47,7 @@ class InCategoryClutterDataset(Dataset):
             self.scene_dir = args.files.base_scene_dir
         else:
             self.scene_dir = args.files.testing_scene_dir
-        # In order to work well with perch's image annotation, use e.g.
-        # /raid/xiaoyuz1/perch + image_annotation_path   for getting the images
-        # /raid/xiaoyuz1/perch/training_set + scene_dir  for getting the annotations.json
+
         self.scene_dir_parent = os.path.abspath(os.path.join(self.scene_dir, os.pardir))
         self.canvas_file_path = args.files.canvas_file_path
         self.csv_file_path = args.files.csv_file_path
@@ -51,18 +55,31 @@ class InCategoryClutterDataset(Dataset):
         self.img_mean = args.dataset_config.img_mean#[0.5,0.5,0.5]
         self.img_std = args.dataset_config.img_std#[0.5,0.5,0.5]
 
-        self.dir_list = uu.data_dir_list(self.scene_dir)
-        if self.superimpose:
-            file_ptr = open(self.canvas_file_path, 'r')
-            self.all_canvas_path = file_ptr.read().split('\n')[:-1]
-            file_ptr.close()
+        self.df = pd.read_csv(args.files.csv_file_path)
+
+        if args.blender_proc:
+            self.dir_list = uu.data_dir_list(
+                self.scene_dir, 
+                must_contain_file = ['0.hdf5', 'coco_data/coco_annotations.json']
+            )
+        else:
+            self.dir_list = uu.data_dir_list(self.scene_dir)
+        
+            if self.superimpose:
+                file_ptr = open(self.canvas_file_path, 'r')
+                self.all_canvas_path = file_ptr.read().split('\n')[:-1]
+                file_ptr.close()
         
         self.sample_id_to_idx = dict()
         self.all_data_dict = dict()
         self.all_scene_cam_dict = dict()
         idx = 0
         for dir_path in self.dir_list:
-            data_dict, scene_dict, idx = self.load_annotations(dir_path, idx)
+            if args.blender_proc:
+                data_dict, scene_dict, idx = self.load_annotations_blender_proc(dir_path, idx)
+            else:
+                data_dict, scene_dict, idx = self.load_annotations(dir_path, idx)
+                
             self.all_data_dict.update(data_dict)
             self.all_scene_cam_dict.update(scene_dict)
 
@@ -100,91 +117,95 @@ class InCategoryClutterDataset(Dataset):
             assert len(v)%2 == 0 
             self.total_ele += len(v)
 
+    def load_annotations_image(self, idx_i, scene_num, image_id, scene_object_info, coco, h5py_fh):
+        image_ann = coco.loadImgs(image_id)[0] 
+        anns_ids = coco.getAnnIds(imgIds = image_ann['id'])
+        img_rgb = np.array(h5py_fh.get('colors'))
+        segcolormap_list = ast.literal_eval(np.array(h5py_fh.get('segcolormap')).tolist().decode('UTF-8'))
+        segcolormap = {}
+        for ele in segcolormap_list:
+            segcolormap[int(ele['category_id'])] = ele
 
-    def determine_imge_dim(self):
-        sample = self.all_data_dict[0]
-        rgb_all = mpimg.imread(sample['rgb_file'])
-        self.img_h, self.img_w, _ = rgb_all.shape 
+        object_state_dict = {}
+        object_state = ast.literal_eval(np.array(h5py_fh.get('object_states')).tolist().decode('UTF-8'))
+        for ann in object_state:
+            category_id = int(ann['customprop_category_id'])
+            ann['category_id'] = category_id
+            ann['model_name'] = ann['customprop_model_name']
+            object_state_dict[category_id] = ann
 
-    def display_sample(self, idx, rgb=False, seg=True):
-        sample = self.all_data_dict[idx]
-        rgb_all = PIL.Image.open(sample['rgb_file'])
-        mask = mpimg.imread(sample['object_mask_path'])
-        img_masked = plot_utils.masked_image(np.asarray(rgb_all), mask)
-        sample
-        fig = plt.figure(figsize=(12, 12))
-        plt.imshow(img_masked)
-        plt.show()
-        if rgb:
-            fig = plt.figure(figsize=(12, 12))
-            plt.imshow(np.asarray(rgb_all))
-            plt.show()
-    
-    def load_annotations_blender_proc(self, dir_path, idx):
-        annotations = json.load(open(os.path.join(dir_path, 'annotations.json')))
-        scene_num = annotations['info']['scene_num']
+        samples = {}
+        scene_dict = {}
 
-        image_id_to_image_fname = {}
-        for v in annotations['images']:
-            image_id_to_image_fname[v['id']] = v
-        
-        category_id_to_model = {}
-        for v in annotations['categories']:
-            category_id_to_model[v['id']] = v
-        
-        data_dict = dict()
-        scene_dict = dict()
-        idx_i = idx
-
-        for ann in annotations['annotations']:
-            image_id = ann['image_id']
+        anns = coco.loadAnns(anns_ids)
+        for ann in anns:
+            assert image_id == ann['image_id']
+            if ann['area'] < self.args.dataset_config.ignore_num_pixels:
+                continue
             category_id = ann['category_id']
             sample_id_int = [scene_num, image_id, category_id]
             sample_id = '-'.join([str(item) for item in sample_id_int])
-                        
-            rgb_file = image_id_to_image_fname[image_id]['file_name']
-            object_mask_path = ann['mask_file_path']
-            all_object_mask_path = image_id_to_image_fname[image_id]['all_object_segmentation_path']
-            all_object_with_table_mask_path = image_id_to_image_fname[image_id]['all_object_with_table_segmentation_path']
-            corners = image_id_to_image_fname[image_id]['all_object_bbox']
-            cmin, rmin, cleng, rleng = ann['bbox']
-            rmax = rmin + rleng
-            cmax = cmin + cleng
-            bbox_2d = np.array([[cmin, rmin],[cmax, rmax]])
-            
+
+            scene_object_info[category_id]
+            mask_rle = coco_mask.frPyObjects([ann['segmentation']], image_ann['height'], image_ann['width'])
+            img_mask = coco_mask.decode(mask_rle)[:,:,0]
+
+            xmin, ymin, xleng, yleng = ann['bbox']
+            ymax = ymin + yleng
+            xmax = xmin + xleng
+            bbox_2d = np.array([[xmin, ymin],[xmax, ymax]])
+            center = [int((xmin + xmax) * 0.5), int((ymin + ymax) * 0.5)]
+
             sample = {
                 'sample_id' : sample_id,
                 'sample_id_int' : sample_id_int,
                 'position' : np.asarray(ann['location']),
-                'scale' : category_id_to_model[category_id]["size"][0],
-                'obj_cat' : category_id_to_model[category_id]["shapenet_category_id"],
-                'obj_id' : category_id_to_model[category_id]["shapenet_object_id"],
-                'rgb_file' : os.path.join(self.scene_dir_parent, rgb_file),
-                'object_mask_path' : os.path.join(self.scene_dir_parent, object_mask_path),
-                'all_object_mask_path' : os.path.join(self.scene_dir_parent, all_object_mask_path),
-                'all_object_with_table_mask_path' : os.path.join(self.scene_dir_parent, all_object_with_table_mask_path),
-                'object_position_2d' : np.asarray(ann['center']),
-                'scene_bounds' : np.asarray(corners),
-                'total_pixel_in_scene' : ann['number_pixels'],
-                'pix_left_ratio' : percentage_not_occluded,
-                'area_type' : area_type,
+                'scale' : scene_object_info[category_id]['scale'],
+                'obj_cat' : scene_object_info[category_id]['obj_cat'],
+                'obj_id' : scene_object_info[category_id]['obj_id'],
+                'img_rgb' : copy.deepcopy(img_rgb),
+                'img_mask' : copy.deepcopy(img_mask),
+                'center' : np.asarray(center),
+                'total_pixel_in_scene' : ann['area'],
                 'object_bbox_world_frame_2d' : bbox_2d,
             }
+            samples[idx_i] = sample
             scene_dict_l_must,  scene_dict_l_one = scene_dict.get((scene_num, image_id), ([],[]))
             if self.split == "train":
-                if (percentage_not_occluded <= 0.95): #or (cam_d['occlusion_target'] == object_idx):
-                    scene_dict_l_must.append(idx_i)
-                else:
-                    scene_dict_l_one.append(idx_i)
+                scene_dict_l_must.append(idx_i)
             else:
                 scene_dict_l_must.append(idx_i)
             
             scene_dict[(scene_num, image_id)] = (scene_dict_l_must, scene_dict_l_one)
-            data_dict[idx_i] = sample 
             self.sample_id_to_idx[sample_id] = idx_i
             idx_i += 1
         
-        return data_dict, scene_dict, idx_i
+        return samples, scene_dict, idx_i
+
+    
+    def load_annotations_blender_proc(self, one_scene_dir, idx):
+        scene_num = int(one_scene_dir.split('/')[-1].split('_')[-1])
+
+        yaml_file_prefix = '_'.join(one_scene_dir.split('/')[-2:])
+        yaml_file = os.path.join(self.args.files.yaml_file_root_dir, '{}.yaml'.format(yaml_file_prefix))
+        yami_file_obj = yaml.load(open(yaml_file), Loader=yaml.SafeLoader)
+        scene_object_info = bp_utils.from_yaml_to_object_information(yami_file_obj, self.df)
+
+        coco_fname = os.path.join(one_scene_dir, 'coco_data', 'coco_annotations.json')
+        coco = COCO(coco_fname)
+        image_ids = coco.getImgIds()
+
+        data_dict = {}
+        scene_dict_all = {}
+
+        idx_i = idx
+        for image_id in image_ids:
+            h5py_fh = h5py.File(os.path.join(one_scene_dir, '{}.hdf5'.format(image_id)), 'r')
+            samples, scene_dict,idx_i = self.load_annotations_image(idx_i, scene_num, image_id, scene_object_info, coco, h5py_fh)
+            data_dict.update(samples)
+            scene_dict_all.update(scene_dict)
+
+        return data_dict, scene_dict_all, idx_i
 
     
     def load_annotations(self, dir_path, idx):
@@ -300,7 +321,7 @@ class InCategoryClutterDataset(Dataset):
     
         return int(area_x), int(area_y)
     
-    def process_input(self, sample):
+    def process_sample(self, sample):
 
         rgb_all = PIL.Image.open(sample['rgb_file'])
         mask = mpimg.imread(sample['object_mask_path'])
@@ -404,20 +425,24 @@ class InCategoryClutterDataset(Dataset):
                 img_rgb, img_mask, center_trans = flip_trans(superimposed_img, object_canvas_mask, canvas_center)
             else:
                 img_rgb, img_mask, center_trans = superimposed_img, object_canvas_mask, canvas_center
+        
+        return img_rgb, img_mask, center_trans, area_x, area_y
     
+    def process_input(self, sample):
+        if not self.args.blender_proc:
+            img_rgb, img_mask, center, area_x, area_y = self.process_sample(sample)
         img_rgb = utrans.normalize(torchvision.transforms.ToTensor()(img_rgb), self.img_mean, self.img_std)
         img_mask = torchvision.transforms.ToTensor()(img_mask)
 
         img = torch.cat((img_rgb, img_mask), 0)
         image = torch.FloatTensor(img)
 
-        cx,cy = center_trans.reshape(-1,)
+        cx,cy = center.reshape(-1,)
         cx /= self.size_w
         cy /= self.size_h
 
         position = torch.FloatTensor(sample['position'].reshape(-1,))
         scale = torch.FloatTensor(np.array([sample['scale']]).reshape(-1,))
-        # orientation = torch.FloatTensor(sample['orientation'].reshape(-1,))
         center = torch.FloatTensor(np.array([cx,cy]))
         category = torch.FloatTensor(np.array([sample['obj_cat']]).reshape(-1,))
         obj_id = torch.FloatTensor(np.array([sample['obj_id']]).reshape(-1,))
@@ -427,13 +452,15 @@ class InCategoryClutterDataset(Dataset):
             "image": image,
             "position" : position,
             "scale": scale,
-            # "orientation":orientation,
             "center" : center,
             "obj_category":category,
             "obj_id":obj_id,
             "sample_id":sample_id,
-            "area_type": torch.FloatTensor(np.array([area_x, area_y]).reshape(-1,2)),
         }
+        if not self.args.blender_proc:
+            data.update({
+                "area_type": torch.FloatTensor(np.array([area_x, area_y]).reshape(-1,2)),
+            })
 
         return data
 
