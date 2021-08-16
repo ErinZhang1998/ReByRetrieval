@@ -10,11 +10,11 @@ PYTHONPATH=/home/xiaoyuz1/retrieve python data_gen/datagen.py \
 --csv_file_path /raid/xiaoyuz1/preselect_july_perch_split_2021/preselect_table_top_train.csv \
 --width 640 \
 --height 480 \
---start_scene_idx 0 \
---num_scenes 100 \
+--start_scene_idx 10 \
+--num_scenes 5 \
 --num_lights 1 \
---min_num_objects 7 \
---max_num_objects 20 \
+--min_num_objects 6 \
+--max_num_objects 10 \
 --upright_ratio 1 \
 --wall_unit_x 0.3 \
 --wall_unit_y 0.3 \

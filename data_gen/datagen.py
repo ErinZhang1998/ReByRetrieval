@@ -37,26 +37,26 @@ _ACTUAL_LIMIT_DICT = {
 }
 
 _ACTUAL_LIMIT_BLENDER_DICT = {
-    0 : (0.25, 0.4),
-    1 : (0.25, 0.4),
-    2 : (0.20, 0.3),
-    3 : (0.15, 0.3),
-    4 : (0.15, 0.3),
-    5 : (0.15, 0.3),
-    6 : (0.15, 0.3),
-    7 : (0.15, 0.2),
-    8 : (0.10, 0.20),
-    9 : (0.15, 0.3),
-    10 : (0.15, 0.3),
-    11 : (0.15, 0.3),
-    12 : (0.2, 0.3),
-    13 : (0.2, 0.4),
-    14 : (0.2, 0.4),
-    15 : (0.3, 0.4),
-    16 : (0.15, 0.2),
-    17 : (0.13, 0.18),
-    18 : (0.13, 0.18),
-    19 : (0.13, 0.18),
+    0 : (0.15, 0.20),
+    1 : (0.15, 0.20),
+    2 : (0.10, 0.15),
+    3 : (0.10, 0.15),
+    4 : (0.10, 0.15),
+    5 : (0.10, 0.15),
+    6 : (0.10, 0.15),
+    7 : (0.15, 0.20),
+    8 : (0.10, 0.15),
+    9 : (0.10, 0.15),
+    10 : (0.10, 0.15),
+    11 : (0.10, 0.15),
+    12 : (0.15, 0.20),
+    13 : (0.15, 0.20),
+    14 : (0.15, 0.20),
+    15 : (0.15, 0.20),
+    16 : (0.10, 0.15),
+    17 : (0.10, 0.15),
+    18 : (0.10, 0.15),
+    19 : (0.10, 0.15),
 }
 
 def read_perch_output_poses(fname):
@@ -232,7 +232,8 @@ def get_selected_objects(args):
         if not args.blender_proc:
             size_low, size_high = _ACTUAL_LIMIT_DICT[df.iloc[i]['objId']]
         else:
-            size_low, size_high = _ACTUAL_LIMIT_BLENDER_DICT[df.iloc[i]['objId']]
+            size_low, size_high = 0.15, 0.2
+            #_ACTUAL_LIMIT_BLENDER_DICT[df.iloc[i]['objId']]
         # num_steps = (size_high - size_low) / 0.01 + 1
         actual_size_choices[i] = list(np.linspace(size_low, size_high, 5))
 
@@ -302,10 +303,12 @@ def generate_random(args):
 def generate_blender(args):
     selected_objects = get_selected_objects(args)
     all_yaml_file_name = []
+    scene_num_to_selected = {}
     for scene_num in range(args.num_scenes):
         acc_scene_num = scene_num + args.start_scene_idx
         scene_folder_path = None
         try:
+            scene_num_to_selected[acc_scene_num] = selected_objects[scene_num]
             blender_proc_scene = BlenderProcScene(acc_scene_num, selected_objects[scene_num], args)
             scene_folder_path = blender_proc_scene.scene_folder_path
             blender_proc_scene.output_yaml()
@@ -325,6 +328,13 @@ def generate_blender(args):
         line = f'python run.py {yaml_fname} --temp-dir {tmp_dir}\n'
         output_fid.write(line)
     output_fid.close()
+
+    selected_object_file = os.path.join(
+        output_save_dir, 
+        'selected_objects_{}_{}.pkl'.format(args.start_scene_idx, args.num_scenes),
+    )
+    with open(selected_object_file, 'wb+') as fh:
+        pickle.dump(scene_num_to_selected, fh)
 
 if __name__ == '__main__':
     if args.from_file:

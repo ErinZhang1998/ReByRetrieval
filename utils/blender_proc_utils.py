@@ -5,6 +5,8 @@ import ast
 import numpy as np 
 import trimesh
 import h5py
+import shutil
+import pickle
 
 from scipy.spatial.transform import Rotation as R, rotation        
 
@@ -55,7 +57,7 @@ class BlenderProcObject(object):
 class BlenderProcTable(BlenderProcObject):
     def __init__(self, **kwargs):
         
-        table_id = np.random.choice(kwargs['model_id_available'])
+        table_id = '97b3dfb3af4487b2b7d2794d2db4b0e7'#np.random.choice(kwargs['model_id_available'])
         synset_id = kwargs['synset_id']
         table_mesh_fname = os.path.join(kwargs['shapenet_filepath'], f'{synset_id}/{table_id}/models/model_normalized.obj')
         super().__init__(
@@ -198,7 +200,7 @@ def normalize_points(in_points, padding = 0.1):
     return vertices, total_size, centroid
 
 
-def normalize_obj_file(input_obj_file, output_obj_file, padding = 0.1, add_name = None):
+def normalize_obj_file(input_obj_file, output_obj_file, padding = 0, add_name = None):
     """
     normalize vertices into [-0.5, 0.5]^3, and write the result into another .obj file.
     :param input_obj_file: input .obj file
@@ -206,7 +208,6 @@ def normalize_obj_file(input_obj_file, output_obj_file, padding = 0.1, add_name 
     :return:
     """
     vertices = read_obj(input_obj_file)['v']
-
     vertices, total_size, centroid = normalize_points(vertices, padding=padding)
 
     input_fid = open(input_obj_file, 'r', encoding='utf-8')
@@ -238,7 +239,10 @@ def normalize_obj_file(input_obj_file, output_obj_file, padding = 0.1, add_name 
     output_fid.close()
     input_fid.close()
 
-    return total_size, centroid
+    bb_min = vertices.min(0)
+    bb_max = vertices.max(0)
+
+    return bb_max, bb_min, total_size, centroid
 
 
 def scale_points(in_points, actual_size):
@@ -285,9 +289,61 @@ def scale_obj_file(input_obj_file, output_obj_file, actual_size, add_name = None
     output_fid.close()
     input_fid.close()
 
-    return total_size, centroid
+    bb_min = vertices.min(0)
+    bb_max = vertices.max(0)
 
+    return bb_max, bb_min, total_size, centroid
 
+def save_normalized_object_to_file(shapenet_filepath, normalized_model_save_dir, ann, actual_size_used=False):
+    model_name = '{}_{}'.format(ann['synsetId'], ann['ShapeNetModelId'])
+    shapenet_dir = os.path.join(
+        shapenet_filepath,
+        '{}/{}'.format(ann['synsetId'], ann['ShapeNetModelId']),
+    )
+    input_obj_file = os.path.join(shapenet_dir, 'models', 'model_normalized.obj')
+    mtl_path = os.path.join(shapenet_dir, 'models', 'model_normalized.mtl')
+    image_material_dir = os.path.join(shapenet_dir, 'images')
+
+    synset_dir = os.path.join(normalized_model_save_dir, ann['synsetId'])
+    if not os.path.exists(synset_dir):
+        os.mkdir(synset_dir)
+    model_dir = os.path.join(synset_dir, ann['ShapeNetModelId'])
+    if not os.path.exists(model_dir):
+        os.mkdir(model_dir)
+    model_dir_models = os.path.join(model_dir, 'models')
+    if not os.path.exists(model_dir_models):
+        os.mkdir(model_dir_models)
+    
+    output_obj_file = os.path.join(model_dir_models, 'model_normalized.obj')
+    new_mtl_path = os.path.join(model_dir_models, 'model_normalized.mtl')
+    shutil.copyfile(mtl_path, new_mtl_path)
+
+    if os.path.exists(image_material_dir):
+        new_image_dir = os.path.join(model_dir, 'images')
+        if os.path.exists(new_image_dir):
+            shutil.rmtree(new_image_dir)
+        shutil.copytree(image_material_dir, new_image_dir) 
+
+    normalize_obj_file(input_obj_file, output_obj_file, add_name=model_name)
+    if actual_size_used:
+        x,y,z = ann['actual_size']
+        bb_max, bb_min, _, _ = scale_obj_file(input_obj_file, output_obj_file, np.array([x,z,y]), add_name=model_name)
+    else:
+        bb_max, bb_min, _, _ = normalize_obj_file(input_obj_file, output_obj_file, add_name=model_name)
+
+    max_min_info_fname = os.path.join(model_dir, 'info.pkl')
+    with open(max_min_info_fname, 'wb+') as fh:
+        pickle.dump([bb_max, bb_min], max_min_info_fname)
+
+    return output_obj_file, bb_max, bb_min
+
+def load_max_min_info(model_dir):
+    bb_max, bb_min = None, None 
+    max_min_info_fname = os.path.join(model_dir, 'info.pkl')
+    with open(max_min_info_fname, 'rb') as fh:
+        bb_max, bb_min = pickle.load(max_min_info_fname)
+
+    return bb_max, bb_min
 
 def load_h5py_result(scene_dir, image_id):
     # coco_annos = json.load(open(os.path.join(scene_dir, 'coco_data', 'coco_annotations.json')))
