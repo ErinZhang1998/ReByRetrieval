@@ -34,12 +34,79 @@ def save_this_epoch(args, epoch):
 
 def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None, wandb_enabled=False):
     model.train()
+
+    training_config = args.training_config
+    assert len(args.model_config.model_return) == len(training_config.gt) == len(training_config.loss_fn) == len(training_config.weight)
     
     for batch_idx, data in enumerate(train_loader):
         
         optimizer.zero_grad()
+        mask_dict = {}
+        cuda_item = {}
+        arguments = []
+        for arg_key in args.model_config.model_arguments:
+            cuda_item[arg_key] = data[arg_key].cuda(non_blocking=args.cuda_non_blocking)
+            arguments += [cuda_item[arg_key]]
+        returns = model(arguments)
+        
+        loss_dict = {}
+        for loss_idx, loss_fn_name in enumerate(training_config.loss_fn):
+            gt_key = training_config.gt[loss_idx]
+            if gt_key in cuda_item:
+                gt_val = cuda_item[gt_key]
+            else:
+                cuda_item[gt_key] = data[gt_key].cuda(non_blocking=args.cuda_non_blocking)
+                gt_val = cuda_item[gt_key]
+            
+            pred_key = training_config.model_return[loss_idx]
+            pred_val = returns[pred_key]
 
-        image = data["image"]
+            if loss_fn_name == 'triplet_loss':
+                triplet_mask, loss_value = loss.batch_all_triplet_loss(
+                    labels=gt_val, 
+                    embeddings=pred_val, 
+                    margin=args.loss.margin, 
+                    squared=False,
+                )
+                mask_dict[gt_key] = triplet_mask
+            else:
+                loss_func = loss.get_loss_func(loss_fn_name)
+                loss_value = loss_func(pred_val, gt_val)
+            loss_dict[loss_fn_name] = training_config.weight[loss_idx] * loss_value
+
+        total_loss = None
+        for loss_fn_name, loss_value in loss_dict.items():
+            if total_loss is None:
+                total_loss = loss_value 
+            else:
+                total_loss += loss_value
+        total_loss.backward()
+        optimizer.step()
+
+        if args.num_gpus > 1:
+            total_loss = du.all_reduce([total_loss])
+            for loss_fn_name, loss_value in loss_dict.items():
+                loss_dict[loss_fn_name] = du.all_reduce([loss_value])
+
+        #----------------------------------------------------------------------------------
+        # PREDICT
+        image = data["image"].cuda(non_blocking=args.cuda_non_blocking)
+        if args.use_pc:
+            pts = data["obj_points"].cuda(non_blocking=args.cuda_non_blocking)
+            feats = data["obj_points_features"].cuda(non_blocking=args.cuda_non_blocking)
+            img_embed, pose_pred = model([image, pts, feats])
+        else:
+            if args.model_config.classification:
+                class_pred, pose_pred = model([image])
+            else:
+                img_embed, pose_pred = model([image])
+        
+        # CALCULATE LOSS
+
+        # predict center ?
+        # classification ? 
+        # embeddings ? 
+
         scale_gt = data["scale"]
         pixel_gt = data["center"]
         cat_gt = data["obj_category"]
@@ -47,7 +114,6 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
         sample_id_int = data["sample_id"]
         
         # Send model and data to CUDA
-        image = image.cuda(non_blocking=args.cuda_non_blocking)
         scale_gt = scale_gt.cuda(non_blocking=args.cuda_non_blocking)
         pixel_gt = pixel_gt.cuda(non_blocking=args.cuda_non_blocking)
         cat_gt = cat_gt.cuda(non_blocking=args.cuda_non_blocking)
@@ -61,15 +127,6 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
             else:
                 classification_gt = id_gt
         
-        if args.use_pc:
-            pts = data["obj_points"].cuda(non_blocking=args.cuda_non_blocking)
-            feats = data["obj_points_features"].cuda(non_blocking=args.cuda_non_blocking)
-            img_embed, pose_pred = model([image, pts, feats])
-        else:
-            if args.model_config.classification:
-                class_pred, pose_pred = model([image])
-            else:
-                img_embed, pose_pred = model([image])
         
         # Position prediction
         if args.model_config.predict_center: 
@@ -78,7 +135,7 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
         else:
             scale_start_idx = 0
         scale_pred = pose_pred[:,scale_start_idx:]
-        loss_fun = loss.get_loss_func(args.training_config.loss_used)(reduction="mean")
+        loss_fun = loss.get_loss_func(args.training_config.loss_used)
         loss_scale = loss_fun(scale_pred, scale_gt)
         loss_scale_w = args.loss.lambda_scale * loss_scale
 

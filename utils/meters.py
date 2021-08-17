@@ -55,13 +55,6 @@ class TestMeter(object):
         self.loss_cat += iter_data['loss_cat']
         self.loss_obj += iter_data['loss_obj']
         self.count += 1
-        # if du.is_master_proc(num_gpus=self.args.num_gpus):
-        #     final_loss_cat = (self.loss_cat / self.count) * self.args.loss.lambda_cat
-        #     final_loss_obj = (self.loss_obj / self.count) * self.args.loss.lambda_cat
-        #     logger.info('Validate Iteration: {}\tTriplet_Loss_Category ({}) = {:.6f}, Triplet_Loss_Object ({}) = {:.6f}'.format(
-        #         cnt, \
-        #         self.args.loss.lambda_cat, final_loss_cat, \
-        #         self.args.loss.lambda_obj, final_loss_obj))
         for k,v in iter_data.items():
             l = self.acc_dict.get(k, [])
             l.append(v)

@@ -4,7 +4,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-_LOSSES = {"l1": nn.L1Loss, "mse": nn.MSELoss}
+_LOSSES = {
+    "l1_mean": nn.L1Loss(reduction="mean"), 
+    "mse_mean": nn.MSELoss(reduction="mean"), 
+    "ce" : nn.CrossEntropyLoss(),
+}
 
 
 def get_loss_func(loss_name):

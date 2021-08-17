@@ -50,8 +50,9 @@ class PretrainedResNetSpatialSoftmax(nn.Module):
     def __init__(self, args):
         super(PretrainedResNetSpatialSoftmax, self).__init__()
         self.args = args
-        self.emb_dim=args.model_config.emb_dim
-        self.pose_dim=args.model_config.pose_dim
+        self.emb_dim = args.model_config.emb_dim
+        self.pose_dim = args.model_config.pose_dim
+        
         if args.model_config.resnet_type == 'resnet18':
             resnet = resnet18(pretrained=True)
         elif args.model_config.resnet_type == 'resnet50':
@@ -62,8 +63,12 @@ class PretrainedResNetSpatialSoftmax(nn.Module):
 
         self.ss = args.model_config.spatial_softmax
         self.spatial_softmax = SpatialSoftmax(self.ss.height, self.ss.width, self.resnet_out_channel)
-        
-        if args.model_config.classification:
+
+
+        return_keys = list(set(args.model_config.model_return))
+        return_modules = {}
+        # ['class_pred', 'scale_pred', 'center_pred']
+        if 'class_pred' in return_keys:
             df  = pd.read_csv(args.files.csv_file_path)
             if args.model_config.class_type == 'shapenet_model':
                 num_classes = len(df)
@@ -71,23 +76,41 @@ class PretrainedResNetSpatialSoftmax(nn.Module):
                 num_classes = len(df['catId'].unique())
             else:
                 num_classes = len(df['objId'].unique())
-
-            self.classification_head = nn.Linear(self.resnet_out_channel*2, num_classes)
-            self.num_classes = num_classes
-        else:
-            self.emb_fc = nn.Linear(self.resnet_out_channel*2, self.emb_dim)
-        self.pose_fc = nn.Linear(self.resnet_out_channel*2, self.pose_dim)
+            return_modules['class_pred'] = nn.Linear(self.resnet_out_channel*2, num_classes)
+        if 'scale_pred' in return_keys:
+            return_modules['scale_pred'] = nn.Linear(self.resnet_out_channel*2, 1)
+        if 'center_pred' in return_keys:
+            return_modules['center_pred'] = nn.Linear(self.resnet_out_channel*2, 2)
+        if 'img_embed' in return_keys:
+            return_modules['center_pred'] = nn.Linear(self.resnet_out_channel*2, self.emb_dim)
+        self.return_modules = return_modules
     
     def forward(self, xs):
         x = xs[0]
         x = self.resnet_no_fc(x)
         x = self.spatial_softmax(x)
-        if self.args.model_config.classification:
-            return self.classification_head(x), self.pose_fc(x)
-        else:
-            emb = self.emb_fc(x)
-            pose = self.pose_fc(x)
-            return emb, pose
+        
+        return_dict = {}
+        for return_key, return_module in self.return_modules.items():
+            pred = return_module(x)
+            if return_key == 'img_embed': # normalize the embedding
+                pred -= pred.min(1, keepdim=True)[0]
+                pred /= pred.max(1, keepdim=True)[0]
+            return_dict[return_key] = pred
+        
+        return return_dict
+        # if self.args.model_config.classification:
+        #     return {
+        #         'class_pred' : self.classification_head(x), 
+        #         'pose_pred': self.pose_fc(x),
+        #     }
+        # else:
+        #     emb = self.emb_fc(x)
+        #     pose = self.pose_fc(x)
+        #     return {
+        #         'img_embed': emb, 
+        #         'pose_pred' : pose,
+        # }
 
 @MODEL_REGISTRY.register()
 class PretrainedResNet(nn.Module):
@@ -111,7 +134,10 @@ class PretrainedResNet(nn.Module):
         flat_x = x.view(batch_size, self.flat_dim)
         emb = self.emb_fc(flat_x)
         pose = self.pose_fc(flat_x)
-        return emb, pose
+        return {
+            'img_embed': emb, 
+            'pose_pred' : pose,
+        }
 
 @MODEL_REGISTRY.register()
 class ResNetPointNet(nn.Module):
