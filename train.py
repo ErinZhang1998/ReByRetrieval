@@ -41,7 +41,7 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
     for batch_idx, data in enumerate(train_loader):
         
         optimizer.zero_grad()
-        mask_dict = {}
+        mask_dict = {} # gt_key -> mask used for triplet loss 
         cuda_item = {}
         arguments = []
         for arg_key in args.model_config.model_arguments:
@@ -88,117 +88,15 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
             for loss_fn_name, loss_value in loss_dict.items():
                 loss_dict[loss_fn_name] = du.all_reduce([loss_value])
 
-        #----------------------------------------------------------------------------------
-        # PREDICT
-        image = data["image"].cuda(non_blocking=args.cuda_non_blocking)
-        if args.use_pc:
-            pts = data["obj_points"].cuda(non_blocking=args.cuda_non_blocking)
-            feats = data["obj_points_features"].cuda(non_blocking=args.cuda_non_blocking)
-            img_embed, pose_pred = model([image, pts, feats])
-        else:
-            if args.model_config.classification:
-                class_pred, pose_pred = model([image])
-            else:
-                img_embed, pose_pred = model([image])
-        
-        # CALCULATE LOSS
-
-        # predict center ?
-        # classification ? 
-        # embeddings ? 
-
-        scale_gt = data["scale"]
-        pixel_gt = data["center"]
-        cat_gt = data["obj_category"]
-        id_gt = data["obj_id"]
-        sample_id_int = data["sample_id"]
-        
-        # Send model and data to CUDA
-        scale_gt = scale_gt.cuda(non_blocking=args.cuda_non_blocking)
-        pixel_gt = pixel_gt.cuda(non_blocking=args.cuda_non_blocking)
-        cat_gt = cat_gt.cuda(non_blocking=args.cuda_non_blocking)
-        id_gt = id_gt.cuda(non_blocking=args.cuda_non_blocking)
-
-        if args.model_config.classification:
-            if args.model_config.class_type == 'shapenet_model':
-                classification_gt = data["shapenet_model_id"].cuda(non_blocking=args.cuda_non_blocking)
-            elif args.model_config.class_type == 'shapenet_category':
-                classification_gt = cat_gt
-            else:
-                classification_gt = id_gt
-        
-        
-        # Position prediction
-        if args.model_config.predict_center: 
-            scale_start_idx = 2
-            pixel_pred = pose_pred[:,:scale_start_idx]
-        else:
-            scale_start_idx = 0
-        scale_pred = pose_pred[:,scale_start_idx:]
-        loss_fun = loss.get_loss_func(args.training_config.loss_used)
-        loss_scale = loss_fun(scale_pred, scale_gt)
-        loss_scale_w = args.loss.lambda_scale * loss_scale
-
-        if args.model_config.predict_center: 
-            loss_pixel = loss_fun(pixel_pred, pixel_gt)
-            loss_pixel_w = args.loss.lambda_pixel * loss_pixel
-
-        if args.model_config.classification:
-            loss_classification = torch.nn.CrossEntropyLoss()(class_pred, classification_gt)
-            loss_classification_w = args.loss.lambda_classification * loss_classification
-        else:
-            # Normalize embedding
-            img_embed -= img_embed.min(1, keepdim=True)[0]
-            img_embed /= img_embed.max(1, keepdim=True)[0]
-            mask_cat, loss_cat = loss.batch_all_triplet_loss(labels=cat_gt, embeddings=img_embed, margin=args.loss.margin, squared=False)
-            mask_id, loss_obj = loss.batch_all_triplet_loss(labels=id_gt, embeddings=img_embed, margin=args.loss.margin, squared=False)
-            loss_cat_w = args.loss.lambda_cat * loss_cat
-            loss_obj_w = args.loss.lambda_obj * loss_obj
-            
-        total_loss = loss_scale_w
-        if args.model_config.predict_center: 
-            total_loss += loss_pixel_w
-        if args.model_config.classification:
-            total_loss += loss_classification_w
-        else:
-            total_loss += loss_cat_w 
-            total_loss += loss_obj_w
-        total_loss.backward()
-        
-        optimizer.step()
-
-        if args.num_gpus > 1:
-            total_loss, loss_scale_w = du.all_reduce(
-                [total_loss, loss_scale_w]
-            )
-            if args.model_config.predict_center: 
-                loss_pixel_w = du.all_reduce([loss_pixel_w])
-            
-            if args.model_config.classification:
-                loss_classification_w = du.all_reduce([loss_classification_w])
-            else:
-                loss_cat_w = du.all_reduce([loss_cat_w])
-                loss_obj_w = du.all_reduce([loss_obj_w])
-
         if du.is_master_proc(num_gpus=args.num_gpus):
             
             if wandb_enabled:
                 wandb_dict = {
                     'train/train_loss':total_loss.item(), 
-                    'train/train_loss_scale': loss_scale_w.item(), 
-                    'train/learning_rate': optimizer.param_groups[0]['lr']
                 }
-                if args.model_config.predict_center: 
-                    wandb_dict.update({'train/train_loss_pixel': loss_pixel_w.item()})
-                
-                if args.model_config.classification:
+                for loss_fn_name, loss_value in loss_dict.items():
                     wandb_dict.update({
-                        'train/train_loss_classification_{}'.format(args.model_config.class_type) : loss_classification_w.item(),
-                    })
-                else:
-                    wandb_dict.update({
-                        'train/train_loss_cat': loss_cat_w.item(),
-                        'train/train_loss_obj': loss_obj_w.item()
+                        'train/{}'.format(loss_fn_name) : loss_value.item(),
                     })
                 wandb.log(wandb_dict, step=cnt)
 
@@ -207,71 +105,64 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
                 logger.info('\n')
                 logger.info('Train Epoch: {} [iter={} ({:.0f}%)]'.format(epoch, cnt, 100. * batch_idx / len(train_loader)))
                 logger.info('\tTotal Loss = {:.6f}'.format(total_loss.item()))
-                logger.info('\tObject_Scale_Loss ({}) = {:.6f}'.format(args.loss.lambda_scale, loss_scale_w.item()))
-
-                if args.model_config.predict_center: 
-                    logger.info('\tObject_2D_Center_Loss ({}) = {:.6f}'.format(
-                        args.loss.lambda_pixel, 
-                        loss_pixel_w.item()
-                        )
-                    )
                 
-                if args.model_config.classification:
-                    logger.info('\Classification Loss ({}) ({}) = {:.6f}'.format(
-                        args.loss.lambda_classification, 
-                        loss_classification_w.item()
+                for loss_idx, loss_fn_name in enumerate(training_config.loss_fn):
+                    gt_key = training_config.gt[loss_idx]
+                    pred_key = training_config.model_return[loss_idx]
+                    weight = training_config.weight[loss_idx]
+                    
+                    logger.info(
+                        '\tLoss_fn_name={}, Loss_gt_name={}, Loss_pred_key={}, Loss_weight={}, Loss={:.6f}'.format(
+                            loss_fn_name, 
+                            gt_key,
+                            pred_key,
+                            weight,
+                            loss_dict[loss_fn_name].item(),
                         )
                     )
-                else:
-                    logger.info('\tTriplet_Loss_Category ({}) = {:.6f}'.format(args.loss.lambda_cat, loss_cat_w.item()))
-                    logger.info('\tTriplet_Loss_Object ({}) = {:.6f}'.format(args.loss.lambda_obj, loss_obj_w.item()))
-
+            
         if du.is_master_proc(num_gpus=args.num_gpus):
-            if cnt % args.training_config.plot_triplet_every == 0:
-                image_tensor = image.cpu().detach()[:,:3,:,:]
+            if cnt % args.training_config.plot_triplet_every == 0 and len(mask_dict) > 0:                    
+                if 'image' in cuda_item:
+                    image = cuda_item['image']
+                    image_tensor = image.cpu().detach()[:,:3,:,:]
+                    mask_tensor = image.cpu().detach()[:,3:,:,:]
+                else:
+                    image = cuda_item['image']
+                    image_tensor = image[:,:3,:,:]
+                    mask_tensor = image[:,3:,:,:]
                 image_tensor = utrans.denormalize(image_tensor, train_loader.dataset.img_mean, train_loader.dataset.img_std)
-                mask_tensor = image.cpu().detach()[:,3:,:,:]
-
-                cat_gt_np = cat_gt.detach().cpu().numpy()
-                id_gt_np = id_gt.detach().cpu().numpy()
-                sample_id_int_np = sample_id_int.detach().cpu().numpy().astype(int).astype(str)
-
-                for mask,mask_name in [(mask_cat, "mask_cat"), (mask_id, "mask_id")]:
+                
+                for gt_key, mask in mask_dict.items():
+                    if gt_key not in cuda_item:
+                        logger.info("WARNING: This mask {} GT value never sent to cuda, giving up plotting.".format(gt_key))
+                    gt_value = cuda_item[gt_key].detach().cpu().numpy()
+                    sample_ids = data["sample_id"].numpy().astype(int).astype(str)
                     triplets = torch.stack(torch.where(mask), dim=1)
                     plt_pairs_idx = np.random.choice(len(triplets), args.training_config.triplet_plot_num, replace=False)
                     triplets = triplets[list(plt_pairs_idx)]
-                    
                     for triplet in triplets:
-                        fig, axs = plt.subplots(1, 3, figsize=(30,20))  
-                        sample_ids = ['-'.join(sample_id_int_np[idx]) for idx in triplet]
+                        fig, axs = plt.subplots(1, 3, figsize=(30,20)) 
+                        sample_id_strs = ['-'.join(sample_id_int_np[idx]) for idx in triplet]
                         for i in range(3):
                             idx_in_batch = triplet[i]
-                            obj_cat, obj_id = cat_gt_np[idx_in_batch], id_gt_np[idx_in_batch]
+                            gt_value_i = gt_value[idx_in_batch]
                             image_PIL = torchvision.transforms.ToPILImage()(image_tensor[idx_in_batch])
                             mask_PIL = torchvision.transforms.ToPILImage()(mask_tensor[idx_in_batch])
                             obj_background = PIL.Image.new("RGB", image_PIL.size, 0)
                             masked_image = PIL.Image.composite(image_PIL, obj_background, mask_PIL)
                             axs[i].imshow(np.asarray(masked_image))
-                            axs[i].set_title('{}_{}'.format(obj_cat, obj_id))
-                        
-                        image_name = '{}_{}_{}'.format(epoch, cnt, '_'.join(sample_ids))
+                            axs[i].set_title('gt={}'.format(gt_value_i))
+                        image_name = '{}_{}-samples={}'.format(epoch, cnt, '_'.join(sample_ids))
                         if wandb_enabled:
                             final_img = uplot.plt_to_image(fig)
-                            log_key = '{}/{}'.format(mask_name, image_name)
+                            log_key = '{}/{}'.format(gt_key, image_name)
                             wandb.log({log_key: wandb.Image(final_img)}, step=cnt)
                         else:
-                            image_path = os.path.join(image_dir, "{}_{}.png".format(mask_name, image_name))
+                            image_path = os.path.join(image_dir, "{}_{}.png".format(gt_key, image_name))
                             plt.savefig(image_path)
                         plt.close()
-            
-        torch.cuda.empty_cache()
-
-        # Validation iteration
-        # if cnt % args.training_config.val_every == 0:
-        #     test.test(args, test_loader, test_meter, model, epoch, cnt, image_dir, prediction_dir, wandb_enabled=False)
-        #     model.train()
-        torch.cuda.empty_cache()
-            
+        torch.cuda.empty_cache()            
         cnt += 1
     return cnt
 
