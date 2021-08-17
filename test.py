@@ -16,6 +16,49 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
     with torch.no_grad():
         
         for batch_idx, data in enumerate(test_loader):
+            
+            mask_dict = {} # gt_key -> mask used for triplet loss 
+            cuda_item = {}
+            arguments = []
+            for arg_key in args.model_config.model_arguments:
+                cuda_item[arg_key] = data[arg_key].cuda(non_blocking=args.cuda_non_blocking)
+                arguments += [cuda_item[arg_key]]
+            returns = model(arguments)
+            if args.num_gpus > 1:
+                gathered_cuda_item = {}
+                for key, cuda_tensor in cuda_item.items():
+                    gathered_cuda_item[key] = du.all_gather([cuda_tensor])
+
+                gathered_returns = {}
+                for key, return_tensor in returns.items():
+                    gathered_returns[key] = du.all_gather([return_tensor])
+                
+                gathered_gt = {}
+                for key in args.training_config.gt:
+                    gathered_gt[key] = torch.cat(du.all_gather_unaligned(data[key]), dim=0)
+                
+                scale_gt = torch.cat(du.all_gather_unaligned(scale_gt), dim=0)
+                sample_id = torch.cat(du.all_gather_unaligned(sample_id), dim=0)
+
+                if args.model_config.predict_center: 
+                    pixel_gt = torch.cat(du.all_gather_unaligned(pixel_gt), dim=0)
+                
+                if args.model_config.classification:
+                    class_pred = du.all_gather([class_pred])
+                    loss_classification = du.all_reduce([loss_classification])
+                else: 
+                    img_embed = du.all_gather([img_embed])
+                    c_loss, o_loss = du.all_reduce([c_loss, o_loss])
+                    cat_gt = torch.cat(du.all_gather_unaligned(cat_gt), dim=0)
+                    id_gt = torch.cat(du.all_gather_unaligned(id_gt), dim=0)
+                
+                if not args.blender_proc:
+                    area_type = torch.cat(du.all_gather_unaligned(area_type), dim=0)
+            
+            
+            
+            
+            
             # print(batch_idx)
             image = data["image"]
             scale_gt = data["scale"]

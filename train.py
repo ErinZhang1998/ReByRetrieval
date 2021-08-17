@@ -143,7 +143,7 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
                     triplets = triplets[list(plt_pairs_idx)]
                     for triplet in triplets:
                         fig, axs = plt.subplots(1, 3, figsize=(30,20)) 
-                        sample_id_strs = ['-'.join(sample_id_int_np[idx]) for idx in triplet]
+                        triplet_sample_ids = ['-'.join(sample_ids[idx]) for idx in triplet]
                         for i in range(3):
                             idx_in_batch = triplet[i]
                             gt_value_i = gt_value[idx_in_batch]
@@ -153,7 +153,7 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
                             masked_image = PIL.Image.composite(image_PIL, obj_background, mask_PIL)
                             axs[i].imshow(np.asarray(masked_image))
                             axs[i].set_title('gt={}'.format(gt_value_i))
-                        image_name = '{}_{}-samples={}'.format(epoch, cnt, '_'.join(sample_ids))
+                        image_name = '{}_{}-samples={}'.format(epoch, cnt, '_'.join(triplet_sample_ids))
                         if wandb_enabled:
                             final_img = uplot.plt_to_image(fig)
                             log_key = '{}/{}'.format(gt_key, image_name)
