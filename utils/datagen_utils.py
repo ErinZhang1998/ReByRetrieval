@@ -172,7 +172,6 @@ def apply_rot_to_mesh(mesh, rot_obj):
     mesh.apply_transform(rotation_mat)
     return mesh
 
-
 def get_corners(bounds, pos, rot_obj, from_frame_name):
     '''
     Get the 8 3D object bounding box corners, in world-frame

@@ -100,7 +100,18 @@ class TestMeter(object):
             this_sample_id = [str(int(ele)) for ele in sample_id[idx_in_batch].numpy()]
             this_sample_id = '_'.join(this_sample_id)
             
-            uplot.plot_predicted_image(cnt, image_PIL, pixel_pred_idx, pixel_gt_idx, enable_wandb = wandb_enabled, image_type_name='test_pixel_image', image_dir = image_dir, sample_id=this_sample_id, scale_pred_idx = scale_pred_idx, scale_gt_idx = scale_gt_idx)
+            uplot.plot_predicted_image(
+                cnt, 
+                image_PIL, 
+                pixel_pred_idx, 
+                pixel_gt_idx, 
+                enable_wandb = wandb_enabled, 
+                image_type_name='test_pixel_image', 
+                image_dir = image_dir, 
+                sample_id=this_sample_id, 
+                scale_pred_idx = scale_pred_idx, 
+                scale_gt_idx = scale_gt_idx
+            )
 
         self.update_stats(iter_data, cnt)
     

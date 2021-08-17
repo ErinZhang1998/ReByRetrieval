@@ -1,3 +1,4 @@
+import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -48,6 +49,7 @@ class SpatialSoftmax(torch.nn.Module):
 class PretrainedResNetSpatialSoftmax(nn.Module):
     def __init__(self, args):
         super(PretrainedResNetSpatialSoftmax, self).__init__()
+        self.args = args
         self.emb_dim=args.model_config.emb_dim
         self.pose_dim=args.model_config.pose_dim
         if args.model_config.resnet_type == 'resnet18':
@@ -61,16 +63,31 @@ class PretrainedResNetSpatialSoftmax(nn.Module):
         self.ss = args.model_config.spatial_softmax
         self.spatial_softmax = SpatialSoftmax(self.ss.height, self.ss.width, self.resnet_out_channel)
         
-        self.emb_fc = nn.Linear(self.resnet_out_channel*2, self.emb_dim)
+        if args.model_config.classification:
+            df  = pd.read_csv(args.files.csv_file_path)
+            if args.model_config.class_type == 'shapenet_model':
+                num_classes = len(df)
+            elif args.model_config.class_type == 'shapenet_category':
+                num_classes = len(df['catId'].unique())
+            else:
+                num_classes = len(df['objId'].unique())
+
+            self.classification_head = nn.Linear(self.resnet_out_channel*2, num_classes)
+            self.num_classes = num_classes
+        else:
+            self.emb_fc = nn.Linear(self.resnet_out_channel*2, self.emb_dim)
         self.pose_fc = nn.Linear(self.resnet_out_channel*2, self.pose_dim)
     
     def forward(self, xs):
         x = xs[0]
         x = self.resnet_no_fc(x)
         x = self.spatial_softmax(x)
-        emb = self.emb_fc(x)
-        pose = self.pose_fc(x)
-        return emb, pose
+        if self.args.model_config.classification:
+            return self.classification_head(x), self.pose_fc(x)
+        else:
+            emb = self.emb_fc(x)
+            pose = self.pose_fc(x)
+            return emb, pose
 
 @MODEL_REGISTRY.register()
 class PretrainedResNet(nn.Module):

@@ -90,9 +90,7 @@ class BlenderProcTable(BlenderProcObject):
         self.pos = np.array([0.0, 0.0, -self.object_mesh.bounds[0][2]])
         self.scale = scale_vec
 
-              
-
-    
+                 
 class BlenderProcNonTable(BlenderProcObject):
     def __init__(self, **kwargs):
         super().__init__(
@@ -377,6 +375,8 @@ def from_yaml_to_object_information(yami_file_obj, df):
                 obj_id = df[df['ShapeNetModelId'] == model_id].objId.values[0]
                 
                 model_info.update({
+                    'synset_id' : synset_id,
+                    'model_id' : model_id,
                     'obj_cat' : obj_cat,
                     'obj_id' : obj_id,
                 })
@@ -396,11 +396,3 @@ def from_yaml_to_object_information(yami_file_obj, df):
     for model_name, model_info in object_from_yaml.items():
         model_info_category_id[int(model_info['category_id'])] = model_info
     return model_info_category_id
-
-def load_h5py_result(scene_dir, image_id):
-    # coco_annos = json.load(open(os.path.join(scene_dir, 'coco_data', 'coco_annotations.json')))
-    # for ann in coco_annos['images']:
-        # image_id = ann['id']
-    fh = h5py.File(os.path.join(scene_dir, '{}.hdf5'.format(image_id)), 'r')
-    # object_mask_path = ann['mask_file_path']
-    segcolormap = ast.literal_eval(np.array(fh.get('segcolormap')).tolist().decode('UTF-8'))

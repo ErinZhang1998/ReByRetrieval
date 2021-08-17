@@ -1,6 +1,7 @@
 import numpy as np
 import os 
 import time 
+import json
 import torch
 import csv
 import datetime
@@ -39,6 +40,8 @@ class Struct:
 
 def fill_in_args_from_default(my_dict, default_dict):
     filled_dict = {}
+    for k,v in my_dict.items():
+        filled_dict[k] = v
     for k,v in default_dict.items():
         try:
             myv = my_dict[k]
@@ -61,6 +64,7 @@ def create_dir(dir_path):
     if not os.path.exists(dir_path):
         os.mkdir(dir_path)
 
+'''Load model from'''
 def remove_module_key_transform(key):
     parts = key.split(".")
     if parts[0] == 'module':
@@ -99,46 +103,37 @@ def save_model(epoch, model, model_dir):
     except:
         logger.info(f"ERROR: Cannot save model at {model_path}")
 
+'''Training'''
 def create_experiment_dirs(args, wandb_run_name):
     all_dir_in_experiment = []
     dir_dict = {}
     if args.experiment_save_dir is None:
         experiment_save_dir_default = args.experiment_save_dir_default
+        create_dir(experiment_save_dir_default)
         this_experiment_dir = os.path.join(experiment_save_dir_default, wandb_run_name)
-        model_dir = os.path.join(this_experiment_dir, "models")
-        image_dir = os.path.join(this_experiment_dir, "images")
-        prediction_dir = os.path.join(this_experiment_dir, "predictions")
-        
-        all_dir_in_experiment += [
-            experiment_save_dir_default,
-            this_experiment_dir,
-            model_dir,
-            image_dir,
-            prediction_dir,
-        ]
     else:
         this_experiment_dir = args.experiment_save_dir
-        model_dir = os.path.join(this_experiment_dir, "models")            
-        image_dir = os.path.join(this_experiment_dir, "images")
-        prediction_dir = os.path.join(this_experiment_dir, "predictions")
-        all_dir_in_experiment += [
-            this_experiment_dir,
-            model_dir,
-            image_dir,
-            prediction_dir,
-        ]
+    
+    model_dir = os.path.join(this_experiment_dir, "models")            
+    image_dir = os.path.join(this_experiment_dir, "images")
+    prediction_dir = os.path.join(this_experiment_dir, "predictions")
+    all_dir_in_experiment += [
+        this_experiment_dir,
+        model_dir,
+        image_dir,
+        prediction_dir,
+    ]
     
     for d in all_dir_in_experiment:
         create_dir(d)
     
-    dir_dict = {
-        'this_experiment_dir' : this_experiment_dir,
-        'model_dir' : model_dir,
-        'image_dir' : image_dir,
-        'prediction_dir' : prediction_dir
-    }
-    
-    return dir_dict
+    return this_experiment_dir, image_dir, model_dir, prediction_dir
+    # {
+    #     'this_experiment_dir' : this_experiment_dir,
+    #     'model_dir' : model_dir,
+    #     'image_dir' : image_dir,
+    #     'prediction_dir' : prediction_dir
+    # }
 
 
 def data_dir_list(root_dir, must_contain_file = ['annotations.json']):
@@ -199,3 +194,60 @@ def compile_mask_files(dir_path):
             other_obj_masks.append(os.path.join(dir_path, seg_path))
             mask_all_d[l[1]] = other_obj_masks
     return mask_all_d
+
+
+class COCOAnnotation(object):
+
+    def __init__(self, json_path):
+        '''
+        Unit = json 
+        '''
+        annotations = json.load(open(json_path))
+
+        
+        image_id_to_ann = dict()
+        for ann in annotations['images']:
+            image_id_to_ann[ann['id']] = ann 
+        
+        category_id_to_model_names = {}
+        category_id_to_ann = dict()
+        for ann in annotations['categories']:
+            category_id_to_ann[ann['id']] = ann
+            model_name = ann['name']
+            category_id_to_model_names[ann['id']] = model_name
+    
+        self.category_id_to_model_names = category_id_to_model_names
+        
+        ann_id_to_ann = dict()
+        image_category_id_to_ann = dict()
+        for ann in annotations['annotations']:
+            ann_id_to_ann[ann['id']] = ann
+
+            D = image_category_id_to_ann.get(ann['image_id'], {})
+            D[ann['category_id']] = ann
+            image_category_id_to_ann[ann['image_id']] = D
+
+        total_ann_dict = {
+            'images' : image_id_to_ann,
+            'categories' : category_id_to_ann,
+            'annotations' : ann_id_to_ann,
+            'annotations2' : image_category_id_to_ann,
+        } 
+        
+        self.json_path = json_path
+        self.total_ann_dict = total_ann_dict
+        
+    def get_ann(self, key, key_id):
+        assert key in ['images', 'categories', 'annotations']
+        ann_dict = self.total_ann_dict[key]
+        return ann_dict[key_id]
+    
+    def get_ann_with_image_category_id(self, image_id, category_id=None):
+        if category_id is None:
+            return self.total_ann_dict['annotations2'][image_id]
+
+        return self.total_ann_dict['annotations2'][image_id][category_id]
+    
+    def get_image_anns(self):
+        return self.total_ann_dict['images']
+  

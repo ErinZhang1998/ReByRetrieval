@@ -10,7 +10,7 @@ import pickle
 from optparse import OptionParser
 
 import utils.blender_proc_utils as bp_utils
-
+import utils.utils as uu 
 # from selected_shapenet_data_list import *
 
 parser = OptionParser()
@@ -30,16 +30,6 @@ def check_too_many_faces(csv_fname, shapenet_dir):
             )
         mesh = trimesh.load(mesh_fname, force='mesh')
         print(mesh.faces.shape[0])
-
-def write_to_csv(csv_file, dict_data, csv_columns):
-    try:
-        with open(csv_file, 'w') as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=csv_columns)
-            writer.writeheader()
-            for data in dict_data:
-                writer.writerow(data)
-    except IOError:
-        print("I/O error")
 
 def output_selected(csv_file, selected_l):
     csv_df = pd.read_csv(csv_file)
@@ -91,7 +81,7 @@ if __name__ == '__main__':
     if not os.path.exists(args.csv_file_dir):
         os.mkdir(args.csv_file_dir)
     csv_file = os.path.join(args.csv_file_dir, "preselect_table_top.csv")
-    write_to_csv(csv_file, dict_data, csv_columns)
+    uu.write_to_csv(csv_file, dict_data, csv_columns)
 
 
     df_1 = pd.read_csv(csv_file)
@@ -127,8 +117,8 @@ if __name__ == '__main__':
         all_train += train
         all_test += test
 
-    write_to_csv(train_csv_file_path, all_train, csv_columns)
-    write_to_csv(test_csv_file_path, all_test, csv_columns)
+    uu.write_to_csv(train_csv_file_path, all_train, csv_columns)
+    uu.write_to_csv(test_csv_file_path, all_test, csv_columns)
 
 
 

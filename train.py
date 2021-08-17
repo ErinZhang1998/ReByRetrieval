@@ -53,13 +53,24 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
         cat_gt = cat_gt.cuda(non_blocking=args.cuda_non_blocking)
         id_gt = id_gt.cuda(non_blocking=args.cuda_non_blocking)
 
+        if args.model_config.classification:
+            if args.model_config.class_type == 'shapenet_model':
+                classification_gt = data["shapenet_model_id"].cuda(non_blocking=args.cuda_non_blocking)
+            elif args.model_config.class_type == 'shapenet_category':
+                classification_gt = cat_gt
+            else:
+                classification_gt = id_gt
+        
         if args.use_pc:
             pts = data["obj_points"].cuda(non_blocking=args.cuda_non_blocking)
             feats = data["obj_points_features"].cuda(non_blocking=args.cuda_non_blocking)
-            
             img_embed, pose_pred = model([image, pts, feats])
         else:
-            img_embed, pose_pred = model([image])
+            if args.model_config.classification:
+                class_pred, pose_pred = model([image])
+            else:
+                img_embed, pose_pred = model([image])
+        
         # Position prediction
         if args.model_config.predict_center: 
             scale_start_idx = 2
@@ -67,73 +78,98 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
         else:
             scale_start_idx = 0
         scale_pred = pose_pred[:,scale_start_idx:]
-        # Normalize embedding
-        img_embed -= img_embed.min(1, keepdim=True)[0]
-        img_embed /= img_embed.max(1, keepdim=True)[0]
-        '''
-        mem_params = sum([param.nelement()*param.element_size() for param in model.parameters()])
-        mem_bufs = sum([buf.nelement()*buf.element_size() for buf in model.buffers()])
-        '''
-        mask_cat, loss_cat = loss.batch_all_triplet_loss(labels=cat_gt, embeddings=img_embed, margin=args.loss.margin, squared=False)
-        mask_id, loss_obj = loss.batch_all_triplet_loss(labels=id_gt, embeddings=img_embed, margin=args.loss.margin, squared=False)
-        
         loss_fun = loss.get_loss_func(args.training_config.loss_used)(reduction="mean")
         loss_scale = loss_fun(scale_pred, scale_gt)
-        loss_cat_w = args.loss.lambda_cat * loss_cat
-        loss_obj_w = args.loss.lambda_obj * loss_obj
         loss_scale_w = args.loss.lambda_scale * loss_scale
 
         if args.model_config.predict_center: 
             loss_pixel = loss_fun(pixel_pred, pixel_gt)
             loss_pixel_w = args.loss.lambda_pixel * loss_pixel
-            total_loss = loss_cat_w + loss_obj_w + loss_scale_w + loss_pixel_w
+
+        if args.model_config.classification:
+            loss_classification = torch.nn.CrossEntropyLoss()(class_pred, classification_gt)
+            loss_classification_w = args.loss.lambda_classification * loss_classification
         else:
-            total_loss = loss_cat_w + loss_obj_w + loss_scale_w
+            # Normalize embedding
+            img_embed -= img_embed.min(1, keepdim=True)[0]
+            img_embed /= img_embed.max(1, keepdim=True)[0]
+            mask_cat, loss_cat = loss.batch_all_triplet_loss(labels=cat_gt, embeddings=img_embed, margin=args.loss.margin, squared=False)
+            mask_id, loss_obj = loss.batch_all_triplet_loss(labels=id_gt, embeddings=img_embed, margin=args.loss.margin, squared=False)
+            loss_cat_w = args.loss.lambda_cat * loss_cat
+            loss_obj_w = args.loss.lambda_obj * loss_obj
+            
+        total_loss = loss_scale_w
+        if args.model_config.predict_center: 
+            total_loss += loss_pixel_w
+        if args.model_config.classification:
+            total_loss += loss_classification_w
+        else:
+            total_loss += loss_cat_w 
+            total_loss += loss_obj_w
         total_loss.backward()
         
         optimizer.step()
 
         if args.num_gpus > 1:
+            total_loss, loss_scale_w = du.all_reduce(
+                [total_loss, loss_scale_w]
+            )
             if args.model_config.predict_center: 
-                total_loss, loss_cat_w, loss_obj_w, loss_scale_w, loss_pixel_w = du.all_reduce(
-                    [total_loss, loss_cat_w, loss_obj_w, loss_scale_w, loss_pixel_w]
-                )
+                loss_pixel_w = du.all_reduce([loss_pixel_w])
+            
+            if args.model_config.classification:
+                loss_classification_w = du.all_reduce([loss_classification_w])
             else:
-                total_loss, loss_cat_w, loss_obj_w, loss_scale_w = du.all_reduce(
-                    [total_loss, loss_cat_w, loss_obj_w, loss_scale_w]
-                )
+                loss_cat_w = du.all_reduce([loss_cat_w])
+                loss_obj_w = du.all_reduce([loss_obj_w])
 
         if du.is_master_proc(num_gpus=args.num_gpus):
             
             if wandb_enabled:
                 wandb_dict = {
                     'train/train_loss':total_loss.item(), 
-                    'train/train_loss_cat': loss_cat_w.item(), 
-                    'train/train_loss_obj': loss_obj_w.item(), 
                     'train/train_loss_scale': loss_scale_w.item(), 
                     'train/learning_rate': optimizer.param_groups[0]['lr']
                 }
                 if args.model_config.predict_center: 
                     wandb_dict.update({'train/train_loss_pixel': loss_pixel_w.item()})
+                
+                if args.model_config.classification:
+                    wandb_dict.update({
+                        'train/train_loss_classification_{}'.format(args.model_config.class_type) : loss_classification_w.item(),
+                    })
+                else:
+                    wandb_dict.update({
+                        'train/train_loss_cat': loss_cat_w.item(),
+                        'train/train_loss_obj': loss_obj_w.item()
+                    })
                 wandb.log(wandb_dict, step=cnt)
 
             if cnt % args.training_config.log_every == 0:
-                if args.model_config.predict_center: 
-                    loss_pixel_w_item = loss_pixel_w.item()
-                else:
-                    loss_pixel_w_item = -1
-
+                
                 logger.info('\n')
                 logger.info('Train Epoch: {} [iter={} ({:.0f}%)]'.format(epoch, cnt, 100. * batch_idx / len(train_loader)))
                 logger.info('\tTotal Loss = {:.6f}'.format(total_loss.item()))
-                logger.info('\tTriplet_Loss_Category ({}) = {:.6f}'.format(args.loss.lambda_cat, loss_cat_w.item()))
-                logger.info('\tTriplet_Loss_Object ({}) = {:.6f}'.format(args.loss.lambda_obj, loss_obj_w.item()))
                 logger.info('\tObject_Scale_Loss ({}) = {:.6f}'.format(args.loss.lambda_scale, loss_scale_w.item()))
+
                 if args.model_config.predict_center: 
-                    logger.info('\tObject_2D_Center_Loss ({}) = {:.6f}'.format(args.loss.lambda_pixel, loss_pixel_w_item))
+                    logger.info('\tObject_2D_Center_Loss ({}) = {:.6f}'.format(
+                        args.loss.lambda_pixel, 
+                        loss_pixel_w.item()
+                        )
+                    )
+                
+                if args.model_config.classification:
+                    logger.info('\Classification Loss ({}) ({}) = {:.6f}'.format(
+                        args.loss.lambda_classification, 
+                        loss_classification_w.item()
+                        )
+                    )
+                else:
+                    logger.info('\tTriplet_Loss_Category ({}) = {:.6f}'.format(args.loss.lambda_cat, loss_cat_w.item()))
+                    logger.info('\tTriplet_Loss_Object ({}) = {:.6f}'.format(args.loss.lambda_obj, loss_obj_w.item()))
 
         if du.is_master_proc(num_gpus=args.num_gpus):
-            
             if cnt % args.training_config.plot_triplet_every == 0:
                 image_tensor = image.cpu().detach()[:,:3,:,:]
                 image_tensor = utrans.denormalize(image_tensor, train_loader.dataset.img_mean, train_loader.dataset.img_std)
@@ -167,12 +203,10 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
                             log_key = '{}/{}'.format(mask_name, image_name)
                             wandb.log({log_key: wandb.Image(final_img)}, step=cnt)
                         else:
-                            
                             image_path = os.path.join(image_dir, "{}_{}.png".format(mask_name, image_name))
                             plt.savefig(image_path)
                         plt.close()
             
-    
         torch.cuda.empty_cache()
 
         # Validation iteration
@@ -197,36 +231,7 @@ def train(args):
         wandb_run_name = uu.get_timestamp()
     
     if du.is_master_proc(num_gpus=args.num_gpus):
-        all_dir_in_experiment = []
-        if args.experiment_save_dir is None:
-            experiment_save_dir_default = args.experiment_save_dir_default
-            this_experiment_dir = os.path.join(experiment_save_dir_default, wandb_run_name)
-            model_dir = os.path.join(this_experiment_dir, "models")
-            image_dir = os.path.join(this_experiment_dir, "images")
-            prediction_dir = os.path.join(this_experiment_dir, "predictions")
-            
-            all_dir_in_experiment += [
-                experiment_save_dir_default,
-                this_experiment_dir,
-                model_dir,
-                image_dir,
-                prediction_dir,
-            ]
-        else:
-            this_experiment_dir = args.experiment_save_dir
-            model_dir = os.path.join(this_experiment_dir, "models")            
-            image_dir = os.path.join(this_experiment_dir, "images")
-            prediction_dir = os.path.join(this_experiment_dir, "predictions")
-            all_dir_in_experiment += [
-                this_experiment_dir,
-                model_dir,
-                image_dir,
-                prediction_dir,
-            ]
-        
-        for d in all_dir_in_experiment:
-            uu.create_dir(d)
-        
+        this_experiment_dir, image_dir, model_dir, prediction_dir = uu.create_experiment_dirs(args, wandb_run_name)
         logging.setup_logging(log_to_file=args.log_to_file, experiment_dir=this_experiment_dir)
     else:
         image_dir,model_dir,prediction_dir = None,None,None

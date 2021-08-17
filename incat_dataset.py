@@ -55,7 +55,13 @@ class InCategoryClutterDataset(Dataset):
         self.img_mean = args.dataset_config.img_mean#[0.5,0.5,0.5]
         self.img_std = args.dataset_config.img_std#[0.5,0.5,0.5]
 
-        self.df = pd.read_csv(args.files.csv_file_path)
+        df = pd.read_csv(args.files.csv_file_path)
+        shapenet_model_name_to_id = {}
+        for i in range(len(df)):
+            shapnet_model_name = df.iloc[i]['ShapeNetModelId']
+            shapenet_model_name_to_id[shapnet_model_name] = i
+        self.df = df
+        self.shapenet_model_name_to_id = shapenet_model_name_to_id
 
         if args.blender_proc:
             self.dir_list = uu.data_dir_list(
@@ -117,9 +123,38 @@ class InCategoryClutterDataset(Dataset):
             assert len(v)%2 == 0 
             self.total_ele += len(v)
 
-    def load_annotations_image(self, idx_i, scene_num, image_id, scene_object_info, coco, h5py_fh):
+    def load_annotations_image(self, idx_i, scene_num, image_id, datagen_yaml, coco, h5py_fh):
+        '''
+        Args:
+        * - Parameter
+            - Description
+            - Type
+        * - idx_i
+            - index in self.all_data_dict to store the sample
+            - int
+        * - scene_num
+            - scene number in dataset
+            - int
+        * - image_id
+            - image id in the scene 
+            - int
+        * - datagen_yaml
+            - the organized yaml file used to generate the data, containing: 
+                key: category_id
+                value: dict with keys 'category_id', 'path', 'synset_id', 'model_id', 'obj_cat', 'obj_id', 'scale' (not for table mesh)
+            - dict
+        * - coco
+            - uu.COCOAnnotation annotation object to loadImgs, getAnnIds, loadAnns
+            - uu.COCOAnnotation
+        * - h5py_fh
+            - The result of loading i.hdf5, results of BlenderProc 
+            - h5py.File
+        '''
         image_ann = coco.loadImgs(image_id)[0] 
         anns_ids = coco.getAnnIds(imgIds = image_ann['id'])
+        anns = coco.loadAnns(anns_ids)
+        # image_ann = coco.get_ann('images', image_id)
+        # anns = coco.get_ann_with_image_category_id(image_id).values()
         img_rgb = np.array(h5py_fh.get('colors'))
         segcolormap_list = ast.literal_eval(np.array(h5py_fh.get('segcolormap')).tolist().decode('UTF-8'))
         segcolormap = {}
@@ -136,17 +171,21 @@ class InCategoryClutterDataset(Dataset):
 
         samples = {}
         scene_dict = {}
-
-        anns = coco.loadAnns(anns_ids)
+        
         for ann in anns:
+            category_id = ann['category_id']
             assert image_id == ann['image_id']
+            
+            if category_id == 0:
+                continue
             if ann['area'] < self.args.dataset_config.ignore_num_pixels:
                 continue
-            category_id = ann['category_id']
+            if 'scale' not in datagen_yaml[category_id]:
+                continue
+            
             sample_id_int = [scene_num, image_id, category_id]
             sample_id = '-'.join([str(item) for item in sample_id_int])
 
-            scene_object_info[category_id]
             mask_rle = coco_mask.frPyObjects([ann['segmentation']], image_ann['height'], image_ann['width'])
             img_mask = coco_mask.decode(mask_rle)[:,:,0]
 
@@ -156,19 +195,27 @@ class InCategoryClutterDataset(Dataset):
             bbox_2d = np.array([[xmin, ymin],[xmax, ymax]])
             center = [int((xmin + xmax) * 0.5), int((ymin + ymax) * 0.5)]
 
+            position = object_state_dict[category_id]['location']
+            scale = datagen_yaml[category_id]['scale']
+            model_id = datagen_yaml[category_id]['model_id']
+
             sample = {
                 'sample_id' : sample_id,
                 'sample_id_int' : sample_id_int,
-                'position' : np.asarray(ann['location']),
-                'scale' : scene_object_info[category_id]['scale'],
-                'obj_cat' : scene_object_info[category_id]['obj_cat'],
-                'obj_id' : scene_object_info[category_id]['obj_id'],
+                'position' : np.asarray(position),
+                'scale' : scale,
+                'obj_cat' : datagen_yaml[category_id]['obj_cat'],
+                'obj_id' : datagen_yaml[category_id]['obj_id'],
+                'shapenet_model_id' : self.shapenet_model_name_to_id[model_id],
+                'model_id' : model_id,
+                'synset_id' : datagen_yaml[category_id]['synset_id'],
                 'img_rgb' : copy.deepcopy(img_rgb),
                 'img_mask' : copy.deepcopy(img_mask),
                 'center' : np.asarray(center),
                 'total_pixel_in_scene' : ann['area'],
                 'object_bbox_world_frame_2d' : bbox_2d,
             }
+            
             samples[idx_i] = sample
             scene_dict_l_must,  scene_dict_l_one = scene_dict.get((scene_num, image_id), ([],[]))
             if self.split == "train":
@@ -188,12 +235,14 @@ class InCategoryClutterDataset(Dataset):
 
         yaml_file_prefix = '_'.join(one_scene_dir.split('/')[-2:])
         yaml_file = os.path.join(self.args.files.yaml_file_root_dir, '{}.yaml'.format(yaml_file_prefix))
-        yami_file_obj = yaml.load(open(yaml_file), Loader=yaml.SafeLoader)
-        scene_object_info = bp_utils.from_yaml_to_object_information(yami_file_obj, self.df)
+        yaml_file_obj = yaml.load(open(yaml_file), Loader=yaml.SafeLoader)
+        datagen_yaml = bp_utils.from_yaml_to_object_information(yaml_file_obj, self.df)
 
         coco_fname = os.path.join(one_scene_dir, 'coco_data', 'coco_annotations.json')
         coco = COCO(coco_fname)
         image_ids = coco.getImgIds()
+        # coco = uu.COCOAnnotation(coco_fname)
+        # image_ids = list(coco.total_ann_dict['images'].keys())
 
         data_dict = {}
         scene_dict_all = {}
@@ -201,7 +250,7 @@ class InCategoryClutterDataset(Dataset):
         idx_i = idx
         for image_id in image_ids:
             h5py_fh = h5py.File(os.path.join(one_scene_dir, '{}.hdf5'.format(image_id)), 'r')
-            samples, scene_dict,idx_i = self.load_annotations_image(idx_i, scene_num, image_id, scene_object_info, coco, h5py_fh)
+            samples, scene_dict, idx_i = self.load_annotations_image(idx_i, scene_num, image_id, datagen_yaml, coco, h5py_fh)
             data_dict.update(samples)
             scene_dict_all.update(scene_dict)
 
@@ -298,10 +347,6 @@ class InCategoryClutterDataset(Dataset):
         
         return data_dict, scene_dict, idx_i
 
-
-    def __len__(self):
-        # return len(self.idx_to_data_dict)
-        return self.total_ele
 
     def determine_patch_x_y(self, area_type, area_x_range, area_y_range):
         xmin,xmax = area_x_range
@@ -431,6 +476,11 @@ class InCategoryClutterDataset(Dataset):
     def process_input(self, sample):
         if not self.args.blender_proc:
             img_rgb, img_mask, center, area_x, area_y = self.process_sample(sample)
+        else:
+            img_rgb = sample['img_rgb']
+            img_mask = sample['img_mask']
+            center = sample['center']
+
         img_rgb = utrans.normalize(torchvision.transforms.ToTensor()(img_rgb), self.img_mean, self.img_std)
         img_mask = torchvision.transforms.ToTensor()(img_mask)
 
@@ -447,6 +497,7 @@ class InCategoryClutterDataset(Dataset):
         category = torch.FloatTensor(np.array([sample['obj_cat']]).reshape(-1,))
         obj_id = torch.FloatTensor(np.array([sample['obj_id']]).reshape(-1,))
         sample_id = torch.FloatTensor(np.array(sample['sample_id_int']))
+        shapenet_model_id = torch.FloatTensor(np.array(sample['shapenet_model_id']))
 
         data = {
             "image": image,
@@ -456,6 +507,7 @@ class InCategoryClutterDataset(Dataset):
             "obj_category":category,
             "obj_id":obj_id,
             "sample_id":sample_id,
+            "shapenet_model_id" : shapenet_model_id, 
         }
         if not self.args.blender_proc:
             data.update({
@@ -464,13 +516,16 @@ class InCategoryClutterDataset(Dataset):
 
         return data
 
-
+    def __len__(self):
+        # return len(self.idx_to_data_dict)
+        return self.total_ele
+    
     def __getitem__(self, idx):
         
         sample = self.all_data_dict[idx]
         basic_data = self.process_input(sample)
+        return basic_data
         
-
         if self.args.use_pc:
             pts, xind, yind = None,None,None
             with open(sample["object_pc_fname"], 'rb') as f:
@@ -483,16 +538,8 @@ class InCategoryClutterDataset(Dataset):
                 "obj_points": obj_pt,
                 "obj_points_features" : obj_points_features,
             }
-            basic_data.update(pc_data)
-        # elif self.split == 'train' and self.args.loss.use_consistency_loss:
-        #         pair_idx_arr = self.idx_to_same_object_dict[idx]
-        #         pair_idx = np.random.choice(pair_idx_arr, 1)[0]
-        #         pair_data = self.process_input(self.all_data_dict[pair_idx])
-        #         pair_data_add = {
-        #             'pair_image' : pair_data["image"],
-        #         }
-                
+            basic_data.update(pc_data)            
 
-        return basic_data
+        
 
 
