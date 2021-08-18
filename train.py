@@ -87,6 +87,7 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
                 total_loss = loss_value 
             else:
                 total_loss += loss_value
+            print(total_loss)
         total_loss.backward()
         optimizer.step()
 

@@ -46,19 +46,6 @@ class TestMeter(object):
         for k in self.acc_dict.keys():
             self.acc_dict[k] = []
 
-    def update_acc_dict(self, iter_data):
-        for k,v in iter_data.items():
-            print(dist.get_rank() % self.args.num_gpus, " update_acc_dict, ", k)
-            if k.startswith('contrastive_'):
-                loss_acc, count = self.contrastive_loss_dict.get(k, (0.0, 0.0))
-                loss_acc += v[0]
-                count += v[1]
-                self.contrastive_loss_dict[k] = (loss_acc, count)
-            else:
-                l = self.acc_dict.get(k, [])
-                l.append(v)
-                self.acc_dict[k] = l
-
     def plot_prediction(
             self, 
             iter_data, 
@@ -69,7 +56,7 @@ class TestMeter(object):
         required_keys = ['image', 'sample_id', 'scale_pred', 'scale']
         for key in required_keys:
             if key not in iter_data:
-                return
+                raise
         image = iter_data['image']
         sample_id = iter_data['sample_id']
         idx_in_batch = np.random.choice(len(sample_id),1)[0]
@@ -105,6 +92,19 @@ class TestMeter(object):
             scale_gt_idx = iter_data['scale'][idx_in_batch].numpy(),
         )
     
+    def update_acc_dict(self, iter_data):
+        for k,v in iter_data.items():
+            if k.startswith('contrastive_'):
+                print(v)
+                loss_acc, count = self.contrastive_loss_dict.get(k, (0.0, 0.0))
+                loss_acc += v[0]
+                count += v[1]
+                self.contrastive_loss_dict[k] = (loss_acc, count)
+            else:
+                l = self.acc_dict.get(k, [])
+                l.append(v)
+                self.acc_dict[k] = l
+    
     def log_iter_stats(
             self, 
             iter_data, 
@@ -123,7 +123,6 @@ class TestMeter(object):
                 image_dir, 
                 wandb_enabled=wandb_enabled, 
             )
-        print(dist.get_rank() % self.args.num_gpus, " before update_acc_dict ")
         self.update_acc_dict(iter_data)
     
     def calculate_mapk(self, loss_key, features, label):
@@ -162,6 +161,7 @@ class TestMeter(object):
 
         training_config = self.args.training_config
         wandb_dict = {}
+        
         for loss_idx, loss_fn_name in enumerate(training_config.loss_fn):
             gt_key = training_config.gt[loss_idx]
             pred_key = self.args.model_config.model_return[loss_idx]
@@ -180,11 +180,8 @@ class TestMeter(object):
             
             loss_key = f'{loss_fn_name}_{gt_key}'
             logger.info(
-                '\tLoss_fn_name={}, Loss_gt_name={}, Loss_pred_key={}, Loss_weight={}, Loss={:.6f}'.format(
-                    loss_fn_name, 
-                    gt_key,
-                    pred_key,
-                    loss_weight,
+                '\tLoss name={}, Loss={:.6f}'.format(
+                    loss_key, 
                     loss_value * loss_weight,
                 )
             )

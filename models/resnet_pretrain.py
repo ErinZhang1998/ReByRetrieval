@@ -69,9 +69,9 @@ class PretrainedResNetSpatialSoftmax(nn.Module):
         # ['class_pred', 'scale_pred', 'center_pred']
         if 'class_pred' in return_keys:
             df  = pd.read_csv(args.files.csv_file_path)
-            if args.model_config.class_type == 'shapenet_model':
+            if args.model_config.class_type == 'shapenet_model_id':
                 num_classes = len(df)
-            elif args.model_config.class_type == 'shapenet_category':
+            elif args.model_config.class_type == 'obj_category':
                 num_classes = len(df['catId'].unique())
             else:
                 num_classes = len(df['objId'].unique())
