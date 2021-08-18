@@ -1,4 +1,7 @@
 import numpy as np 
+from sklearn.metrics import top_k_accuracy_score
+
+
 
 def acc_topk_with_dist(labels, arg_sorted_dist, k):
     order = arg_sorted_dist[:,1:][:,:k]

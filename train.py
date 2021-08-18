@@ -36,65 +36,81 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
     model.train()
 
     training_config = args.training_config
-    assert len(args.model_config.model_return) == len(training_config.gt) == len(training_config.loss_fn) == len(training_config.weight)
     
     for batch_idx, data in enumerate(train_loader):
-        
         optimizer.zero_grad()
-        mask_dict = {} # gt_key -> mask used for triplet loss 
-        cuda_item = {}
-        arguments = []
-        for arg_key in args.model_config.model_arguments:
-            cuda_item[arg_key] = data[arg_key].cuda(non_blocking=args.cuda_non_blocking)
-            arguments += [cuda_item[arg_key]]
-        returns = model(arguments)
+        image = data['image'].cuda(non_blocking=args.cuda_non_blocking)
+        return_keys, return_val = model([image])
+
+        if 'scale_pred' in return_keys:
+            scale_pred = return_val[return_keys.index('scale_pred')]
+            scale = data['scale'].cuda()
+            scale_loss = loss.get_loss_func(args.loss.scale_pred_fn)(scale_pred, scale) * args.loss.lambda_scale_pred
+
+        if 'center_pred' in return_keys:
+            center_pred = return_val[return_keys.index('center_pred')]
+            center = data['center'].cuda()
+            center_loss = loss.get_loss_func(args.loss.center_pred_fn)(center_pred, center) * args.loss.lambda_center_pred
         
-        loss_dict = {}
-        for loss_idx, loss_fn_name in enumerate(training_config.loss_fn):
-            gt_key = training_config.gt[loss_idx]
-            pred_key = args.model_config.model_return[loss_idx]
-            loss_weight = training_config.weight[loss_idx]
+        if 'class_pred' in return_keys:
+            class_pred = return_val[return_keys.index('class_pred')]
+            class_gt = data[args.model_config.class_type].cuda()
+            class_loss = loss.get_loss_func(args.loss.class_pred_fn)(class_pred, class_gt.long()) * args.loss.lambda_class_pred
+        
+        if 'img_embed' in return_keys:
+            img_embed = return_val[return_keys.index('img_embed')]
+            obj_category = data['obj_category'].cuda()
+            obj_id = data['obj_id'].cuda()
 
-            if gt_key in cuda_item:
-                gt_val = cuda_item[gt_key]
-            else:
-                cuda_item[gt_key] = data[gt_key].cuda(non_blocking=args.cuda_non_blocking)
-                gt_val = cuda_item[gt_key]
-            pred_val = returns[pred_key]
+            triplet_mask_obj_category, obj_category_triplet_loss = loss.batch_all_triplet_loss(
+                labels = obj_category, 
+                embeddings = img_embed, 
+                margin = args.loss.margin, 
+                squared=False,
+            )
+            triplet_mask_obj_id, obj_id_triplet_loss = loss.batch_all_triplet_loss(
+                labels = obj_id, 
+                embeddings = img_embed, 
+                margin = args.loss.margin, 
+                squared=False,
+            )    
+            obj_category_triplet_loss = obj_category_triplet_loss * args.loss.lambda_obj_category
+            obj_id_triplet_loss = obj_id_triplet_loss * args.loss.lambda_obj_id
 
-            if loss_fn_name == 'triplet_loss':
-                triplet_mask, loss_value = loss.batch_all_triplet_loss(
-                    labels=gt_val, 
-                    embeddings=pred_val, 
-                    margin=args.loss.margin, 
-                    squared=False,
-                )
-                mask_dict[gt_key] = triplet_mask
+        total_set = False
+        if 'img_embed' in return_keys:
+            total_loss = obj_category_triplet_loss + obj_id_triplet_loss
+            total_set = True
+        if 'class_pred' in return_keys:
+            if total_set:
+                total_loss += class_loss
             else:
-                loss_func = loss.get_loss_func(loss_fn_name)
-                if loss_fn_name == "ce":
-                    loss_value = loss_func(pred_val, gt_val.view(-1,).long())
-                else:
-                    loss_value = loss_func(pred_val, gt_val)
-                # loss_key = loss_fn_name
-            
-            loss_key = f'{loss_fn_name}_{gt_key}'
-            loss_dict[loss_key] = loss_value * loss_weight
+                total_loss = class_loss
+        
+        if 'scale_pred' in return_keys:
+            total_loss += scale_loss
 
-        total_loss = None
-        for loss_key, loss_value in loss_dict.items():
-            if total_loss is None:
-                total_loss = loss_value 
-            else:
-                total_loss += loss_value
-            print(total_loss)
+        if 'center_pred' in return_keys:
+            total_loss += center_loss
+
+        assert total_set
+
         total_loss.backward()
         optimizer.step()
 
         if args.num_gpus > 1:
             total_loss = du.all_reduce([total_loss])[0]
-            for loss_key, loss_value in loss_dict.items():
-                loss_dict[loss_key] = du.all_reduce([loss_value])[0]
+            if 'scale_pred' in return_keys:
+                scale_loss = du.all_reduce([scale_loss])[0]
+
+            if 'center_pred' in return_keys:
+                center_loss = du.all_reduce([center_loss])[0]
+            
+            if 'class_pred' in return_keys:
+                class_loss = du.all_reduce([class_loss])[0]
+            
+            if 'img_embed' in return_keys:
+                obj_category_triplet_loss, obj_id_triplet_loss = du.all_reduce([obj_category_triplet_loss, obj_id_triplet_loss])
 
         if du.is_master_proc(num_gpus=args.num_gpus):
             
@@ -102,9 +118,25 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
                 wandb_dict = {
                     'train/train_loss':total_loss.item(), 
                 }
-                for loss_key, loss_value in loss_dict.items():
+                if 'scale_pred' in return_keys:
                     wandb_dict.update({
-                        'train/{}'.format(loss_key) : loss_value.item(),
+                        'train/scale_loss': scale_loss.item(),
+                    })
+
+                if 'center_pred' in return_keys:
+                    wandb_dict.update({
+                        'train/center_loss': center_loss.item(),
+                    })
+                
+                if 'class_pred' in return_keys:
+                    wandb_dict.update({
+                        'train/class_loss': class_loss.item(),
+                    })
+                
+                if 'img_embed' in return_keys:
+                    wandb_dict.update({
+                        'train/obj_category_triplet_loss': obj_category_triplet_loss.item(),
+                        'train/obj_id_triplet_loss': obj_id_triplet_loss.item(),
                     })
                 wandb.log(wandb_dict, step=cnt)
 
@@ -112,31 +144,31 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
                 
                 logger.info('Train Epoch: {} [iter={} ({:.0f}%)]'.format(epoch, cnt, 100. * batch_idx / len(train_loader)))
                 logger.info('\tTotal Loss = {:.6f}'.format(total_loss.item()))
+                if 'scale_pred' in return_keys:
+                    logger.info('\tscale_loss={:.6f}'.format(scale_loss.item()))
+
+                if 'center_pred' in return_keys:
+                    logger.info('\tcenter_loss={:.6f}'.format(center_loss.item()))
                 
-                for loss_key, loss_value in loss_dict.items():
-                    logger.info(
-                        '\tLoss name={}, Loss={:.6f}'.format(
-                            loss_key, 
-                            loss_value.item(),
-                        )
-                    )
+                if 'class_pred' in return_keys:
+                    logger.info('\tclass_loss={:.6f}'.format(class_loss.item()))
+                
+                if 'img_embed' in return_keys:
+                    logger.info('\tobj_category_triplet_loss={:.6f}'.format(obj_category_triplet_loss.item()))
+                    logger.info('\tobj_id_triplet_loss={:.6f}'.format(obj_id_triplet_loss.item()))
             
         if du.is_master_proc(num_gpus=args.num_gpus):
-            if cnt % args.training_config.plot_triplet_every == 0 and len(mask_dict) > 0:                    
-                if 'image' in cuda_item:
-                    image = cuda_item['image']
-                    image_tensor = image.cpu().detach()[:,:3,:,:]
-                    mask_tensor = image.cpu().detach()[:,3:,:,:]
-                else:
-                    image = cuda_item['image']
-                    image_tensor = image[:,:3,:,:]
-                    mask_tensor = image[:,3:,:,:]
+            if 'img_embed' in return_keys and cnt % args.training_config.plot_triplet_every == 0:               
+                image_tensor = image.cpu().detach()[:,:3,:,:]
+                mask_tensor = image.cpu().detach()[:,3:,:,:]
                 image_tensor = utrans.denormalize(image_tensor, train_loader.dataset.img_mean, train_loader.dataset.img_std)
                 
-                for gt_key, mask in mask_dict.items():
-                    if gt_key not in cuda_item:
-                        logger.info("WARNING: This mask {} GT value never sent to cuda, giving up plotting.".format(gt_key))
-                    gt_value = cuda_item[gt_key].detach().cpu().numpy()
+                mask_L = [
+                    ("obj_id", obj_id, triplet_mask_obj_id),
+                    ("obj_category", obj_category, triplet_mask_obj_category),
+                ]
+                for gt_key, gt_value, mask in mask_L:
+                    gt_value = gt_value.detach().cpu().numpy()
                     sample_ids = data["sample_id"].numpy().astype(int).astype(str)
                     triplets = torch.stack(torch.where(mask), dim=1)
                     plt_pairs_idx = np.random.choice(len(triplets), args.training_config.triplet_plot_num, replace=False)

@@ -64,10 +64,10 @@ class PretrainedResNetSpatialSoftmax(nn.Module):
         self.ss = args.model_config.spatial_softmax
         self.spatial_softmax = SpatialSoftmax(self.ss.height, self.ss.width, self.resnet_out_channel)
 
-
-        return_keys = list(set(args.model_config.model_return))
-        # ['class_pred', 'scale_pred', 'center_pred']
-        if 'class_pred' in return_keys:
+        candidate_return = args.model_config.candidate_return
+        model_return = args.model_config.model_return
+                
+        if 'class_pred' in model_return:
             df  = pd.read_csv(args.files.csv_file_path)
             if args.model_config.class_type == 'shapenet_model_id':
                 num_classes = len(df)
@@ -77,42 +77,35 @@ class PretrainedResNetSpatialSoftmax(nn.Module):
                 num_classes = len(df['objId'].unique())
             self.add_module('class_pred', nn.Linear(self.resnet_out_channel*2, num_classes))
         
-        if 'scale_pred' in return_keys:
+        if 'scale_pred' in model_return:
             self.add_module('scale_pred', nn.Linear(self.resnet_out_channel*2, 1))
         
-        if 'center_pred' in return_keys:
+        if 'center_pred' in model_return:
             self.add_module('center_pred', nn.Linear(self.resnet_out_channel*2, 2))
         
-        if 'img_embed' in return_keys:
+        if 'img_embed' in model_return:
             self.add_module('img_embed', nn.Linear(self.resnet_out_channel*2, self.emb_dim))
-        self.return_keys = return_keys
+        self.model_return = model_return
+        self.candidate_return = candidate_return
             
     def forward(self, xs):
         x = xs[0]
         x = self.resnet_no_fc(x)
         x = self.spatial_softmax(x)
         
-        return_dict = {}
-        for return_key in self.return_keys:
-            head = getattr(self, return_key)
-            pred = head(x)
-            if return_key == 'img_embed':
-                pred -= pred.min(1, keepdim=True)[0]
-                pred /= pred.max(1, keepdim=True)[0]
-            return_dict[return_key] = pred
-        return return_dict
-        # if self.args.model_config.classification:
-        #     return {
-        #         'class_pred' : self.classification_head(x), 
-        #         'pose_pred': self.pose_fc(x),
-        #     }
-        # else:
-        #     emb = self.emb_fc(x)
-        #     pose = self.pose_fc(x)
-        #     return {
-        #         'img_embed': emb, 
-        #         'pose_pred' : pose,
-        # }
+        return_val = []
+        return_keys = []
+        
+        for pred_key in self.candidate_return:
+            if pred_key in self.model_return:
+                pred = getattr(self, pred_key)(x)
+                if pred_key == 'img_embed':
+                    pred -= pred.min(1, keepdim=True)[0]
+                    pred /= pred.max(1, keepdim=True)[0]
+                return_val += [pred]
+                return_keys += [pred_key]
+
+        return return_keys, return_val
 
 @MODEL_REGISTRY.register()
 class PretrainedResNet(nn.Module):

@@ -95,7 +95,6 @@ class TestMeter(object):
     def update_acc_dict(self, iter_data):
         for k,v in iter_data.items():
             if k.startswith('contrastive_'):
-                print(v)
                 loss_acc, count = self.contrastive_loss_dict.get(k, (0.0, 0.0))
                 loss_acc += v[0]
                 count += v[1]
@@ -146,8 +145,9 @@ class TestMeter(object):
         return mapk_dict
 
     def save_prediction(self, epoch, cnt, prediction_dir):
-        all_save_keys = list(set(self.args.model_config.model_return + self.args.training_config.gt))
-        for key in all_save_keys:
+        for key in self.acc_dict.keys():
+            if key == 'image':
+                continue
             value = torch.cat(self.acc_dict[key], dim=0) #(batch_size, x)
             value = value.numpy()
             fname = os.path.join(prediction_dir, f'{epoch}_{key}.npy')
@@ -156,75 +156,84 @@ class TestMeter(object):
     def finalize_metrics(self, epoch, cnt, prediction_dir):
         if not du.is_master_proc(num_gpus=self.args.num_gpus):
             return 
+        
+        save_prediction = epoch == self.args.training_config.epochs or epoch % self.args.testing_config.save_prediction_every == 0 or (not self.args.training_config.train)
+        args = self.args
         logger.info('\n')
         logger.info('Validate Epoch: {} , Iteration: {}'.format(epoch, cnt))
 
-        training_config = self.args.training_config
         wandb_dict = {}
+        return_keys = self.args.model_config.model_return
+        if 'scale_pred' in return_keys:
+            scale_pred = torch.cat(self.acc_dict['scale_pred'], dim=0)
+            scale = torch.cat(self.acc_dict['scale'], dim=0)
+            scale_loss = loss.get_loss_func(args.loss.scale_pred_fn)(scale_pred, scale) * args.loss.lambda_scale_pred
+            scale_loss = scale_loss.item()
+            logger.info('\tscale_loss={:.6f}'.format(scale_loss))
+            wandb_dict['test/scale_loss'] = scale_loss
+
+            # if save_prediction:
+            #     fname = os.path.join(prediction_dir, f'{epoch}_scale_pred.npy')
+            #     np.save(fname, scale_pred)
+            #     fname = os.path.join(prediction_dir, f'{epoch}_scale.npy')
+            #     np.save(fname, scale)
+
+        if 'center_pred' in return_keys:
+            center_pred = torch.cat(self.acc_dict['center_pred'], dim=0)
+            center = torch.cat(self.acc_dict['center'], dim=0)
+            center_loss = loss.get_loss_func(args.loss.center_pred_fn)(center_pred, center) * args.loss.lambda_center_pred
+            logger.info('\tcenter_loss={:.6f}'.format(center_loss.item()))
+            wandb_dict['test/center_loss'] = center_loss.item()
+
+            # if save_prediction:
+            #     fname = os.path.join(prediction_dir, f'{epoch}_center_pred.npy')
+            #     np.save(fname, center_pred)
+            #     fname = os.path.join(prediction_dir, f'{epoch}_center.npy')
+            #     np.save(fname, center)
         
-        for loss_idx, loss_fn_name in enumerate(training_config.loss_fn):
-            gt_key = training_config.gt[loss_idx]
-            pred_key = self.args.model_config.model_return[loss_idx]
-            loss_weight = training_config.weight[loss_idx]
+        if 'class_pred' in return_keys:
+            class_pred = torch.cat(self.acc_dict['class_pred'], dim=0)
+            shapenet_model_id = torch.cat(self.acc_dict['shapenet_model_id'], dim=0)
+            class_loss = loss.get_loss_func(args.loss.class_pred_fn)(class_pred, shapenet_model_id) * args.loss.lambda_class_pred
+            logger.info('\tclass_loss={:.6f}'.format(class_loss.item()))
+            wandb_dict['test/class_loss'] = class_loss.item()
 
-            gt_val = torch.cat(self.acc_dict[gt_key], dim=0)
-            pred_val = torch.cat(self.acc_dict[pred_key], dim=0)
+            # if save_prediction:
+            #     fname = os.path.join(prediction_dir, f'{epoch}_class_pred.npy')
+            #     np.save(fname, class_pred)
+            #     fname = os.path.join(prediction_dir, f'{epoch}_shapenet_model_id.npy')
+            #     np.save(fname, shapenet_model_id)
 
-            if loss_fn_name == 'triplet_loss':
-                contrastive_key = f'contrastive_{gt_key}'
-                loss_value, count = self.contrastive_loss_dict[contrastive_key]
-                loss_value = loss_value / count
-            else:
-                loss_func = loss.get_loss_func(loss_fn_name)
-                loss_value = loss_func(pred_val, gt_val).item()
+        if 'img_embed' in return_keys:
+            pred_val = torch.cat(self.acc_dict['img_embed'], dim=0)
+
+            loss_value, count = self.contrastive_loss_dict['contrastive_obj_category']
+            loss_value = loss_value / count
+            logger.info('\tcontrastive_obj_category={:.6f}'.format(loss_value * self.args.loss.lambda_obj_category))
+
+            loss_value, count = self.contrastive_loss_dict['contrastive_obj_id']
+            loss_value = loss_value / count
+            logger.info('\tcontrastive_obj_id={:.6f}'.format(loss_value * self.args.loss.lambda_obj_id))
+
+            gt_val = torch.cat(self.acc_dict['obj_category'], dim=0)
+            mapk_dict = self.calculate_mapk('obj_category', pred_val.numpy(), gt_val.numpy())
+            wandb_dict.update(mapk_dict)
+            for k,v in mapk_dict.items():
+                logger.info('\t{} = {:.6f}'.format(k, v))
             
-            loss_key = f'{loss_fn_name}_{gt_key}'
-            logger.info(
-                '\tLoss name={}, Loss={:.6f}'.format(
-                    loss_key, 
-                    loss_value * loss_weight,
-                )
-            )
-            wandb_dict[f'test/{loss_key}'] = loss_value * loss_weight
-            if loss_fn_name == 'triplet_loss':
-                mapk_dict = self.calculate_mapk(loss_key, pred_val.numpy(), gt_val.numpy())
-                wandb_dict.update(mapk_dict)
-                for k,v in mapk_dict.items():
-                    logger.info('\t{} = {:.6f}'.format(k, v))
+            gt_val = torch.cat(self.acc_dict['obj_id'], dim=0)
+            mapk_dict = self.calculate_mapk('obj_id', pred_val.numpy(), gt_val.numpy())
+            wandb_dict.update(mapk_dict)
+            for k,v in mapk_dict.items():
+                logger.info('\t{} = {:.6f}'.format(k, v))
 
         if self.args.wandb.enable and not wandb.run is None:
             wandb.log(wandb_dict, step=cnt)
-        # if epoch == self.args.training_config.epochs or epoch % self.args.testing_config.save_prediction_every == 0 or (not self.args.training_config.train):
-        self.save_prediction(epoch, cnt, prediction_dir)
-        
-        # all_embedding = torch.cat(self.acc_dict['embeds'], dim=0).numpy()
-        # all_cat_label = torch.cat(self.acc_dict['cat_gt'], dim=0).numpy()
-        # all_id_label = torch.cat(self.acc_dict['id_gt'], dim=0).numpy()
-        # acc_dict = self.calculate_acc(all_embedding, all_cat_label, all_id_label)
-
-        
-        # if epoch == self.args.training_config.epochs or epoch % self.args.testing_config.save_prediction_every == 0 or (not self.args.training_config.train):
-        #     if self.args.model_config.predict_center: 
-        #         all_pose = torch.cat([all_scale_pred, all_pixel_pred, all_scale_gt, all_pixel_gt], dim=1)
-        #     else:
-        #         all_pose = torch.cat([all_scale_pred, all_scale_gt], dim=1)
-        #     pose_path = os.path.join(prediction_dir, '{}_pose.npy'.format(epoch))
-        #     np.save(pose_path, all_pose)
-            
-        #     feat_path = os.path.join(prediction_dir, '{}_embedding.npy'.format(epoch))
-        #     np.save(feat_path, all_embedding)
-
-        #     all_sample_ids = np.vstack(self.acc_dict['sample_id'])
-        #     sample_ids_path = os.path.join(prediction_dir, '{}_sample_id.npy'.format(epoch))
-        #     np.save(sample_ids_path, all_sample_ids)
-
-        #     all_area_types = np.vstack(self.acc_dict['area_type'])
-        #     sample_ids_path = os.path.join(prediction_dir, '{}_area_types.npy'.format(epoch))
-        #     np.save(sample_ids_path, all_area_types)
+        if save_prediction:
+            self.save_prediction(epoch, cnt, prediction_dir)
 
 
 class FeatureExtractMeter(object):
-
     def __init__(self, args):
         self.args = args
         self.acc_dict = dict()
