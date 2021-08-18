@@ -56,7 +56,7 @@ class PretrainedResNetSpatialSoftmax(nn.Module):
         if args.model_config.resnet_type == 'resnet18':
             resnet = resnet18(pretrained=True)
         elif args.model_config.resnet_type == 'resnet50':
-            resnet = resnet50(pretrained=True)
+            resnet = resnet50(pretrained=True, remove_avg_pool_layer=True)
         self.resnet_out_channel = resnet.fc.in_features
         resnet.conv1 = nn.Conv2d(4, 64, kernel_size=(7, 7), stride=(2, 2), padding=(0, 0), bias=False)
         self.resnet_no_fc = resnet #nn.Sequential(*list(resnet.children())[:-2])
@@ -66,7 +66,6 @@ class PretrainedResNetSpatialSoftmax(nn.Module):
 
 
         return_keys = list(set(args.model_config.model_return))
-        return_modules = {}
         # ['class_pred', 'scale_pred', 'center_pred']
         if 'class_pred' in return_keys:
             df  = pd.read_csv(args.files.csv_file_path)
@@ -76,28 +75,31 @@ class PretrainedResNetSpatialSoftmax(nn.Module):
                 num_classes = len(df['catId'].unique())
             else:
                 num_classes = len(df['objId'].unique())
-            return_modules['class_pred'] = nn.Linear(self.resnet_out_channel*2, num_classes)
+            self.add_module('class_pred', nn.Linear(self.resnet_out_channel*2, num_classes))
+        
         if 'scale_pred' in return_keys:
-            return_modules['scale_pred'] = nn.Linear(self.resnet_out_channel*2, 1)
+            self.add_module('scale_pred', nn.Linear(self.resnet_out_channel*2, 1))
+        
         if 'center_pred' in return_keys:
-            return_modules['center_pred'] = nn.Linear(self.resnet_out_channel*2, 2)
+            self.add_module('center_pred', nn.Linear(self.resnet_out_channel*2, 2))
+        
         if 'img_embed' in return_keys:
-            return_modules['center_pred'] = nn.Linear(self.resnet_out_channel*2, self.emb_dim)
-        self.return_modules = return_modules
-    
+            self.add_module('img_embed', nn.Linear(self.resnet_out_channel*2, self.emb_dim))
+        self.return_keys = return_keys
+            
     def forward(self, xs):
         x = xs[0]
         x = self.resnet_no_fc(x)
         x = self.spatial_softmax(x)
         
         return_dict = {}
-        for return_key, return_module in self.return_modules.items():
-            pred = return_module(x)
-            if return_key == 'img_embed': # normalize the embedding
+        for return_key in self.return_keys:
+            head = getattr(self, return_key)
+            pred = head(x)
+            if return_key == 'img_embed':
                 pred -= pred.min(1, keepdim=True)[0]
                 pred /= pred.max(1, keepdim=True)[0]
             return_dict[return_key] = pred
-        
         return return_dict
         # if self.args.model_config.classification:
         #     return {

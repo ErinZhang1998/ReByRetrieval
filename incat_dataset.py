@@ -80,7 +80,7 @@ class InCategoryClutterDataset(Dataset):
         self.all_data_dict = dict()
         self.all_scene_cam_dict = dict()
         idx = 0
-        for dir_path in self.dir_list:
+        for dir_path in self.dir_list[:20]:
             if args.blender_proc:
                 data_dict, scene_dict, idx = self.load_annotations_blender_proc(dir_path, idx)
             else:
@@ -150,11 +150,11 @@ class InCategoryClutterDataset(Dataset):
             - The result of loading i.hdf5, results of BlenderProc 
             - h5py.File
         '''
-        image_ann = coco.loadImgs(image_id)[0] 
-        anns_ids = coco.getAnnIds(imgIds = image_ann['id'])
-        anns = coco.loadAnns(anns_ids)
-        # image_ann = coco.get_ann('images', image_id)
-        # anns = coco.get_ann_with_image_category_id(image_id).values()
+        # image_ann = coco.loadImgs(image_id)[0] 
+        # anns_ids = coco.getAnnIds(imgIds = image_ann['id'])
+        # anns = coco.loadAnns(anns_ids)
+        image_ann = coco.get_ann('images', image_id)
+        anns = coco.get_ann_with_image_category_id(image_id).values()
         img_rgb = np.array(h5py_fh.get('colors'))
         segcolormap_list = ast.literal_eval(np.array(h5py_fh.get('segcolormap')).tolist().decode('UTF-8'))
         segcolormap = {}
@@ -194,6 +194,11 @@ class InCategoryClutterDataset(Dataset):
             xmax = xmin + xleng
             bbox_2d = np.array([[xmin, ymin],[xmax, ymax]])
             center = [int((xmin + xmax) * 0.5), int((ymin + ymax) * 0.5)]
+            # cx,cy = center 
+            # if (cx/640) < 0 or (cx/640) > 1:
+            #     import pdb; pdb.set_trace()
+            # if (cy/480) < 0 or (cy/480) > 1:
+            #     import pdb; pdb.set_trace()
 
             position = object_state_dict[category_id]['location']
             scale = datagen_yaml[category_id]['scale']
@@ -239,10 +244,10 @@ class InCategoryClutterDataset(Dataset):
         datagen_yaml = bp_utils.from_yaml_to_object_information(yaml_file_obj, self.df)
 
         coco_fname = os.path.join(one_scene_dir, 'coco_data', 'coco_annotations.json')
-        coco = COCO(coco_fname)
-        image_ids = coco.getImgIds()
-        # coco = uu.COCOAnnotation(coco_fname)
-        # image_ids = list(coco.total_ann_dict['images'].keys())
+        # coco = COCO(coco_fname)
+        # image_ids = coco.getImgIds()
+        coco = uu.COCOAnnotation(coco_fname)
+        image_ids = list(coco.total_ann_dict['images'].keys())
 
         data_dict = {}
         scene_dict_all = {}
@@ -392,6 +397,7 @@ class InCategoryClutterDataset(Dataset):
             canvas_path = np.random.choice(self.all_canvas_path,1)[0]
             canvas = PIL.Image.open(canvas_path)
             canvas = canvas.resize((self.size_w, self.size_h))
+            
             cropped_obj_transform = utrans.PILCropArea(corners)
             cropped_obj_img, cropped_mask, cropped_center = cropped_obj_transform(rgb_all, mask_all, center)
             cropped_object_mask = mask.crop(cropped_obj_transform.area)
@@ -448,7 +454,6 @@ class InCategoryClutterDataset(Dataset):
             # On the canvas, but mask showing the place that the sample object will be
             object_canvas_mask = Image.new("L", canvas.size, 255)
             object_canvas_mask.paste(cropped_object_mask.resize((patch_w,patch_h)), area)
-
             object_canvas_mask = PIL.ImageOps.invert(object_canvas_mask)
 
             obj_background = Image.new("RGB", canvas.size, 0)
@@ -473,16 +478,49 @@ class InCategoryClutterDataset(Dataset):
         
         return img_rgb, img_mask, center_trans, area_x, area_y
     
+    def process_sample_blender_proc(self, sample):
+        # resize img 
+        img_rgb = sample['img_rgb'] #numpy.array
+        img_h, img_w, _ = img_rgb.shape
+        img_rgb = PIL.Image.fromarray(img_rgb).resize((self.size_w, self.size_h))
+        
+        # resize mask
+        img_mask = sample['img_mask']
+        img_mask_object_is_0 = utrans.mask_to_PIL(img_mask)
+        img_mask_object_is_255 = PIL.ImageOps.invert(img_mask_object_is_0).resize((self.size_w, self.size_h))
+        
+        # normalize center value to [0,1]
+        center = sample['center']
+        cx,cy = center
+        cx *= (self.size_w / img_w)
+        cy *= (self.size_h / img_h)
+        center = np.array([cx,cy])
+
+        if self.split == 'train':
+            flip_trans = utrans.PILRandomHorizontalFlip()
+            img_rgb, img_mask, center_trans = flip_trans(img_rgb, img_mask_object_is_255, center)
+            # cx,cy = center_trans
+            # if (cx/self.size_w) < 0 or (cx/self.size_w) > 1:
+            #     import pdb; pdb.set_trace()
+            # if (cy/self.size_h) < 0 or (cy/self.size_h) > 1:
+            #     import pdb; pdb.set_trace()
+        else:
+            img_rgb, img_mask, center_trans = img_rgb, img_mask_object_is_255, center
+
+        return img_rgb, img_mask, center_trans
+    
+    
     def process_input(self, sample):
         if not self.args.blender_proc:
             img_rgb, img_mask, center, area_x, area_y = self.process_sample(sample)
         else:
-            img_rgb = sample['img_rgb']
-            img_mask = sample['img_mask']
-            center = sample['center']
+            img_rgb, img_mask, center = self.process_sample_blender_proc(sample)
 
         img_rgb = utrans.normalize(torchvision.transforms.ToTensor()(img_rgb), self.img_mean, self.img_std)
+        
         img_mask = torchvision.transforms.ToTensor()(img_mask)
+        if len(img_mask.shape) > 2:
+            img_mask = img_mask[:1,:,:]
 
         img = torch.cat((img_rgb, img_mask), 0)
         image = torch.FloatTensor(img)
@@ -497,7 +535,7 @@ class InCategoryClutterDataset(Dataset):
         category = torch.FloatTensor(np.array([sample['obj_cat']]).reshape(-1,))
         obj_id = torch.FloatTensor(np.array([sample['obj_id']]).reshape(-1,))
         sample_id = torch.FloatTensor(np.array(sample['sample_id_int']))
-        shapenet_model_id = torch.FloatTensor(np.array(sample['shapenet_model_id']))
+        shapenet_model_id = torch.FloatTensor(np.array([sample['shapenet_model_id']]))
 
         data = {
             "image": image,

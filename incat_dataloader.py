@@ -128,6 +128,9 @@ class InCategoryClutterDataloader(object):
             all_data["obj_points"] = pts_l
             all_data["obj_points_features"] = feats_l
         for k,l in all_data.items():
+            if k == 'center':
+                assert len(torch.where(torch.stack(l, dim=0) > 1)[0]) == 0
+                assert len(torch.where(torch.stack(l, dim=0) < 0)[0]) == 0
             res[k] = torch.stack(l, dim=0)
 
         return res

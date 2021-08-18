@@ -52,13 +52,14 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
         loss_dict = {}
         for loss_idx, loss_fn_name in enumerate(training_config.loss_fn):
             gt_key = training_config.gt[loss_idx]
+            pred_key = args.model_config.model_return[loss_idx]
+            loss_weight = training_config.weight[loss_idx]
+
             if gt_key in cuda_item:
                 gt_val = cuda_item[gt_key]
             else:
                 cuda_item[gt_key] = data[gt_key].cuda(non_blocking=args.cuda_non_blocking)
                 gt_val = cuda_item[gt_key]
-            
-            pred_key = training_config.model_return[loss_idx]
             pred_val = returns[pred_key]
 
             if loss_fn_name == 'triplet_loss':
@@ -71,11 +72,17 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
                 mask_dict[gt_key] = triplet_mask
             else:
                 loss_func = loss.get_loss_func(loss_fn_name)
-                loss_value = loss_func(pred_val, gt_val)
-            loss_dict[loss_fn_name] = training_config.weight[loss_idx] * loss_value
+                if loss_fn_name == "ce":
+                    loss_value = loss_func(pred_val, gt_val.view(-1,).long())
+                else:
+                    loss_value = loss_func(pred_val, gt_val)
+                # loss_key = loss_fn_name
+            
+            loss_key = f'{loss_fn_name}_{gt_key}'
+            loss_dict[loss_key] = loss_value * loss_weight
 
         total_loss = None
-        for loss_fn_name, loss_value in loss_dict.items():
+        for loss_key, loss_value in loss_dict.items():
             if total_loss is None:
                 total_loss = loss_value 
             else:
@@ -84,9 +91,9 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
         optimizer.step()
 
         if args.num_gpus > 1:
-            total_loss = du.all_reduce([total_loss])
-            for loss_fn_name, loss_value in loss_dict.items():
-                loss_dict[loss_fn_name] = du.all_reduce([loss_value])
+            total_loss = du.all_reduce([total_loss])[0]
+            for loss_key, loss_value in loss_dict.items():
+                loss_dict[loss_key] = du.all_reduce([loss_value])[0]
 
         if du.is_master_proc(num_gpus=args.num_gpus):
             
@@ -94,30 +101,22 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
                 wandb_dict = {
                     'train/train_loss':total_loss.item(), 
                 }
-                for loss_fn_name, loss_value in loss_dict.items():
+                for loss_key, loss_value in loss_dict.items():
                     wandb_dict.update({
-                        'train/{}'.format(loss_fn_name) : loss_value.item(),
+                        'train/{}'.format(loss_key) : loss_value.item(),
                     })
                 wandb.log(wandb_dict, step=cnt)
 
             if cnt % args.training_config.log_every == 0:
                 
-                logger.info('\n')
                 logger.info('Train Epoch: {} [iter={} ({:.0f}%)]'.format(epoch, cnt, 100. * batch_idx / len(train_loader)))
                 logger.info('\tTotal Loss = {:.6f}'.format(total_loss.item()))
                 
-                for loss_idx, loss_fn_name in enumerate(training_config.loss_fn):
-                    gt_key = training_config.gt[loss_idx]
-                    pred_key = training_config.model_return[loss_idx]
-                    weight = training_config.weight[loss_idx]
-                    
+                for loss_key, loss_value in loss_dict.items():
                     logger.info(
-                        '\tLoss_fn_name={}, Loss_gt_name={}, Loss_pred_key={}, Loss_weight={}, Loss={:.6f}'.format(
-                            loss_fn_name, 
-                            gt_key,
-                            pred_key,
-                            weight,
-                            loss_dict[loss_fn_name].item(),
+                        '\tLoss name={}, Loss={:.6f}'.format(
+                            loss_key, 
+                            loss_value.item(),
                         )
                     )
             
