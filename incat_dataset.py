@@ -14,7 +14,11 @@ import torch.distributed as dist
 from torch.utils.data import Dataset
 
 from PIL import Image
-import cv2
+import kornia
+from kornia import augmentation as K
+# from kornia.constants import Resample
+# from kornia.color import *
+
 import matplotlib.image as mpimg
 import utils.transforms as utrans
 import PIL
@@ -54,6 +58,35 @@ class InCategoryClutterDataset(Dataset):
         self.shapenet_filepath = args.files.shapenet_filepath
         self.img_mean = args.dataset_config.img_mean#[0.5,0.5,0.5]
         self.img_std = args.dataset_config.img_std#[0.5,0.5,0.5]
+        
+        if type(args.dataset_config.color_jitter.brightness) is list:
+            a,b = args.dataset_config.color_jitter.brightness
+            brightness = (a,b)
+        else:
+            brightness = args.dataset_config.color_jitter.brightness
+        if type(args.dataset_config.color_jitter.contrast) is list:
+            a,b = args.dataset_config.color_jitter.contrast
+            contrast = (a,b)
+        else:
+            contrast = args.dataset_config.color_jitter.contrast
+        if type(args.dataset_config.color_jitter.saturation) is list:
+            a,b = args.dataset_config.color_jitter.saturation
+            saturation = (a,b)
+        else:
+            saturation = args.dataset_config.color_jitter.saturation
+        if type(args.dataset_config.color_jitter.hue) is list:
+            a,b = args.dataset_config.color_jitter.hue
+            hue = (a,b)
+        else:
+            hue = args.dataset_config.color_jitter.hue
+        self.color_jitter_prob = args.dataset_config.color_jitter.prob
+        self.color_jitter_transform = K.ColorJitter(
+            brightness=brightness, 
+            contrast=contrast, 
+            saturation=saturation, 
+            hue=hue,
+            p=args.dataset_config.color_jitter.p,
+        )
 
         df = pd.read_csv(args.files.csv_file_path)
         shapenet_model_name_to_id = {}
@@ -80,7 +113,11 @@ class InCategoryClutterDataset(Dataset):
         self.all_data_dict = dict()
         self.all_scene_cam_dict = dict()
         idx = 0
-        for dir_path in self.dir_list[:20]:
+        if args.dataset_config.only_load < 0:
+            dir_list_load = self.dir_list
+        else:
+            dir_list_load = self.dir_list[:args.dataset_config.only_load]
+        for dir_path in dir_list_load:
             if args.blender_proc:
                 data_dict, scene_dict, idx = self.load_annotations_blender_proc(dir_path, idx)
             else:
@@ -515,10 +552,20 @@ class InCategoryClutterDataset(Dataset):
             img_rgb, img_mask, center, area_x, area_y = self.process_sample(sample)
         else:
             img_rgb, img_mask, center = self.process_sample_blender_proc(sample)
-
-        img_rgb = utrans.normalize(torchvision.transforms.ToTensor()(img_rgb), self.img_mean, self.img_std)
+        img_rgb = torchvision.transforms.ToTensor()(img_rgb)
         
+        # if self.split == 'train':
+        #     if np.random.rand() < self.color_jitter_prob:
+        #         img_rgb = self.color_jitter_transform(img_rgb)[0]
+        #         if np.random.rand() < 0.4:
+        #             if np.random.rand() < 0.5:
+        #                 img_rgb = kornia.color.rgb_to_hls(img_rgb)
+        #             else:
+        #                 img_rgb = kornia.color.rgb_to_hsv(img_rgb)
+
+        #img_rgb = utrans.normalize(img_rgb, self.img_mean, self.img_std)
         img_mask = torchvision.transforms.ToTensor()(img_mask)
+
         if len(img_mask.shape) > 2:
             img_mask = img_mask[:1,:,:]
 

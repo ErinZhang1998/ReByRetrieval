@@ -7,7 +7,7 @@ import torchvision
 import utils.plot_image as uplot 
 import utils.distributed as du
 import torch.distributed as dist
-
+from sklearn.metrics import top_k_accuracy_score
 
 import utils.logging as logging 
 import losses.loss as loss
@@ -38,6 +38,7 @@ class TestMeter(object):
         self.args = args
         self.contrastive_loss_dict = dict()
         self.acc_dict = dict()
+        self.num_classes = -1
 
     def reset(self):
         for k in self.contrastive_loss_dict.keys():
@@ -124,6 +125,24 @@ class TestMeter(object):
             )
         self.update_acc_dict(iter_data)
     
+    def calculate_top_k_accuracy_score(self, loss_key, class_pred, label):
+
+        class_pred = class_pred.numpy()
+        gt_label = label.numpy().astype(int)
+        assert self.num_classes > 0
+        labels = np.arange(self.num_classes)
+
+        acc_top_1 = top_k_accuracy_score(gt_label, class_pred, k=1, labels=labels)
+        acc_top_5 = top_k_accuracy_score(gt_label, class_pred, k=5, labels=labels)
+        acc_top_10 = top_k_accuracy_score(gt_label, class_pred, k=10, labels=labels)
+
+        acc_top_k_dict = {
+            f'test/{loss_key} acc@1' : acc_top_1,
+            f'test/{loss_key} acc@5' : acc_top_5,
+            f'test/{loss_key} acc@10' : acc_top_10,
+        }
+        return acc_top_k_dict
+    
     def calculate_mapk(self, loss_key, features, label):
         features = torch.FloatTensor(features)
         features = features.cuda()
@@ -159,7 +178,6 @@ class TestMeter(object):
         
         save_prediction = epoch == self.args.training_config.epochs or epoch % self.args.testing_config.save_prediction_every == 0 or (not self.args.training_config.train)
         args = self.args
-        logger.info('\n')
         logger.info('Validate Epoch: {} , Iteration: {}'.format(epoch, cnt))
 
         wandb_dict = {}
@@ -172,37 +190,25 @@ class TestMeter(object):
             logger.info('\tscale_loss={:.6f}'.format(scale_loss))
             wandb_dict['test/scale_loss'] = scale_loss
 
-            # if save_prediction:
-            #     fname = os.path.join(prediction_dir, f'{epoch}_scale_pred.npy')
-            #     np.save(fname, scale_pred)
-            #     fname = os.path.join(prediction_dir, f'{epoch}_scale.npy')
-            #     np.save(fname, scale)
-
         if 'center_pred' in return_keys:
             center_pred = torch.cat(self.acc_dict['center_pred'], dim=0)
             center = torch.cat(self.acc_dict['center'], dim=0)
             center_loss = loss.get_loss_func(args.loss.center_pred_fn)(center_pred, center) * args.loss.lambda_center_pred
             logger.info('\tcenter_loss={:.6f}'.format(center_loss.item()))
             wandb_dict['test/center_loss'] = center_loss.item()
-
-            # if save_prediction:
-            #     fname = os.path.join(prediction_dir, f'{epoch}_center_pred.npy')
-            #     np.save(fname, center_pred)
-            #     fname = os.path.join(prediction_dir, f'{epoch}_center.npy')
-            #     np.save(fname, center)
         
         if 'class_pred' in return_keys:
             class_pred = torch.cat(self.acc_dict['class_pred'], dim=0)
-            shapenet_model_id = torch.cat(self.acc_dict['shapenet_model_id'], dim=0)
-            class_loss = loss.get_loss_func(args.loss.class_pred_fn)(class_pred, shapenet_model_id) * args.loss.lambda_class_pred
-            logger.info('\tclass_loss={:.6f}'.format(class_loss.item()))
-            wandb_dict['test/class_loss'] = class_loss.item()
+            class_type = self.args.model_config.class_type
+            class_gt = torch.cat(self.acc_dict[class_type], dim=0)
+            class_loss = loss.get_loss_func(args.loss.class_pred_fn)(class_pred, class_gt.view(-1,).long()) * args.loss.lambda_class_pred
+            logger.info('\tclass_loss={:.6f} ({})'.format(class_loss.item(), class_type))
+            wandb_dict['test/class_loss_{}'.format(class_type)] = class_loss.item()
 
-            # if save_prediction:
-            #     fname = os.path.join(prediction_dir, f'{epoch}_class_pred.npy')
-            #     np.save(fname, class_pred)
-            #     fname = os.path.join(prediction_dir, f'{epoch}_shapenet_model_id.npy')
-            #     np.save(fname, shapenet_model_id)
+            acc_top_k_dict = self.calculate_top_k_accuracy_score(f'class_{class_type}', class_pred, class_gt.view(-1).long())
+            wandb_dict.update(acc_top_k_dict)
+            for k,v in acc_top_k_dict.items():
+                logger.info('\t{} = {:.6f}'.format(k, v))
 
         if 'img_embed' in return_keys:
             pred_val = torch.cat(self.acc_dict['img_embed'], dim=0)

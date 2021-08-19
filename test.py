@@ -16,13 +16,22 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
     with torch.no_grad():
         
         for batch_idx, data in enumerate(test_loader):
-            sample_id = data['sample_id']
+            
             image = data['image'].cuda(non_blocking=args.cuda_non_blocking)
             return_keys, return_val = model([image])
 
+            sample_id = data['sample_id']
             scale = data['scale']
+            obj_category = data['obj_category']
+            obj_id = data['obj_id']
+            
             scale_pred = return_val[return_keys.index('scale_pred')]
             if 'class_pred' in return_keys:
+                if args.num_gpus > 1:
+                    test_meter.num_classes = model.module.num_classes
+                else:
+                    test_meter.num_classes = model.num_classes
+                
                 class_pred = return_val[return_keys.index('class_pred')]
                 if args.model_config.class_type == 'shapenet_model_id':
                     shapenet_model_id = data['shapenet_model_id']
@@ -33,7 +42,7 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
             
             if 'img_embed' in return_keys:
                 img_embed = return_val[return_keys.index('img_embed')]
-                obj_category = data['obj_category'].cuda(non_blocking=args.cuda_non_blocking)
+                obj_category = obj_category.cuda(non_blocking=args.cuda_non_blocking)
                 obj_category_mask, obj_category_loss = loss.batch_all_triplet_loss(
                     labels=obj_category, 
                     embeddings=img_embed, 
@@ -42,7 +51,7 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
                 )
                 obj_category_mask = obj_category_mask.float()
 
-                obj_id = data['obj_id'].cuda(non_blocking=args.cuda_non_blocking)
+                obj_id = obj_id.cuda(non_blocking=args.cuda_non_blocking)
                 obj_id_mask, obj_id_loss = loss.batch_all_triplet_loss(
                     labels=obj_id, 
                     embeddings=img_embed, 
@@ -50,10 +59,13 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
                     squared=False,
                 )
                 obj_id_mask = obj_id_mask.float()
+
             
             if args.num_gpus > 1:
                 sample_id = torch.cat(du.all_gather_unaligned(sample_id), dim=0)
                 scale = torch.cat(du.all_gather_unaligned(scale), dim=0)
+                obj_category = torch.cat(du.all_gather_unaligned(obj_category), dim=0)
+                obj_id = torch.cat(du.all_gather_unaligned(obj_id), dim=0)
                 
                 image, scale_pred = du.all_gather(
                     [image, scale_pred]
@@ -71,9 +83,8 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
                     img_embed, obj_category_mask, obj_id_mask = du.all_gather(
                         [img_embed, obj_category_mask, obj_id_mask]
                     )
-                    obj_category = torch.cat(du.all_gather_unaligned(obj_category), dim=0)
-                    obj_id = torch.cat(du.all_gather_unaligned(obj_id), dim=0)
                     obj_category_loss, obj_id_loss = du.all_reduce([obj_category_loss, obj_id_loss])
+
 
             if du.is_master_proc(num_gpus=args.num_gpus):
                 iter_data = {
@@ -82,6 +93,8 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
                     'scale' : scale.detach().cpu(),
                     'scale_pred' : scale_pred.detach().cpu(),
                     'sample_id' : sample_id.detach().cpu(),
+                    'obj_category' : obj_category.detach().cpu(),
+                    'obj_id' : obj_id.detach().cpu(),
                 }
                 
                 if 'class_pred' in return_keys:
@@ -90,7 +103,7 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
                     })
                     if args.model_config.class_type == 'shapenet_model_id':
                         iter_data.update({
-                            'shapenet_model_id' : class_pred.detach().cpu(),
+                            'shapenet_model_id' : shapenet_model_id.detach().cpu(),
                         })
                 
                 if 'center_pred' in return_keys:
@@ -104,8 +117,6 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
                     num_triplet_obj_id = torch.sum(obj_id_mask).item()
                     iter_data.update({
                         'img_embed' : img_embed.detach().cpu(),
-                        'obj_category' : obj_category.detach().cpu(),
-                        'obj_id' : obj_id.detach().cpu(),
                         'contrastive_obj_category' : (obj_category_loss.item() * num_triplet_obj_category, num_triplet_obj_category),
                         'contrastive_obj_id' : (obj_id_loss.item() * num_triplet_obj_id, num_triplet_obj_id),
                     })

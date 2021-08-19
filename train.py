@@ -55,7 +55,7 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
         if 'class_pred' in return_keys:
             class_pred = return_val[return_keys.index('class_pred')]
             class_gt = data[args.model_config.class_type].cuda()
-            class_loss = loss.get_loss_func(args.loss.class_pred_fn)(class_pred, class_gt.long()) * args.loss.lambda_class_pred
+            class_loss = loss.get_loss_func(args.loss.class_pred_fn)(class_pred, class_gt.view(-1,).long()) * args.loss.lambda_class_pred
         
         if 'img_embed' in return_keys:
             img_embed = return_val[return_keys.index('img_embed')]
@@ -86,6 +86,7 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
                 total_loss += class_loss
             else:
                 total_loss = class_loss
+                total_set = True
         
         if 'scale_pred' in return_keys:
             total_loss += scale_loss

@@ -46,6 +46,8 @@ parser.add_argument("--target_epochs", dest="target_epochs", type=int, default=3
 parser.add_argument("--target_save_dir", dest="target_save_dir", type=str)
 parser.add_argument("--target_data_dir", dest="target_data_dir", type=str)
 
+
+
 parser.add_argument("--csv_file_path", dest="csv_file_path", help='CSV file of Shapenet object model annotations')
 parser.add_argument("--shapenet_filepath", dest="shapenet_filepath")
 parser.add_argument("--model_save_root_dir", dest="model_save_root_dir")
@@ -267,17 +269,6 @@ def run_gt(scene_num):
         )
 
 
-def get_features(args, epochs, save_dir, data_dir):
-    prediction_dir = os.path.join(save_dir, 'predictions')
-    args.files.testing_scene_dir = data_dir
-    test_dataset = incat_dataset.InCategoryClutterDataset('test', args)
-    assert os.path.exists(prediction_dir)
-        
-    # experiment_dir = '/raid/xiaoyuz1/retrieve_perch/perch_test/crimson-plasma-74/predictions'
-    feats, sample_ids = q_utils.read_npy(prediction_dir, epochs)
-    return test_dataset, feats, sample_ids
-
-
 def run_pred_scene(scene_num, image_id2category_id2sample_id, target_coco_annos, new_name_root = 'pred_majority'):
     scene_dir = os.path.join(options.query_data_dir, f'scene_{scene_num:06}')
     all_json_file = os.path.join(scene_dir, 'annotations.json')
@@ -341,9 +332,39 @@ def run_pred_scene(scene_num, image_id2category_id2sample_id, target_coco_annos,
     return image_json_paths
 
 
+def get_features(args, epochs, save_dir, data_dir, feature_file_template = '{}_embedding.npy'):
+    prediction_dir = os.path.join(save_dir, 'predictions')
+    args.files.testing_scene_dir = data_dir
+    test_dataset = incat_dataset.InCategoryClutterDataset('test', args)
+    assert os.path.exists(prediction_dir)
+
+    features = np.load(os.path.join(prediction_dir, feature_file_template.format(epoch)))
+        
+    
+    feats, sample_ids = q_utils.read_npy(prediction_dir, epochs)
+    return test_dataset, feats, sample_ids
+
+def get_features(save_dir, epoch, feature_file_template = '{}_embedding.npy'):
+    prediction_dir = os.path.join(save_dir, 'predictions')
+    features = np.load(os.path.join(prediction_dir, feature_file_template.format(epoch)))
+    return features
+
+def get_sample_ids():
+    prediction_dir = os.path.join(save_dir, 'predictions')
+    sample_id = np.load(os.path.join(experiment_dir, f'{epoch}_sample_id.npy')) 
+    sample_id_res = []
+    for L in sample_id:
+        sample_id_res.append('-'.join([str(int(item)) for item in L]))
+
 def run_pred(args):
     test_dataset, query_feats, query_sample_ids = get_features(args, options.query_epochs, options.query_save_dir, options.query_data_dir)
     base_dataset, base_feats, base_sample_ids = get_features(args, options.target_epochs, options.target_save_dir, options.target_data_dir)
+    
+    args.files.testing_scene_dir = options.target_data_dir
+    base_dataset = incat_dataset.InCategoryClutterDataset('test', args)
+    query_feats = get_features(options.query_save_dir,options.query_epochs)
+    base_feats = get_features(options.target_save_dir,options.target_epochs)
+    
     query_feats = q_utils.torchify(query_feats)
     base_feats = q_utils.torchify(base_feats)
     arg_sorted_dist = q_utils.get_arg_sorted_dist(query_feats, base_feats)

@@ -3,6 +3,10 @@ import copy
 import torch 
 import torch.distributed as dist
 
+import kornia
+import utils.transforms as utrans
+
+
 class InCategoryClutterDataloader(object):
     def __init__(self, dataset, args, shuffle = True, train = True):
         self.args = args
@@ -128,10 +132,37 @@ class InCategoryClutterDataloader(object):
             all_data["obj_points"] = pts_l
             all_data["obj_points_features"] = feats_l
         for k,l in all_data.items():
+            B = len(l)
             if k == 'center':
                 assert len(torch.where(torch.stack(l, dim=0) > 1)[0]) == 0
                 assert len(torch.where(torch.stack(l, dim=0) < 0)[0]) == 0
-            res[k] = torch.stack(l, dim=0)
+            if k == 'image':
+                stacked_tensor = torch.stack(l, dim=0)
+                rgb_tensor = stacked_tensor[:,:3,:,:]
+                mask_tensor = stacked_tensor[:,3:,:,:]
+                
+                if self.dataset.split == 'train':
+                    #rgb_tensor = utrans.denormalize(rgb_tensor, )
+                    
+                    jittered_tensor = self.dataset.color_jitter_transform(rgb_tensor)
+                    hsv_tensor = kornia.color.rgb_to_hsv(rgb_tensor)
+                    hsv_jitter_tensor = kornia.color.rgb_to_hsv(jittered_tensor)
+                    
+                    jitter_mask = torch.FloatTensor(B).uniform_() < 0.5 * self.dataset.color_jitter_prob
+                    hsv_mask = torch.FloatTensor(B).uniform_() < 0.5 * self.dataset.color_jitter_prob
+                    
+                    just_jitter = jitter_mask * torch.logical_not(hsv_mask)
+                    just_hsv = hsv_mask * torch.logical_not(jitter_mask)
+                    jitter_and_hsv = jitter_mask * hsv_mask
+                    
+                    rgb_tensor[just_jitter] = jittered_tensor[just_jitter]
+                    rgb_tensor[just_hsv] = hsv_tensor[just_hsv]
+                    rgb_tensor[jitter_and_hsv] = hsv_jitter_tensor[jitter_and_hsv]
+                
+                rgb_tensor = utrans.normalize(rgb_tensor, self.dataset.img_mean, self.dataset.img_std)
+                res[k] = torch.cat((rgb_tensor, mask_tensor), 1)
+            else:
+                res[k] = torch.stack(l, dim=0)
 
         return res
 
