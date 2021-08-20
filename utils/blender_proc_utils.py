@@ -5,11 +5,17 @@ import ast
 import numpy as np 
 import trimesh
 import h5py
+import cv2
+import yaml
 import shutil
 import pickle
+import inference
 
-from scipy.spatial.transform import Rotation as R, rotation        
+import pycocotools.mask as coco_mask
+from pycocotools.coco import COCO
 
+from scipy.spatial.transform import Rotation as R, rotation    
+import utils.datagen_utils as datagen_utils
 
 class BlenderProcObject(object):
     def __init__(
@@ -335,6 +341,8 @@ def save_normalized_object_to_file(shapenet_filepath, normalized_model_save_dir,
 
     return output_obj_file, bb_max, bb_min
 
+
+
 def load_max_min_info(model_dir):
     bb_max, bb_min = None, None 
     max_min_info_fname = os.path.join(model_dir, 'info.pkl')
@@ -388,6 +396,7 @@ def from_yaml_to_object_information(yami_file_obj, df):
                 continue
             model_name = module['config']['selector']['conditions']['cp_model_name']
             model_info = object_from_yaml.get(model_name, {})
+            # WARNING
             model_info.update({
                 'scale' : module['config']['scale'][0]
             })
@@ -396,3 +405,199 @@ def from_yaml_to_object_information(yami_file_obj, df):
     for model_name, model_info in object_from_yaml.items():
         model_info_category_id[int(model_info['category_id'])] = model_info
     return model_info_category_id
+
+
+def bbox_to_bbox_2d_and_center(bbox):
+    xmin, ymin, xleng, yleng = bbox
+    ymax = ymin + yleng
+    xmax = xmin + xleng
+    bbox_2d = [[xmin, ymin],[xmax, ymax]]
+    center = [int((xmin + xmax) * 0.5), int((ymin + ymax) * 0.5)]
+    return bbox_2d, center
+
+def to_old_annotaiton_format(args, df, one_scene_dir):
+    blender_proc_model_dir = args.files.model_dir
+    model_dir = os.path.join(blender_proc_model_dir, 'perch_output_models')
+    if not os.path.exists(model_dir):
+        os.mkdir(model_dir)
+
+    scene_num = int(one_scene_dir.split('/')[-1].split('_')[-1])
+
+    yaml_file_prefix = '_'.join(one_scene_dir.split('/')[-2:])
+    yaml_file = os.path.join(args.files.yaml_file_root_dir, '{}.yaml'.format(yaml_file_prefix))
+    yaml_file_obj = yaml.load(open(yaml_file), Loader=yaml.SafeLoader)
+    '''
+    {
+        'category_id': 1,
+        'path': '/raid/xiaoyuz1/blender_proc/models/02946921/f6316c6702c49126193d9e76bb15876/models/model_normalized.obj',
+        'synset_id': '02946921',
+        'model_id': 'f6316c6702c49126193d9e76bb15876',
+        'obj_cat': 3,
+        'obj_id': 8,
+        'scale': 0.20642219771146572
+    }
+    '''
+    datagen_yaml = from_yaml_to_object_information(yaml_file_obj, df)
+
+
+    coco_fname = os.path.join(one_scene_dir, 'coco_data', 'coco_annotations.json')
+    coco_anno = json.load(open(coco_fname))
+    coco = COCO(coco_fname)
+    # image_ids = coco.getImgIds()
+    # coco = uu.COCOAnnotation(coco_fname)
+    # image_ids = list(coco.total_ann_dict['images'].keys())
+
+    image_id_to_h5py_fh = {}
+    image_id_to_fname = {}
+    images_ann_new = []
+    for image_ann in coco_anno['images']:
+        image_id = image_ann['id']
+        h5py_fh = image_id_to_h5py_fh.get(image_id, None)
+        if h5py_fh is None:
+            h5py_fh = h5py.File(os.path.join(one_scene_dir, '{}.hdf5'.format(image_id)), 'r')
+            image_id_to_h5py_fh[image_id] = h5py_fh
+        cam_pose_dict = ast.literal_eval(np.array(h5py_fh.get('campose')).tolist().decode('UTF-8'))[0]
+        
+        image_ann_new = {}
+        image_ann_new.update(image_ann)
+
+
+        fname = os.path.join(*one_scene_dir.split('/')[-2:], image_ann['file_name'])
+        image_id_to_fname[image_id] = fname
+        intrinsics_matrix = cam_pose_dict['cam_K']
+        camera_frame_to_world_frame_mat = np.asarray(cam_pose_dict['cam2world_matrix'])
+        rot_quat = R.from_matrix(camera_frame_to_world_frame_mat[:3,:3]).as_quat()
+        rot_quat = datagen_utils.get_json_cleaned_matrix(rot_quat)
+        world_frame_to_camera_frame_mat = np.linalg.inv(camera_frame_to_world_frame_mat)
+
+        
+        #missing: all_object_bbox, all_object_segmentation_path, all_object_with_table_segmentation_path
+        image_ann_new.update({
+            'file_name' : fname,
+            'intrinsics_matrix' : intrinsics_matrix,
+            'pos' : cam_pose_dict['location'],
+            'rot_quat' : rot_quat,
+            'camera_frame_to_world_frame_mat' : cam_pose_dict['cam2world_matrix'],
+            'world_frame_to_camera_frame_mat' : datagen_utils.get_json_cleaned_matrix(world_frame_to_camera_frame_mat),
+        })
+        images_ann_new.append(image_ann_new)
+    
+    '''
+    {
+        'customprop_model_name': 'testing_set_scene_0_object_0',
+        'customprop_category_id': 1,
+        'name': '02946921_f6316c6702c49126193d9e76bb15876',
+        'location': [-0.08852141350507736, 0.2833922207355499, 1.1032110452651978],'rotation_euler': [1.5707963705062866, 0.0, 6.015883445739746],
+        'matrix_world': [[0.19909153878688812,
+            -2.383245822912272e-09,
+            -0.0545223131775856,
+            -0.08852141350507736],
+            [-0.0545223131775856,
+            -8.702567555474161e-09,
+            -0.19909153878688812,
+            0.2833922207355499],
+            [0.0, 0.20642219483852386, -9.023001013019893e-09, 1.1032110452651978],
+            [0.0, 0.0, 0.0, 1.0]]
+    }
+    '''
+    category_id_to_object_state = {}
+    
+    for image_id, h5py_fh in image_id_to_h5py_fh.items():
+        object_states = ast.literal_eval(np.array(h5py_fh.get('object_states')).tolist().decode('UTF-8'))
+        for ann in object_states:
+            if ann['customprop_model_name'].split('_')[-1] == 'table':
+                continue
+            category_id = int(ann['customprop_category_id'])
+            object_state = category_id_to_object_state.get(category_id, None)
+            if object_state is None:
+                category_id_to_object_state[category_id] = ann
+        
+        # save depth image
+        depth = np.array(h5py_fh.get('depth'))
+        depth_scaled = depth * 1000
+        depth_scaled[depth_scaled > np.iinfo(np.uint16).max] = np.iinfo(np.uint16).max
+        depth_save_dir = image_id_to_fname[image_id].replace('rgb', 'depth')
+        depth_save_dir = os.path.join('/'.join(one_scene_dir.split('/')[:-2]), depth_save_dir)
+        print("Save depth: ", depth_save_dir)
+        cv2.imwrite(depth_save_dir, depth_scaled.astype(np.uint16))
+ 
+    
+    categories_ann_new = []
+    category_id_to_model_name = {}
+    for category_ann in coco_anno['categories']:
+        category_id = category_ann['id']
+        if 'scale' not in datagen_yaml[category_id]:
+            continue
+        datagen_yaml_info = datagen_yaml[category_id]
+        object_state = category_id_to_object_state[category_id]
+
+        mesh_file_name = datagen_yaml_info['path']
+        category_ann_new = {}
+        category_ann_new.update(category_ann)
+
+        bb_max, bb_min = load_max_min_info('/'.join(mesh_file_name.split('/')[:-2]))
+        model_name = '_'.join([one_scene_dir.split('/')[-2], f'scene_{scene_num}', f'object_{category_id}'])
+        category_id_to_model_name[category_id] = model_name
+        scale = datagen_yaml_info['scale']
+
+        actual_size = (bb_max - bb_min) * np.array([scale] * 3)
+        
+        inference.save_correct_size_model(model_dir, model_name, actual_size, mesh_file_name, turn_upright_before_scale = False)
+
+        object_frame_to_world_frame_mat = np.asarray(object_state['matrix_world'])
+        rot_quat = R.from_matrix(object_frame_to_world_frame_mat[:3,:3]).as_quat()
+        rot_quat = datagen_utils.get_json_cleaned_matrix(rot_quat)
+
+        category_ann_new.update({
+            'name' : model_name,
+            'shapenet_category_id' : int(datagen_yaml_info['obj_cat']),
+            'shapenet_object_id' : int(datagen_yaml_info['obj_id']),
+            'synset_id' : datagen_yaml_info['synset_id'],
+            'model_id' : datagen_yaml_info['model_id'],
+            'size' : [float(scale)] * 3,
+            'actual_size' : [float(item) for item in actual_size],
+            'position' : [float(item) for item in object_state['location']],
+            'quat' : [float(item) for item in rot_quat],
+            'half_or_whole' : 0,
+            'perch_rot_angle' : 0,
+        })
+        categories_ann_new.append(category_ann_new)
+    
+    annotations_new = []
+    for anno in coco_anno['annotations']:
+        if anno['category_id'] not in category_id_to_model_name:
+            continue
+        anno_new = {}
+        anno_new.update(anno)
+
+        _, center = bbox_to_bbox_2d_and_center(anno['bbox'])
+        anno_new.update({
+            'center' : [float(item) for item in center],
+            'object_idx' : int(anno['category_id']-1),
+            'model_name' : category_id_to_model_name[anno['category_id']],
+            'percentage_not_occluded' : None,
+            'number_pixels' : anno['area'],
+            'mask_file_path' : None,
+        }) 
+
+        # Update mask to get rid of outliers 
+        h5py_fh = image_id_to_h5py_fh[anno_new['image_id']]
+        depth = np.array(h5py_fh.get('depth'))
+        object_mask = coco.annToMask(anno)
+
+
+
+        annotations_new.append(anno_new)
+    
+    import copy
+    json_dict = {
+        'info' : copy.deepcopy(coco_anno['info']),
+        'licenses' : copy.deepcopy(coco_anno['licenses']),
+        'categories' : categories_ann_new,
+        'images' : images_ann_new,
+        'annotations' : annotations_new,
+    }
+    path = os.path.join(one_scene_dir, 'annotations.json')
+    datagen_utils.output_json(json_dict, path)
+
+

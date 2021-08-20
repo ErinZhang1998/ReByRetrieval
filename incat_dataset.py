@@ -205,7 +205,7 @@ class InCategoryClutterDataset(Dataset):
             ann['category_id'] = category_id
             ann['model_name'] = ann['customprop_model_name']
             object_state_dict[category_id] = ann
-
+        import pdb; pdb.set_trace()
         samples = {}
         scene_dict = {}
         
@@ -226,16 +226,14 @@ class InCategoryClutterDataset(Dataset):
             mask_rle = coco_mask.frPyObjects([ann['segmentation']], image_ann['height'], image_ann['width'])
             img_mask = coco_mask.decode(mask_rle)[:,:,0]
 
-            xmin, ymin, xleng, yleng = ann['bbox']
-            ymax = ymin + yleng
-            xmax = xmin + xleng
-            bbox_2d = np.array([[xmin, ymin],[xmax, ymax]])
-            center = [int((xmin + xmax) * 0.5), int((ymin + ymax) * 0.5)]
-            # cx,cy = center 
-            # if (cx/640) < 0 or (cx/640) > 1:
-            #     import pdb; pdb.set_trace()
-            # if (cy/480) < 0 or (cy/480) > 1:
-            #     import pdb; pdb.set_trace()
+            # xmin, ymin, xleng, yleng = ann['bbox']
+            # ymax = ymin + yleng
+            # xmax = xmin + xleng
+            # bbox_2d = np.array([[xmin, ymin],[xmax, ymax]])
+            # center = [int((xmin + xmax) * 0.5), int((ymin + ymax) * 0.5)]
+
+            bbox_2d, center = bp_utils.bbox_to_bbox_2d_and_center(ann['bbox'])
+            bbox_2d = np.asarray(bbox_2d)
 
             position = object_state_dict[category_id]['location']
             scale = datagen_yaml[category_id]['scale']
@@ -279,7 +277,7 @@ class InCategoryClutterDataset(Dataset):
         yaml_file = os.path.join(self.args.files.yaml_file_root_dir, '{}.yaml'.format(yaml_file_prefix))
         yaml_file_obj = yaml.load(open(yaml_file), Loader=yaml.SafeLoader)
         datagen_yaml = bp_utils.from_yaml_to_object_information(yaml_file_obj, self.df)
-
+        import pdb; pdb.set_trace()
         coco_fname = os.path.join(one_scene_dir, 'coco_data', 'coco_annotations.json')
         # coco = COCO(coco_fname)
         # image_ids = coco.getImgIds()
@@ -536,11 +534,6 @@ class InCategoryClutterDataset(Dataset):
         if self.split == 'train':
             flip_trans = utrans.PILRandomHorizontalFlip()
             img_rgb, img_mask, center_trans = flip_trans(img_rgb, img_mask_object_is_255, center)
-            # cx,cy = center_trans
-            # if (cx/self.size_w) < 0 or (cx/self.size_w) > 1:
-            #     import pdb; pdb.set_trace()
-            # if (cy/self.size_h) < 0 or (cy/self.size_h) > 1:
-            #     import pdb; pdb.set_trace()
         else:
             img_rgb, img_mask, center_trans = img_rgb, img_mask_object_is_255, center
 

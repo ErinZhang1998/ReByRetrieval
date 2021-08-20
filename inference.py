@@ -28,9 +28,7 @@ parser.add_argument("--k", dest="k", type=int, default=5)
 parser.add_argument("--start_scene_idx", dest="start_scene_idx", type=int, default=0)
 parser.add_argument("--end_scene_idx", dest="end_scene_idx", type=int, default=100000)
 parser.add_argument("--scene_indices", nargs="+", default=[])
-
 parser.add_argument("--clean_up", dest="clean_up", action='store_true')
-
 
 parser.add_argument("--run_gt", dest="run_gt", action='store_true')
 parser.add_argument("--run_in_cat_random", dest="run_in_cat_random", action='store_true')
@@ -96,7 +94,7 @@ def save_cuboid_of_model_size(model_save_root_dir, model_name, actual_size):
     o3d.io.write_triangle_mesh(model_ply_fname, copy_textured_mesh)
 
 
-def save_correct_size_model(model_save_root_dir, model_name, actual_size, shapenet_file_name):
+def save_correct_size_model(model_save_root_dir, model_name, actual_size, mesh_file_name, turn_upright_before_scale = True):
     '''
     Args:
         model_save_root_dir: 
@@ -105,8 +103,8 @@ def save_correct_size_model(model_save_root_dir, model_name, actual_size, shapen
             name of model used by Perch 
         actual_size: 
             the size (x,y,z) that the model will be scaled to 
-        shapenet_file_name: 
-            path to shapenet model_normalized.obj file 
+        mesh_file_name: 
+            path to model_normalized.obj file 
     
     Return:
         object_mesh:
@@ -117,7 +115,8 @@ def save_correct_size_model(model_save_root_dir, model_name, actual_size, shapen
     model_save_dir = os.path.join(model_save_root_dir, model_name)
 
     if not os.path.exists(model_save_dir):
-        assert len(model_name.split("-")) > 1
+        if len(model_name.split("-")) > 1:
+            print("WARNING: no - used in model_name")
         os.mkdir(model_save_dir)
         #model_name_base = model_name.split("-")[0]
         #os.path.join(model_save_root_dir, model_name_base)
@@ -134,16 +133,20 @@ def save_correct_size_model(model_save_root_dir, model_name, actual_size, shapen
     if os.path.exists(model_ply_fname) and not os.path.exists(model_ply_fname_backup):
         shutil.copyfile(model_ply_fname, model_ply_fname_backup)
 
-    object_mesh = trimesh.load(shapenet_file_name, force='mesh')
-    object_mesh.apply_transform(UPRIGHT_MAT)
+    print("Loading: ", mesh_file_name)
+    object_mesh = trimesh.load(mesh_file_name, force='mesh')
+    if turn_upright_before_scale:
+        object_mesh.apply_transform(UPRIGHT_MAT)
     
     # scale the object_mesh to have the actual_size
     mesh_scale = actual_size / (object_mesh.bounds[1] - object_mesh.bounds[0])
     mesh_scale = list(mesh_scale)
     object_mesh = datagen_utils.apply_scale_to_mesh(object_mesh, mesh_scale)
+    print("Exporting: ", model_fname)
     object_mesh.export(model_fname)
 
     copy_textured_mesh = o3d.io.read_triangle_mesh(model_fname)
+    print("Exporting pointcloud: ", model_ply_fname)
     o3d.io.write_triangle_mesh(model_ply_fname, copy_textured_mesh)
 
     # ## DEBUG

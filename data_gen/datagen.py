@@ -10,7 +10,7 @@ from datagen_args import *
 from utils.datagen_utils import *
 from perch_scene import *
 from utils.perch_utils import COCOAnnotation
-from blender_proc_datagen import BlenderProcScene
+from blender_proc_scene import BlenderProcScene
 
 # bag, bottle, bowl, can, clock, jar, laptop, camera, mug
 _ACTUAL_LIMIT_DICT = {

@@ -9,7 +9,7 @@ import pandas as pd
 
 from datagen_args import *
 from utils.datagen_utils import *
-from blender_proc_datagen import BlenderProcScene
+from blender_proc_scene import BlenderProcScene
 
 
 def get_selected_objects(args):
@@ -79,7 +79,25 @@ def get_selected_objects(args):
     return selected_objects
 
 def generate_blender(args):
-    selected_objects = get_selected_objects(args)
+    if not args.single_object:
+        selected_objects = get_selected_objects(args)
+    else:
+        selected_objects = []
+        df = pd.read_csv(args.csv_file_path)
+
+        for i in range(len(df)):
+            row = df.iloc[i]
+            selected_objects_i = [{
+                'synsetId' : row['synsetId'],
+                'catId' : row['catId'],
+                'ShapeNetModelId' : row['ShapeNetModelId'],
+                'objId' : row['objId'],
+                'half_or_whole' : row['half_or_whole'],
+                'perch_rot_angle' : row['perch_rot_angle'],
+            }]
+
+            selected_objects.append(selected_objects_i)
+    
     print("len(selected_objects[0]): ", len(selected_objects[0]))
     all_yaml_file_name = []
     scene_num_to_selected = {}
