@@ -379,59 +379,6 @@ class BlenderProcScene(object):
                 "scale" : [float(sampled_scale)] * 3,
             },
         }
-        
-        # # About rotation:
-        # if np.random.uniform(0,1) > self.args.upright_ratio:
-        #     max_rotation = [0,0,0]
-        #     min_rotation = [6.28,6.28,6.28]
-        # else:
-        #     max_rotation = [(1/2)*np.pi,0,0]
-        #     min_rotation = [(1/2)*np.pi,0,6.28]
-        
-        # face_sample_range_min = self.config['object_on_surface_sampler']['face_sample_range_min']
-        # face_sample_range_min = float(face_sample_range_min)
-        # face_sample_range_max = self.config['object_on_surface_sampler']['face_sample_range_max']
-        # face_sample_range_max = float(face_sample_range_max)
-
-        # surface_pose_sampler = {
-        #     "module": "object.OnSurfaceSampler",
-        #     "config": {
-        #         "max_iterations" : self.config['object_on_surface_sampler']['max_iterations'],
-        #         "objects_to_sample": {
-        #             "provider": "getter.Entity",
-        #             "conditions": {
-        #                 "cp_model_name": model_name,
-        #             }
-        #         },
-        #         "surface": {
-        #             "provider": "getter.Entity",
-        #             "index": 0,
-        #             "conditions": {
-        #                "cp_shape_net_table" : True,
-        #             }
-        #         },
-        #         "pos_sampler": {
-        #             "provider": "sampler.UpperRegionSampler",
-        #             "to_sample_on": {
-        #                 "provider": "getter.Entity",
-        #                 "index": 0,
-        #                 "conditions": {
-        #                     "cp_shape_net_table" : True,
-        #                 }
-        #             },
-        #             "min_height": self.config['object_on_surface_sampler']['min_height'],
-        #             "max_height": self.config['object_on_surface_sampler']['max_height'],
-        #             "face_sample_range": [face_sample_range_min, face_sample_range_max],
-        #         },
-        #         "min_distance": 0.01,
-        #         "max_distance": 0.20,
-        #         "rot_sampler": {
-        #             "provider": "sampler.Uniform3d",
-        #             "max": max_rotation,
-        #             "min": min_rotation,
-        #         }
-        #     }
-        # }
 
         return object_module, None, entity_manipulator, x_range, y_range
         
