@@ -238,59 +238,63 @@ class TestMeter(object):
         if save_prediction:
             self.save_prediction(epoch, cnt, prediction_dir)
 
-
 class FeatureExtractMeter(object):
+    """
+    Measure the AVA train, val, and test stats.
+    """
+
     def __init__(self, args):
         self.args = args
         self.acc_dict = dict()
+        self.contrastive_loss_dict = dict()
+        self.num_classes = -1
 
     def reset(self):
-        for k,v in self.acc_dict.items():
+        for k in self.contrastive_loss_dict.keys():
+            self.contrastive_loss_dict[k] = (0.0, 0.0)
+
+        for k in self.acc_dict.keys():
             self.acc_dict[k] = []
 
-    def update_acc_dict(self, iter_data, cnt):
+    def update_acc_dict(self, iter_data):
         for k,v in iter_data.items():
-            l = self.acc_dict.get(k, [])
-            l.append(v)
-            self.acc_dict[k] = l
-
-    def log_iter_stats(self, iter_data, cnt, batch_idx, image_dir=None, wandb_enabled=False, plot=False):
+            if k.startswith('contrastive_'):
+                loss_acc, count = self.contrastive_loss_dict.get(k, (0.0, 0.0))
+                loss_acc += v[0]
+                count += v[1]
+                self.contrastive_loss_dict[k] = (loss_acc, count)
+            else:
+                l = self.acc_dict.get(k, [])
+                l.append(v)
+                self.acc_dict[k] = l
+    
+    def log_iter_stats(
+            self, 
+            iter_data, 
+            cnt, 
+            batch_idx, 
+            image_dir, 
+            wandb_enabled=False, 
+            plot=False,
+        ):
         if not du.is_master_proc(num_gpus=self.args.num_gpus):
             return
+        self.update_acc_dict(iter_data)
 
-        if batch_idx % self.args.testing_config.log_every == 0:
-            logger.info("Iter: {}, Log batch {} stats in FeatureExtractMeter".format(cnt, batch_idx))
-        self.update_acc_dict(iter_data, cnt)
-
+    def save_prediction(self, epoch, cnt, prediction_dir):
+        for key in self.acc_dict.keys():
+            if key == 'image':
+                continue
+            value = torch.cat(self.acc_dict[key], dim=0) #(batch_size, x)
+            value = value.numpy()
+            fname = os.path.join(prediction_dir, f'{epoch}_{key}.npy')
+            np.save(fname, value)
+    
     def finalize_metrics(self, epoch, cnt, prediction_dir):
         if not du.is_master_proc(num_gpus=self.args.num_gpus):
             return 
-
-        all_scale_pred = torch.cat(self.acc_dict['scale_pred'], dim=0)
-        all_scale_gt = torch.cat(self.acc_dict['scale_gt'], dim=0)
-        all_embedding = torch.cat(self.acc_dict['embeds'], dim=0).numpy()
-        # all_cat_label = torch.cat(self.acc_dict['cat_gt'], dim=0).numpy()
-        # all_id_label = torch.cat(self.acc_dict['id_gt'], dim=0).numpy()
-
-        if self.args.model_config.predict_center: 
-            all_pixel_pred = torch.cat(self.acc_dict['pixel_pred'], dim=0)
-            all_pixel_gt = torch.cat(self.acc_dict['pixel_gt'], dim=0)
-            all_pose = torch.cat([all_scale_pred, all_pixel_pred, all_scale_gt, all_pixel_gt], dim=1)
-        else:
-            all_pose = torch.cat([all_scale_pred, all_scale_gt], dim=1)
-
-        pose_path = os.path.join(prediction_dir, '{}_pose.npy'.format(epoch))
-        np.save(pose_path, all_pose)
         
-        feat_path = os.path.join(prediction_dir, '{}_embedding.npy'.format(epoch))
-        np.save(feat_path, all_embedding)
+        save_prediction = epoch == self.args.training_config.epochs or epoch % self.args.testing_config.save_prediction_every == 0 or (not self.args.training_config.train)
 
-        all_sample_ids = np.vstack(self.acc_dict['sample_id'])
-        sample_ids_path = os.path.join(prediction_dir, '{}_sample_id.npy'.format(epoch))
-        np.save(sample_ids_path, all_sample_ids)
-
-        all_area_types = np.vstack(self.acc_dict['area_type'])
-        sample_ids_path = os.path.join(prediction_dir, '{}_area_types.npy'.format(epoch))
-        np.save(sample_ids_path, all_area_types)
-
-        
+        if save_prediction:
+            self.save_prediction(epoch, cnt, prediction_dir)

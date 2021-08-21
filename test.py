@@ -43,22 +43,25 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
             if 'img_embed' in return_keys:
                 img_embed = return_val[return_keys.index('img_embed')]
                 obj_category = obj_category.cuda(non_blocking=args.cuda_non_blocking)
-                obj_category_mask, obj_category_loss = loss.batch_all_triplet_loss(
-                    labels=obj_category, 
-                    embeddings=img_embed, 
-                    margin=args.loss.margin, 
-                    squared=False,
-                )
-                obj_category_mask = obj_category_mask.float()
+                
+                if args.testing_config.calculate_triplet_loss:
+                
+                    obj_category_mask, obj_category_loss = loss.batch_all_triplet_loss(
+                        labels=obj_category, 
+                        embeddings=img_embed, 
+                        margin=args.loss.margin, 
+                        squared=False,
+                    )
+                    obj_category_mask = obj_category_mask.float()
 
-                obj_id = obj_id.cuda(non_blocking=args.cuda_non_blocking)
-                obj_id_mask, obj_id_loss = loss.batch_all_triplet_loss(
-                    labels=obj_id, 
-                    embeddings=img_embed, 
-                    margin=args.loss.margin, 
-                    squared=False,
-                )
-                obj_id_mask = obj_id_mask.float()
+                    obj_id = obj_id.cuda(non_blocking=args.cuda_non_blocking)
+                    obj_id_mask, obj_id_loss = loss.batch_all_triplet_loss(
+                        labels=obj_id, 
+                        embeddings=img_embed, 
+                        margin=args.loss.margin, 
+                        squared=False,
+                    )
+                    obj_id_mask = obj_id_mask.float()
 
             
             if args.num_gpus > 1:
@@ -80,10 +83,15 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
                     center = torch.cat(du.all_gather_unaligned(center), dim=0)
                 
                 if 'img_embed' in return_keys:
-                    img_embed, obj_category_mask, obj_id_mask = du.all_gather(
-                        [img_embed, obj_category_mask, obj_id_mask]
-                    )
-                    obj_category_loss, obj_id_loss = du.all_reduce([obj_category_loss, obj_id_loss])
+                    if args.testing_config.calculate_triplet_loss:
+                        img_embed, obj_category_mask, obj_id_mask = du.all_gather(
+                            [img_embed, obj_category_mask, obj_id_mask]
+                        )
+                        obj_category_loss, obj_id_loss = du.all_reduce([obj_category_loss, obj_id_loss])
+                    else:
+                        img_embed = du.all_gather(
+                            [img_embed]
+                        )
 
 
             if du.is_master_proc(num_gpus=args.num_gpus):
@@ -113,13 +121,18 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
                     })
                 
                 if 'img_embed' in return_keys:
-                    num_triplet_obj_category = torch.sum(obj_category_mask).item()
-                    num_triplet_obj_id = torch.sum(obj_id_mask).item()
-                    iter_data.update({
-                        'img_embed' : img_embed.detach().cpu(),
-                        'contrastive_obj_category' : (obj_category_loss.item() * num_triplet_obj_category, num_triplet_obj_category),
-                        'contrastive_obj_id' : (obj_id_loss.item() * num_triplet_obj_id, num_triplet_obj_id),
-                    })
+                    if args.testing_config.calculate_triplet_loss:
+                        num_triplet_obj_category = torch.sum(obj_category_mask).item()
+                        num_triplet_obj_id = torch.sum(obj_id_mask).item()
+                        iter_data.update({
+                            'img_embed' : img_embed.detach().cpu(),
+                            'contrastive_obj_category' : (obj_category_loss.item() * num_triplet_obj_category, num_triplet_obj_category),
+                            'contrastive_obj_id' : (obj_id_loss.item() * num_triplet_obj_id, num_triplet_obj_id),
+                        })
+                    else:
+                        iter_data.update({
+                            'img_embed' : img_embed.detach().cpu(),
+                        })
                 
                 plot_iter = batch_idx in plot_batch_idx and batch_idx != len(test_loader)-1
                 test_meter.log_iter_stats(

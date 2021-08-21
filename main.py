@@ -25,15 +25,17 @@ parser.add_argument(
 parser.add_argument("--model_path", dest="model_path", default='')
 parser.add_argument("--experiment_save_dir", dest="experiment_save_dir", default='')
 parser.add_argument("--experiment_save_dir_default", dest="experiment_save_dir_default", default='')
-
 parser.add_argument("--testing_scene_dir", dest="testing_scene_dir", default='')
+parser.add_argument("--calculate_triplet_loss", dest="calculate_triplet_loss", default=True)
 
 
 def fill_in_args_from_terminal(args, options):
     if options.testing_scene_dir != '':
         args.files.testing_scene_dir = options.testing_scene_dir
+    
     if options.experiment_save_dir != '':
         args.experiment_save_dir = options.experiment_save_dir
+    
     if options.experiment_save_dir_default != '':
         args.experiment_save_dir_default = options.experiment_save_dir_default
     
@@ -43,8 +45,11 @@ def fill_in_args_from_terminal(args, options):
     
     if options.only_test_epoch > 0:
         args.training_config.epochs = options.only_test_epoch
+    
     if options.only_test:
         args.training_config.train = False
+    
+    args.testing_config.calculate_triplet_loss = options.calculate_triplet_loss
 
     return args
 

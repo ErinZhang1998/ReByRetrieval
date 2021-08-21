@@ -42,7 +42,7 @@ class BlenderProcScene(object):
         os.mkdir(scene_folder_path)
         self.scene_folder_path = scene_folder_path
 
-        yaml_dir = os.path.join(args.scene_save_dir, 'yaml_files')
+        yaml_dir = os.path.join(output_save_dir, 'yaml_files')
         if not os.path.exists(yaml_dir):
             os.mkdir(yaml_dir)
         self.yaml_dir = yaml_dir
@@ -60,14 +60,9 @@ class BlenderProcScene(object):
             "resolution_y": self.height,
         }
 
+        self.z_length_dict = {}
+
     def add_camera_to_scene(self, radius_min=None):
-        camera_config = self.config['camera']
-        if radius_min is not None:
-            radius_min = radius_min #+ camera_config['radius_gap']
-            radius_max = radius_min + camera_config['radius_gap'] #* 2
-        else:
-            radius_min = camera_config['radius_min']
-            radius_max = camera_config['radius_max']
         mean_position_center = {
             "provider": "getter.POI",
             "selector": {
@@ -78,6 +73,43 @@ class BlenderProcScene(object):
                 }
             }
         }
+        if self.args.single_object:
+            middle_z = float(self.config['table']['size'][-1] + self.z_length_dict[0]*0.5)
+            high_z = float(self.config['table']['size'][-1] + self.z_length_dict[0])
+            x = 0.5 if self.z_length_dict[0] < 0.5 else 0.7
+            
+            camera_sampler_dict = {
+                "module": "camera.CameraLoader",
+                "config": {
+                    "cam_poses": [
+                        {
+                            "location": [x, 0, middle_z],
+                            "rotation": {
+                                "format": "look_at",
+                                "value": mean_position_center,
+                            }
+                        },
+                        {
+                            "location": [x, 0, float(high_z+0.2)],
+                            "rotation": {
+                                "format": "look_at",
+                                "value": mean_position_center,
+                            }
+                        },
+                    ],
+                    "intrinsics": self.camera_intrinsics,
+                }
+            }
+            return [camera_sampler_dict]
+        
+        camera_config = self.config['camera']
+        if radius_min is not None:
+            radius_min = radius_min #+ camera_config['radius_gap']
+            radius_max = radius_min + camera_config['radius_gap'] #* 2
+        else:
+            radius_min = camera_config['radius_min']
+            radius_max = camera_config['radius_max']
+        
         mean_position_shell_location = {
             "provider":"sampler.Shell",
             "center": mean_position_center,
@@ -347,8 +379,12 @@ class BlenderProcScene(object):
         model_dir = os.path.join(self.args.blender_model_root_dir, '{}/{}'.format(synset_id, model_id))
         output_obj_file = os.path.join(model_dir, 'models', 'model_normalized.obj')
         bb_max, bb_min = bp_utils.load_max_min_info(model_dir) 
-        sampled_xy_size = float(np.random.uniform(object_config[synset_id][0], object_config[synset_id][1]))
-        x_length,_,y_length = bb_max - bb_min
+        if self.args.single_object:
+            sampled_xy_size = float(np.random.uniform(self.config['single_object'][synset_id][0], self.config['single_object'][synset_id][1]))
+        else:
+            sampled_xy_size = float(np.random.uniform(object_config[synset_id][0], object_config[synset_id][1]))
+        x_length,z_length,y_length = bb_max - bb_min
+        # if self.args.single_object:
         sampled_scale = sampled_xy_size / max(x_length, y_length)
 
         object_module = {
@@ -364,7 +400,8 @@ class BlenderProcScene(object):
             }
         }
 
-        x_range, _, y_range = (bb_max - bb_min) * sampled_scale
+        x_range, new_z_length, y_range = (bb_max - bb_min) * sampled_scale
+        self.z_length_dict[object_idx] = new_z_length
         
         if self.args.single_object:
             entity_manipulator = {
@@ -378,6 +415,8 @@ class BlenderProcScene(object):
                             "type": "MESH"  
                         }
                     },
+                    "location" : [0,0,float(self.config['table']['size'][-1] + 0.5*new_z_length)],
+                    "rotation_euler" : [float((1/2)*np.pi), 0, 0],
                     "scale" : [float(sampled_scale)] * 3,
                 },
             }
@@ -573,12 +612,21 @@ class BlenderProcScene(object):
     
     def output_yaml_single_object(self):
         yaml_obj = yaml.load(open(os.path.join(self.output_save_dir, 'standard.yaml')))
-        # yaml.load(open('/raid/xiaoyuz1/blender_proc/inference_set/standard.yaml'))
         
         modules = yaml_obj['modules']
         pop_idx = None
         intializer_idx = None
+        manipulator_idx = None
+        camera_sampler_idx = None
+        
         for module_idx, module in enumerate(modules):
+            if module['module'] == 'camera.CameraSampler':
+                camera_sampler_idx = module_idx
+            if module['module'] == 'manipulators.EntityManipulator':
+                if 'selector' in module['config']:
+                    if 'cp_is_object' in module['config']['selector']['conditions']:
+                        if module['config']['selector']['conditions']['cp_is_object']:
+                            manipulator_idx = module_idx
             if module['module'] == 'main.Initializer':
                 intializer_idx = module_idx
             if module['module'] == 'loader.ObjectLoader':
@@ -589,15 +637,22 @@ class BlenderProcScene(object):
         # _ = modules.pop(pop_idx)
 
         object_module, object_manipulator, x_range, y_range = self.create_object(0)
-        modules[pop_idx] = object_module
-        modules[intializer_idx] = {
-            "module": "main.Initializer",
-            "config": {
-                "global": {
-                "output_dir": self.scene_folder_path,
+        if pop_idx is not None:
+            modules[pop_idx] = object_module
+        if intializer_idx is not None:
+            modules[intializer_idx] = {
+                "module": "main.Initializer",
+                "config": {
+                    "global": {
+                    "output_dir": self.scene_folder_path,
+                    }
                 }
             }
-        }
+        if manipulator_idx is not None:
+            modules[manipulator_idx] = object_manipulator
+        
+        if camera_sampler_idx is not None:
+            modules[camera_sampler_idx] = self.add_camera_to_scene()[0]
         
         final_yaml_dict = {
             "version": 3,
@@ -613,7 +668,7 @@ class BlenderProcScene(object):
 
         # Output to yaml file
         yaml_fname = os.path.join(self.yaml_dir, '{}.yaml'.format(self.scene_name))
-        print("Output to: ", yaml_fname)
+        # print("Output to: ", yaml_fname)
         with open(yaml_fname, 'w+') as outfile:
             yaml.dump(final_yaml_dict, outfile, default_flow_style=False)
         self.yaml_fname = yaml_fname
