@@ -365,22 +365,39 @@ class BlenderProcScene(object):
         }
 
         x_range, _, y_range = (bb_max - bb_min) * sampled_scale
-        entity_manipulator = {
-            "module": "manipulators.EntityManipulator",
-            "config": {
-                "selector" : {
-                    "provider" : "getter.Entity",
-                    "check_empty": True,
-                    "conditions": {
-                        "cp_model_name": model_name,
-                        "type": "MESH"  
-                    }
+        
+        if self.args.single_object:
+            entity_manipulator = {
+                "module": "manipulators.EntityManipulator",
+                "config": {
+                    "selector" : {
+                        "provider" : "getter.Entity",
+                        "check_empty": True,
+                        "conditions": {
+                            "cp_model_name": model_name,
+                            "type": "MESH"  
+                        }
+                    },
+                    "scale" : [float(sampled_scale)] * 3,
                 },
-                "scale" : [float(sampled_scale)] * 3,
-            },
-        }
+            }
+        else:
+            entity_manipulator = {
+                "module": "manipulators.EntityManipulator",
+                "config": {
+                    "selector" : {
+                        "provider" : "getter.Entity",
+                        "check_empty": True,
+                        "conditions": {
+                            "cp_model_name": model_name,
+                            "type": "MESH"  
+                        }
+                    },
+                    "scale" : [float(sampled_scale)] * 3,
+                },
+            }
 
-        return object_module, None, entity_manipulator, x_range, y_range
+        return object_module, entity_manipulator, x_range, y_range
         
     def get_cc_preload(self):
         texture_to_use = []
@@ -397,6 +414,7 @@ class BlenderProcScene(object):
         return cc_preload
     
     def get_object_material_manipulator(self):
+        material_randomization_level = self.config['material_randomization_level'] if not self.args.single_object else 0
         material_manipulator = [{
             "module": "manipulators.EntityManipulator",
             "config": {
@@ -407,7 +425,7 @@ class BlenderProcScene(object):
                     }
                 },
                 "cf_randomize_materials": {
-                    "randomization_level": float(self.config['material_randomization_level']),
+                    "randomization_level": float(material_randomization_level),
                     "materials_to_replace_with": {
                         "provider": "getter.Material",
                         "random_samples": 1,
@@ -553,7 +571,58 @@ class BlenderProcScene(object):
         ]
         return world_module
     
+    def output_yaml_single_object(self):
+        yaml_obj = yaml.load(open(os.path.join(self.output_save_dir, 'standard.yaml')))
+        # yaml.load(open('/raid/xiaoyuz1/blender_proc/inference_set/standard.yaml'))
+        
+        modules = yaml_obj['modules']
+        pop_idx = None
+        intializer_idx = None
+        for module_idx, module in enumerate(modules):
+            if module['module'] == 'main.Initializer':
+                intializer_idx = module_idx
+            if module['module'] == 'loader.ObjectLoader':
+
+                if 'cp_is_object' in module['config']['add_properties']:
+                    if module['config']['add_properties']['cp_is_object']:
+                        pop_idx = module_idx
+        # _ = modules.pop(pop_idx)
+
+        object_module, object_manipulator, x_range, y_range = self.create_object(0)
+        modules[pop_idx] = object_module
+        modules[intializer_idx] = {
+            "module": "main.Initializer",
+            "config": {
+                "global": {
+                "output_dir": self.scene_folder_path,
+                }
+            }
+        }
+        
+        final_yaml_dict = {
+            "version": 3,
+            "setup": {
+                "blender_install_path": "/home/<env:USER>/blender/",
+                "pip": [
+                    "h5py",
+                    "imageio"
+                ]
+            },
+            "modules" : modules,
+        }
+
+        # Output to yaml file
+        yaml_fname = os.path.join(self.yaml_dir, '{}.yaml'.format(self.scene_name))
+        print("Output to: ", yaml_fname)
+        with open(yaml_fname, 'w+') as outfile:
+            yaml.dump(final_yaml_dict, outfile, default_flow_style=False)
+        self.yaml_fname = yaml_fname
+
+    
     def output_yaml(self):
+        if self.args.single_object:
+            self.output_yaml_single_object()
+            return
         table_module, table_manipulator = self.create_table_old()
         object_loader_module = [table_module]
         object_manipulator_module = [table_manipulator]
@@ -561,7 +630,7 @@ class BlenderProcScene(object):
         object_x_ranges = []
         object_y_ranges = []
         for object_idx in range(len(self.selected_objects)):
-            object_module, surface_pose_sampler, object_manipulator, x_range, y_range = self.create_object(object_idx)
+            object_module, object_manipulator, x_range, y_range = self.create_object(object_idx)
             object_loader_module += [object_module]
             object_manipulator_module += [object_manipulator]
             object_surface_sampler_module += []
@@ -584,7 +653,9 @@ class BlenderProcScene(object):
         modules += object_loader_module
         modules += object_manipulator_module
         modules += self.get_cc_preload()
+        # if not self.args.single_object:
         modules += self.get_object_material_manipulator()
+
         modules += self.get_walls()
         modules += object_surface_sampler_module
         # modules += self.object_physics_positioning()
@@ -1426,6 +1497,9 @@ class BlenderProcSceneOld(object):
                 "preload": True,
             }
         }]
+        
+        
+        
         material_manipulator = [{
             "module": "manipulators.EntityManipulator",
             "config": {

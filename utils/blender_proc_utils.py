@@ -9,7 +9,6 @@ import cv2
 import yaml
 import shutil
 import pickle
-import inference
 
 import pycocotools.mask as coco_mask
 from pycocotools.coco import COCO
@@ -542,7 +541,7 @@ def to_old_annotaiton_format(args, df, one_scene_dir):
 
         actual_size = (bb_max - bb_min) * np.array([scale] * 3)
         
-        inference.save_correct_size_model(model_dir, model_name, actual_size, mesh_file_name, turn_upright_before_scale = False)
+        datagen_utils.save_correct_size_model(model_dir, model_name, actual_size, mesh_file_name, turn_upright_before_scale = False)
 
         object_frame_to_world_frame_mat = np.asarray(object_state['matrix_world'])
         rot_quat = R.from_matrix(object_frame_to_world_frame_mat[:3,:3]).as_quat()

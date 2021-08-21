@@ -87,6 +87,9 @@ def generate_blender(args):
 
         for i in range(len(df)):
             row = df.iloc[i]
+            synset_id = '0{}'.format(row['synsetId'])
+            if synset_id != '03593526':
+                continue
             selected_objects_i = [{
                 'synsetId' : row['synsetId'],
                 'catId' : row['catId'],
@@ -97,13 +100,16 @@ def generate_blender(args):
             }]
 
             selected_objects.append(selected_objects_i)
+        
     
-    print("len(selected_objects[0]): ", len(selected_objects[0]))
+    # print("len(selected_objects[0]): ", len(selected_objects[0]))
     all_yaml_file_name = []
     scene_num_to_selected = {}
     for scene_num in range(args.num_scenes):
         acc_scene_num = scene_num + args.start_scene_idx
         scene_folder_path = None
+        if acc_scene_num >= len(selected_objects):
+            continue
         try:
             scene_num_to_selected[acc_scene_num] = selected_objects[scene_num]
             blender_proc_scene = BlenderProcScene(acc_scene_num, selected_objects[scene_num], args)

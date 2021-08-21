@@ -94,74 +94,7 @@ def save_cuboid_of_model_size(model_save_root_dir, model_name, actual_size):
     o3d.io.write_triangle_mesh(model_ply_fname, copy_textured_mesh)
 
 
-def save_correct_size_model(model_save_root_dir, model_name, actual_size, mesh_file_name, turn_upright_before_scale = True):
-    '''
-    Args:
-        model_save_root_dir: 
-            the "model_dir" directory used in Perch 
-        model_name: 
-            name of model used by Perch 
-        actual_size: 
-            the size (x,y,z) that the model will be scaled to 
-        mesh_file_name: 
-            path to model_normalized.obj file 
-    
-    Return:
-        object_mesh:
-            scaled object mesh, according to actual_size
-        mesh_scale:
-            list of 3 numbers representing scale
-    '''
-    model_save_dir = os.path.join(model_save_root_dir, model_name)
 
-    if not os.path.exists(model_save_dir):
-        if len(model_name.split("-")) > 1:
-            print("WARNING: no - used in model_name")
-        os.mkdir(model_save_dir)
-        #model_name_base = model_name.split("-")[0]
-        #os.path.join(model_save_root_dir, model_name_base)
-
-    model_fname = os.path.join(model_save_dir, 'textured.obj')
-    model_ply_fname = os.path.join(model_save_dir, 'textured.ply')
-
-    model_fname_backup = os.path.join(model_save_dir, 'textured_backup.obj')
-    model_ply_fname_backup = os.path.join(model_save_dir, 'textured_backup.ply')
-
-    if os.path.exists(model_fname) and not os.path.exists(model_fname_backup):
-        shutil.copyfile(model_fname, model_fname_backup)
-    
-    if os.path.exists(model_ply_fname) and not os.path.exists(model_ply_fname_backup):
-        shutil.copyfile(model_ply_fname, model_ply_fname_backup)
-
-    print("Loading: ", mesh_file_name)
-    object_mesh = trimesh.load(mesh_file_name, force='mesh')
-    if turn_upright_before_scale:
-        object_mesh.apply_transform(UPRIGHT_MAT)
-    
-    # scale the object_mesh to have the actual_size
-    mesh_scale = actual_size / (object_mesh.bounds[1] - object_mesh.bounds[0])
-    mesh_scale = list(mesh_scale)
-    object_mesh = datagen_utils.apply_scale_to_mesh(object_mesh, mesh_scale)
-    print("Exporting: ", model_fname)
-    object_mesh.export(model_fname)
-
-    copy_textured_mesh = o3d.io.read_triangle_mesh(model_fname)
-    print("Exporting pointcloud: ", model_ply_fname)
-    o3d.io.write_triangle_mesh(model_ply_fname, copy_textured_mesh)
-
-    # ## DEBUG
-    # from plyfile import PlyData, PlyElement
-    # cloud = PlyData.read(model_ply_fname).elements[0].data
-    # cloud = np.transpose(np.vstack((cloud['x'], cloud['y'], cloud['z'])))
-    cloud = o3d.io.read_point_cloud(model_ply_fname)
-    if np.asarray(cloud.points).shape[0] > 100000:
-        import pdb; pdb.set_trace()
-        pcd = copy_textured_mesh.sample_points_uniformly(number_of_points=20000)
-        # pcd = copy_textured_mesh.sample_points_poisson_disk(number_of_points=10000, pcl=pcd)
-        os.remove(model_ply_fname)
-        o3d.io.write_point_cloud(model_ply_fname, pcd)
-
-    return object_mesh, mesh_scale
 
 def update_model_with_size(synset_id, model_id, model_name, actual_size):
     '''
