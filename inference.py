@@ -45,6 +45,7 @@ parser.add_argument("--target_save_dir", dest="target_save_dir", type=str)
 parser.add_argument("--target_data_dir", dest="target_data_dir", type=str)
 
 
+parser.add_argument("--yaml_file_root_dir", dest="yaml_file_root_dir", help='Yaml files for blender proc')
 
 parser.add_argument("--csv_file_path", dest="csv_file_path", help='CSV file of Shapenet object model annotations')
 parser.add_argument("--shapenet_filepath", dest="shapenet_filepath")
@@ -280,32 +281,36 @@ def get_features(args, epochs, save_dir, data_dir, feature_file_template = '{}_e
     feats, sample_ids = q_utils.read_npy(prediction_dir, epochs)
     return test_dataset, feats, sample_ids
 
-def get_features(save_dir, epoch, feature_file_template = '{}_embedding.npy'):
+def get_features(save_dir, epoch, fname_template = '{}_embedding.npy'):
     prediction_dir = os.path.join(save_dir, 'predictions')
-    features = np.load(os.path.join(prediction_dir, feature_file_template.format(epoch)))
+    features = np.load(os.path.join(prediction_dir, fname_template.format(epoch)))
     return features
 
-def get_sample_ids():
+def get_sample_ids(save_dir, epoch, fname_template = '{}_sample_id.npy'):
     prediction_dir = os.path.join(save_dir, 'predictions')
-    sample_id = np.load(os.path.join(experiment_dir, f'{epoch}_sample_id.npy')) 
+    sample_id = np.load(os.path.join(prediction_dir, fname_template.format(epoch))) 
     sample_id_res = []
     for L in sample_id:
         sample_id_res.append('-'.join([str(int(item)) for item in L]))
+    return sample_id_res
 
 def run_pred(args):
-    test_dataset, query_feats, query_sample_ids = get_features(args, options.query_epochs, options.query_save_dir, options.query_data_dir)
-    base_dataset, base_feats, base_sample_ids = get_features(args, options.target_epochs, options.target_save_dir, options.target_data_dir)
+    # test_dataset, query_feats, query_sample_ids = get_features(args, options.query_epochs, options.query_save_dir, options.query_data_dir)
+    # target_dataset, target_feats, target_sample_ids = get_features(args, options.target_epochs, options.target_save_dir, options.target_data_dir)
     
-    args.files.testing_scene_dir = options.target_data_dir
-    base_dataset = incat_dataset.InCategoryClutterDataset('test', args)
-    query_feats = get_features(options.query_save_dir,options.query_epochs)
-    base_feats = get_features(options.target_save_dir,options.target_epochs)
+    target_dataset = incat_dataset.InCategoryClutterDataset('test', args)
+    
+    query_feats = get_features(options.query_save_dir, options.query_epochs, feature_file_template = '{}_img_embed.npy')
+    query_sample_ids = get_sample_ids(options.query_save_dir, options.query_epochs, fname_template = '{}_sample_id.npy')
+    
+    target_feats = get_features(options.target_save_dir, options.target_epochs, feature_file_template = '{}_img_embed.npy')
+    target_sample_ids = get_sample_ids(options.target_save_dir, options.target_epochs, fname_template = '{}_sample_id.npy')
     
     query_feats = q_utils.torchify(query_feats)
-    base_feats = q_utils.torchify(base_feats)
-    arg_sorted_dist = q_utils.get_arg_sorted_dist(query_feats, base_feats)
+    target_feats = q_utils.torchify(target_feats)
+    arg_sorted_dist = q_utils.get_arg_sorted_dist(query_feats, target_feats)
 
-    _, target_object_id = q_utils.sample_ids_to_cat_and_id(base_dataset, base_sample_ids)
+    _, target_object_id = q_utils.sample_ids_to_cat_and_id(target_dataset, target_sample_ids)
 
     top_k_arg_sorted_dist = arg_sorted_dist[:,:options.k]
 
@@ -317,7 +322,7 @@ def run_pred(args):
         max_val_idx = np.where(row == val[max_idx])[0]
         max_val_idx = max_val_idx[0]
         max_test_batch_idx = test_batch_idx_row[max_val_idx]
-        selected_target_sample_id.append(base_sample_ids[max_test_batch_idx])
+        selected_target_sample_id.append(target_sample_ids[max_test_batch_idx])
     
     # for each category id --> predicted category
     scene_num2image_id2category_id2sample_id = {}
@@ -491,6 +496,13 @@ if __name__ == "__main__":
             default_args_dict = yaml.safe_load(open('configs/default.yaml'))
             args_dict_filled = uu.fill_in_args_from_default(args_dict, default_args_dict)
             args = uu.Struct(args_dict_filled)
+            
+            args.files.testing_scene_dir = options.target_data_dir
+            args.files.yaml_file_root_dir = options.yaml_file_root_dir
+            # '/raid/xiaoyuz1/blender_proc/testing_set_2/yaml_files'
+            args.files.csv_file_path = options.csv_file_path
+            # '/raid/xiaoyuz1/new_august_21/preselect_table_top.csv'
+
             run_pred(args)
         else:
             # if options.run_in_cat_random or options.run_random:

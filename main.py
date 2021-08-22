@@ -14,6 +14,8 @@ import utils.distributed as du
 parser = argparse.ArgumentParser()
 parser.add_argument("--config_file", dest="config_file")
 parser.add_argument("--only_test", dest="only_test", action='store_true')
+parser.add_argument("--feature_extract", dest="feature_extract", action='store_true')
+
 parser.add_argument("--only_test_epoch", dest="only_test_epoch", type=int, default=-1)
 parser.add_argument(
         "--init_method",
@@ -27,9 +29,12 @@ parser.add_argument("--experiment_save_dir", dest="experiment_save_dir", default
 parser.add_argument("--experiment_save_dir_default", dest="experiment_save_dir_default", default='')
 parser.add_argument("--testing_scene_dir", dest="testing_scene_dir", default='')
 parser.add_argument("--calculate_triplet_loss", dest="calculate_triplet_loss", default=True)
-
+parser.add_argument("--csv_file_path", dest="csv_file_path", default='')
 
 def fill_in_args_from_terminal(args, options):
+    if options.csv_file_path != '':
+        args.files.csv_file_path = options.csv_file_path
+    
     if options.testing_scene_dir != '':
         args.files.testing_scene_dir = options.testing_scene_dir
     
@@ -48,6 +53,8 @@ def fill_in_args_from_terminal(args, options):
     
     if options.only_test:
         args.training_config.train = False
+    if options.feature_extract:
+        args.testing_config.feature_extract = True
     
     args.testing_config.calculate_triplet_loss = options.calculate_triplet_loss
 

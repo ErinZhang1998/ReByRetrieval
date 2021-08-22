@@ -43,6 +43,7 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
             if 'img_embed' in return_keys:
                 img_embed = return_val[return_keys.index('img_embed')]
                 obj_category = obj_category.cuda(non_blocking=args.cuda_non_blocking)
+                obj_id = obj_id.cuda(non_blocking=args.cuda_non_blocking)
                 
                 if args.testing_config.calculate_triplet_loss:
                 
@@ -54,7 +55,7 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
                     )
                     obj_category_mask = obj_category_mask.float()
 
-                    obj_id = obj_id.cuda(non_blocking=args.cuda_non_blocking)
+                    
                     obj_id_mask, obj_id_loss = loss.batch_all_triplet_loss(
                         labels=obj_id, 
                         embeddings=img_embed, 

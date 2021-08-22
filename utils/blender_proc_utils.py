@@ -364,6 +364,9 @@ def from_yaml_to_object_information(yami_file_obj, df):
     object_from_yaml = {}
     for module in yami_file_obj['modules']:
         if module['module'] == 'loader.ObjectLoader':
+            if 'cp_shape_net_table' in module['config']['add_properties']:
+                continue
+            
             model_name = module['config']['add_properties']['cp_model_name']
             model_info = {}
             if 'path' in module['config']:
@@ -375,6 +378,7 @@ def from_yaml_to_object_information(yami_file_obj, df):
                 'category_id' : module['config']['add_properties']['cp_category_id'],
                 'path' : path,
             }
+            
             if model_name.split('_')[-2] == 'object':
                 synset_id = path.split('/')[-4]
                 model_id = path.split('/')[-3]
@@ -414,6 +418,7 @@ def bbox_to_bbox_2d_and_center(bbox):
     center = [int((xmin + xmax) * 0.5), int((ymin + ymax) * 0.5)]
     return bbox_2d, center
 
+
 def to_old_annotaiton_format(args, df, one_scene_dir):
     blender_proc_model_dir = args.files.model_dir
     model_dir = os.path.join(blender_proc_model_dir, 'perch_output_models')
@@ -425,27 +430,12 @@ def to_old_annotaiton_format(args, df, one_scene_dir):
     yaml_file_prefix = '_'.join(one_scene_dir.split('/')[-2:])
     yaml_file = os.path.join(args.files.yaml_file_root_dir, '{}.yaml'.format(yaml_file_prefix))
     yaml_file_obj = yaml.load(open(yaml_file), Loader=yaml.SafeLoader)
-    '''
-    {
-        'category_id': 1,
-        'path': '/raid/xiaoyuz1/blender_proc/models/02946921/f6316c6702c49126193d9e76bb15876/models/model_normalized.obj',
-        'synset_id': '02946921',
-        'model_id': 'f6316c6702c49126193d9e76bb15876',
-        'obj_cat': 3,
-        'obj_id': 8,
-        'scale': 0.20642219771146572
-    }
-    '''
     datagen_yaml = from_yaml_to_object_information(yaml_file_obj, df)
-
 
     coco_fname = os.path.join(one_scene_dir, 'coco_data', 'coco_annotations.json')
     coco_anno = json.load(open(coco_fname))
     coco = COCO(coco_fname)
-    # image_ids = coco.getImgIds()
-    # coco = uu.COCOAnnotation(coco_fname)
-    # image_ids = list(coco.total_ann_dict['images'].keys())
-
+    
     image_id_to_h5py_fh = {}
     image_id_to_fname = {}
     images_ann_new = []
@@ -459,7 +449,6 @@ def to_old_annotaiton_format(args, df, one_scene_dir):
         
         image_ann_new = {}
         image_ann_new.update(image_ann)
-
 
         fname = os.path.join(*one_scene_dir.split('/')[-2:], image_ann['file_name'])
         image_id_to_fname[image_id] = fname
@@ -482,25 +471,21 @@ def to_old_annotaiton_format(args, df, one_scene_dir):
         images_ann_new.append(image_ann_new)
     
     '''
+    object_state: 
     {
         'customprop_model_name': 'testing_set_scene_0_object_0',
         'customprop_category_id': 1,
         'name': '02946921_f6316c6702c49126193d9e76bb15876',
-        'location': [-0.08852141350507736, 0.2833922207355499, 1.1032110452651978],'rotation_euler': [1.5707963705062866, 0.0, 6.015883445739746],
-        'matrix_world': [[0.19909153878688812,
-            -2.383245822912272e-09,
-            -0.0545223131775856,
-            -0.08852141350507736],
-            [-0.0545223131775856,
-            -8.702567555474161e-09,
-            -0.19909153878688812,
-            0.2833922207355499],
+        'location': [-0.08852141350507736, 0.2833922207355499, 1.1032110452651978],
+        'rotation_euler': [1.5707963705062866, 0.0, 6.015883445739746],
+        'matrix_world': [
+            [0.19909153878688812,-2.383245822912272e-09, -0.0545223131775856,-0.08852141350507736],
+            [-0.0545223131775856,-8.702567555474161e-09,-0.19909153878688812,0.2833922207355499],
             [0.0, 0.20642219483852386, -9.023001013019893e-09, 1.1032110452651978],
             [0.0, 0.0, 0.0, 1.0]]
     }
     '''
     category_id_to_object_state = {}
-    
     for image_id, h5py_fh in image_id_to_h5py_fh.items():
         object_states = ast.literal_eval(np.array(h5py_fh.get('object_states')).tolist().decode('UTF-8'))
         for ann in object_states:
@@ -519,12 +504,11 @@ def to_old_annotaiton_format(args, df, one_scene_dir):
         depth_save_dir = os.path.join('/'.join(one_scene_dir.split('/')[:-2]), depth_save_dir)
         print("Save depth: ", depth_save_dir)
         cv2.imwrite(depth_save_dir, depth_scaled.astype(np.uint16))
- 
     
     categories_ann_new = []
     category_id_to_model_name = {}
     for category_ann in coco_anno['categories']:
-        category_id = category_ann['id']
+        category_id = category_ann['id'] # this is used during blender proc
         if 'scale' not in datagen_yaml[category_id]:
             continue
         datagen_yaml_info = datagen_yaml[category_id]
@@ -569,6 +553,9 @@ def to_old_annotaiton_format(args, df, one_scene_dir):
         anno_new = {}
         anno_new.update(anno)
 
+        category_id = anno['category_id']
+        image_id = anno['image_id']
+
         _, center = bbox_to_bbox_2d_and_center(anno['bbox'])
         anno_new.update({
             'center' : [float(item) for item in center],
@@ -583,9 +570,26 @@ def to_old_annotaiton_format(args, df, one_scene_dir):
         h5py_fh = image_id_to_h5py_fh[anno_new['image_id']]
         depth = np.array(h5py_fh.get('depth'))
         object_mask = coco.annToMask(anno)
+        masked_depth = depth * object_mask # depth of the objects
+        masked_depth_above_zero = masked_depth[masked_depth > 0]
+        median_depth = np.median(masked_depth_above_zero)
+        min_depth = max(0, median_depth-0.5)
+        max_depth = median_depth+0.5
+        indices = np.vstack(np.where(masked_depth < min_depth))
+        object_mask[tuple(indices)] = 0
 
+        indices = np.vstack(np.where(masked_depth > max_depth))
+        object_mask[tuple(indices)] = 0
 
+        seg_save_path = f'coco_data/segmentation_{image_id}_{category_id}.png'
+        seg_save_path = os.path.join('/'.join(one_scene_dir.split('/')[:-2]), seg_save_path)
+        cv2.imwrite(seg_save_path, object_mask.astype(np.uint8))
 
+        anno_new.update({
+            'area': int(np.sum(object_mask)),
+            'segmentation' : None,
+            'mask_file_path' : seg_save_path,
+        })
         annotations_new.append(anno_new)
     
     import copy
