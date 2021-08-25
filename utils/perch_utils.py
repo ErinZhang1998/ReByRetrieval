@@ -1,9 +1,168 @@
-import numpy as np 
 import os 
-from PIL import Image 
-import matplotlib.pyplot as plt
+import shutil
 import json
+import copy
+import pickle
+from PIL import Image 
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
 
+import utils.datagen_utils as datagen_utils
+
+
+def create_new_annotation_file(source_anno_path, new_anno_path, image_ann_list = None, category_ann_list = None, annotations_ann_list = None):
+    shutil.copyfile(source_anno_path, new_anno_path)
+    new_anno = json.load(open(new_anno_path))
+    if image_ann_list is not None:
+        new_anno['images'] = image_ann_list
+    if category_ann_list is not None:
+        new_anno['categories'] = category_ann_list
+    if annotations_ann_list is not None:
+        new_anno['annotations'] = annotations_ann_list
+
+    json_string = json.dumps(new_anno)
+    json_file = open(new_anno_path, "w+")
+    json_file.write(json_string)
+    json_file.close()
+
+def paste_in_new_category_annotation(
+    model_root_dir,
+    original_anno_path, 
+    new_anno_path,
+    category_id1, 
+    target_ann,
+    new_actual_size = None,
+    new_model_name_template = None,
+    turn_upright_before_scale = True,
+):
+    coco_anno1 = COCOSelf(original_anno_path)
+    
+    category_annotations = []
+    old_name_to_new_name = {}
+    for category_id, category_ann in coco_anno1.category_id_to_ann.items():
+        if category_id != category_id1:
+            category_annotations.append(category_ann)
+            continue 
+        new_ann = copy.deepcopy(category_ann)
+        #### target_ann = coco_anno2.get_ann('categories', category_id2)
+        
+        # Change annotation model name 
+        if new_model_name_template is None:
+            new_name = '{}-replaced-{}'.format(target_ann['name'], new_ann['name'])
+        else:
+            new_name = new_model_name_template.format(category_id)
+        old_name_to_new_name[category_ann['name']] = new_name
+        new_ann['name'] = new_name
+
+        new_ann['shapenet_category_id'] = int(target_ann['shapenet_category_id'])
+        new_ann['shapenet_object_id'] = int(target_ann['shapenet_object_id'])
+        new_ann['synset_id'] = target_ann['synset_id']
+        new_ann['model_id'] = target_ann['model_id']
+        if new_actual_size is None:
+            new_actual_size = new_ann['actual_size']
+        # mesh_file_name = os.path.join(original_model_save_dir, category_ann['name'], 'textured.obj')
+        mesh_file_name = os.path.join(model_root_dir, target_ann['name'], 'textured.obj')
+        _, scale_xyz = datagen_utils.save_correct_size_model(
+            model_root_dir, 
+            new_name, 
+            new_actual_size, 
+            mesh_file_name, 
+            turn_upright_before_scale = turn_upright_before_scale,
+        )
+        # scale_xyz = acutal_size / (bounds[1] - bounds[0])
+        new_ann['size'] = [float(item) for item in scale_xyz]
+        category_annotations.append(new_ann)
+    
+    new_annotations = []
+    for ann_id, ann in coco_anno1.ann_id_to_ann.items():
+        if 'percentage_not_occluded' in ann:
+            if ann['percentage_not_occluded'] is not None and ann['percentage_not_occluded'] < 0.1:
+                continue
+        if ann['model_name'] not in old_name_to_new_name:
+            new_annotations.append(ann)
+            continue 
+        ann['model_name'] = old_name_to_new_name[ann['model_name']]
+        new_annotations.append(ann)
+    
+    create_new_annotation_file(original_anno_path, new_anno_path, image_ann_list = None, category_ann_list = category_annotations, annotations_ann_list = new_annotations)
+
+
+def separate_annotation_into_images(coco_anno_path, new_fname_dir, new_fname_template, skip_image_ids = None):
+    '''
+    Separate the coco annotation file into individual annotations files, one for each image_id 
+    Or just delete the other image annotations
+    
+    Returns:
+        dict: image_id --> coco_anno_path
+    '''
+    coco_anno = COCOSelf(coco_anno_path)
+    coco_anno_parent_path = '/'.join(coco_anno_path.split('/')[:-1])
+    # os.path.join(*coco_anno.split('/')[:-1])
+    image_json_paths = []
+    for image_id, image_ann in coco_anno.image_id_to_ann.items():
+        if skip_image_ids is not None:
+            if int(image_id) in skip_image_ids:
+                continue
+        this_image_annotations = list(coco_anno.image_id_to_category_id_to_ann[image_id].values())
+        image_json_path = os.path.join(new_fname_dir, new_fname_template.format(image_id))
+        
+        shutil.copyfile(coco_anno_path, image_json_path)
+        annotations_image_id = json.load(open(image_json_path))
+        annotations_image_id['images'] = [image_ann]
+        annotations_image_id['annotations'] = this_image_annotations
+
+        json_string = json.dumps(annotations_image_id)
+        json_file = open(image_json_path, "w+")
+        json_file.write(json_string)
+        json_file.close()
+        image_json_paths.append(image_json_path)
+    
+    return image_json_paths
+
+
+class COCOSelf(object):
+
+    def __init__(self, json_path):
+        '''
+        Unit = json 
+        '''
+        self.model_name_to_model_full_name = {}
+        annotations = json.load(open(json_path))
+
+        
+        image_id_to_ann = dict()
+        image_file_name_to_image_id = dict()
+        for ann in annotations['images']:
+            image_id_to_ann[ann['id']] = ann 
+            image_file_name_to_image_id[ann['file_name']] = ann['id']
+        
+        category_id_to_ann = dict()
+        model_name_to_category_id = dict()
+        for ann in annotations['categories']:
+            category_id_to_ann[ann['id']] = ann
+            model_name = ann['name']
+            model_name_to_category_id[model_name] = ann['id']
+            
+        ann_id_to_ann = dict()
+        image_id_to_category_id_to_ann = dict()
+        for ann in annotations['annotations']:
+            ann_id_to_ann[ann['id']] = ann
+
+            D = image_id_to_category_id_to_ann.get(ann['image_id'], {})
+            D[ann['category_id']] = ann
+            image_id_to_category_id_to_ann[ann['image_id']] = D
+        
+
+        self.image_id_to_ann = image_id_to_ann
+        self.category_id_to_ann = category_id_to_ann
+        self.ann_id_to_ann = ann_id_to_ann
+        self.image_id_to_category_id_to_ann = image_id_to_category_id_to_ann
+
+        self.image_file_name_to_image_id = image_file_name_to_image_id
+        self.model_name_to_category_id = model_name_to_category_id
+
+        
 
 class COCOAnnotation(object):
 
@@ -14,17 +173,18 @@ class COCOAnnotation(object):
         self.model_name_to_model_full_name = {}
         annotations = json.load(open(json_path))
 
-        category_id_to_model_names = {}
+        
         image_id_to_ann = dict()
         for ann in annotations['images']:
             image_id_to_ann[ann['id']] = ann 
         
         category_id_to_ann = dict()
+        model_name_to_category_ann = dict()
+        category_id_to_model_names = {}
         for ann in annotations['categories']:
             category_id_to_ann[ann['id']] = ann
             model_name = ann['name']
-            cat = ann['synset_id']
-            model_id = ann['model_id']
+            model_name_to_category_ann[model_name] = ann
             shapenet_category_id = ann['shapenet_category_id']
             shapenet_object_id = ann['shapenet_object_id']
 
@@ -43,6 +203,7 @@ class COCOAnnotation(object):
             D[ann['category_id']] = ann
             image_category_id_to_ann[ann['image_id']] = D
 
+        self.model_name_to_category_ann = model_name_to_category_ann
         total_ann_dict = {
             'images' : image_id_to_ann,
             'categories' : category_id_to_ann,
@@ -196,31 +357,75 @@ def transform_df_values(df, single_image=False):
             return -2
     
     for col_name in df:
+        # do not process the model name column
         if col_name == 'name':
             continue 
+        # do not include 'add' metric
         if col_name.split('-')[-1] != 'adds':
             df = df.drop([col_name], axis=1)
             continue
         
+        # Apply the value transformer to each value in the column
         df[col_name] = df[col_name].apply(isnumber)
-        if single_image:
-            new_col_name = '-'.join(col_name.split("-")[:2])
-        else:
-            new_col_name = col_name.split("-")[0]
+        # Rename columns
+        
+        adds_index = col_name.index('-adds')
+        new_col_name = col_name[:adds_index]
+        # if single_image:
+        #     new_col_name = '-'.join(col_name.split("-")[:1])
+        # else:
+        #     new_col_name = col_name.split("-")[0]
         df = df.rename(columns={col_name: new_col_name})
     return df
 
 
-def df_to_image_result(df, single_image=False):
-    df = transform_df_values(df, single_image)
-    df_rows = df.to_dict('records')
-    perch_name_to_res_dict = dict()
-    for row in df_rows:
-        image_fname = row['name']
-        perch_name = get_clean_name(image_fname)
-        perch_name_to_res_dict[perch_name] = row 
-    
-    return df, perch_name_to_res_dict
+def from_annotation_list_path_to_model_dict_list(
+    perch_output_dir, 
+    annotation_list_path, 
+    root_dir,
+):
+    L_container = pickle.load(open(annotation_list_path, 'rb'))
+    model_dict_list = []
+    for anno_name, anno_fname in L_container:
+        anno_fname = anno_fname.replace('/data/custom_dataset', root_dir)
+        perch_dir = os.path.join(perch_output_dir, anno_name)
+        if not os.path.exists(perch_dir):
+            print(perch_dir, "does not exist.")
+            continue
+        acc_fname = os.path.join(perch_dir, 'accuracy_6d.txt')
+        df_acc = pd.read_csv(acc_fname)
+        df_acc = transform_df_values(df_acc, single_image = True)
+        
+        for row in df_acc.to_dict('records'):
+            image_name = row['name']
+            perch_name = get_clean_name(image_name)
+
+            in_image_idx = 0
+            for k,v in row.items():
+                if k == 'name':
+                    continue
+
+                model_dict = {
+                    'model_name' : k,
+                    'add-s' : v,
+                    'image_file_name' : image_name,
+                    'perch_dir' : perch_dir,
+                    'perch_name' : perch_name,
+                    'in_image_index' : in_image_idx,
+                    'annotation_path' : anno_fname,
+                }
+                model_dict_list.append(model_dict)
+                in_image_idx += 1
+    df_final = pd.DataFrame.from_dict(
+        dict(zip(range(len(model_dict_list)), model_dict_list)), 
+        orient = 'index',
+        columns = list(model_dict_list[0].keys()),
+    )
+    return {
+        'df' : df_final,
+        'model_dict_list' : model_dict_list,
+        'anno_list' : L_container,
+    }
 
 
 def get_pred_annotations(perch_dir):

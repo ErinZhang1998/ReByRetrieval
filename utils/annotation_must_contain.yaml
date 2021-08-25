@@ -1,0 +1,46 @@
+images : [
+    "id",
+    "file_name",
+    "width",
+    "height",
+    "intrinsics_matrix",
+    "pos",
+    "rot_quat",
+    "camera_frame_to_world_frame_mat",
+    "world_frame_to_camera_frame_mat",
+]
+categories : [
+    "id",
+    "name",
+    "synset_id",
+    "model_id",
+    "size",
+    "actual_size",
+    "position",
+    "quat",
+    "half_or_whole",
+    "perch_rot_angle",
+    "shapenet_category_id",
+    "shapenet_object_id",
+]
+categories_options : [
+
+]
+annotations : [
+    "id",
+    "image_id",
+    "category_id",
+    "area",
+    "bbox",
+    "width",
+    "height",
+    "center",
+    "model_name",
+    "mask_file_path",
+]
+annotations_optional : [
+    "segmentation",
+    "percentage_not_occluded",
+    "number_pixels",
+    "iscrowd",
+]

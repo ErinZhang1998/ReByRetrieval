@@ -294,6 +294,8 @@ def get_sample_ids(save_dir, epoch, fname_template = '{}_sample_id.npy'):
         sample_id_res.append('-'.join([str(int(item)) for item in L]))
     return sample_id_res
 
+# Goal is to run pose estimation for one object with predicted other object
+
 def run_pred(args):
     # test_dataset, query_feats, query_sample_ids = get_features(args, options.query_epochs, options.query_save_dir, options.query_data_dir)
     # target_dataset, target_feats, target_sample_ids = get_features(args, options.target_epochs, options.target_save_dir, options.target_data_dir)

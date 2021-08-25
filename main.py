@@ -27,11 +27,23 @@ parser.add_argument(
 parser.add_argument("--model_path", dest="model_path", default='')
 parser.add_argument("--experiment_save_dir", dest="experiment_save_dir", default='')
 parser.add_argument("--experiment_save_dir_default", dest="experiment_save_dir_default", default='')
-parser.add_argument("--testing_scene_dir", dest="testing_scene_dir", default='')
 parser.add_argument("--calculate_triplet_loss", dest="calculate_triplet_loss", default=True)
+
+parser.add_argument("--training_scene_dir", dest="training_scene_dir", default='')
+parser.add_argument("--testing_scene_dir", dest="testing_scene_dir", default='')
 parser.add_argument("--csv_file_path", dest="csv_file_path", default='')
+parser.add_argument("--yaml_file_root_dir", dest="yaml_file_root_dir", default='')
+parser.add_argument("--model_dir", dest="model_dir", default='')
+
+
 
 def fill_in_args_from_terminal(args, options):
+    if options.model_dir != '':
+        args.files.model_dir = options.model_dir
+    if options.training_scene_dir != '':
+        args.files.training_scene_dir = options.training_scene_dir
+    if options.yaml_file_root_dir != '':
+        args.files.yaml_file_root_dir = options.yaml_file_root_dir
     if options.csv_file_path != '':
         args.files.csv_file_path = options.csv_file_path
     

@@ -327,7 +327,7 @@ def save_normalized_object_to_file(shapenet_filepath, normalized_model_save_dir,
             shutil.rmtree(new_image_dir)
         shutil.copytree(image_material_dir, new_image_dir) 
 
-    normalize_obj_file(input_obj_file, output_obj_file, add_name=model_name)
+    # normalize_obj_file(input_obj_file, output_obj_file, add_name=model_name)
     if actual_size_used:
         x,y,z = ann['actual_size']
         bb_max, bb_min, _, _ = scale_obj_file(input_obj_file, output_obj_file, np.array([x,z,y]), add_name=model_name)
@@ -419,19 +419,28 @@ def bbox_to_bbox_2d_and_center(bbox):
     return bbox_2d, center
 
 
-def to_old_annotaiton_format(args, df, one_scene_dir):
-    blender_proc_model_dir = args.files.model_dir
-    model_dir = os.path.join(blender_proc_model_dir, 'perch_output_models')
-    if not os.path.exists(model_dir):
-        os.mkdir(model_dir)
+def to_old_annotaiton_format(perch_model_dir, yaml_file_root_dir, df, one_scene_dir):
+    '''
+    Args:
+        blender_proc_model_dir: use for save_correct_size_model
+            where Perch will be reading the model from  
+        yaml_file_root_dir: where to find the yaml_files that are used to produce the blender proc data
+        df: mainly used in from_yaml_to_object_information
+            Use to label obj_cat and obj_id
+        one_scene_dir: 
+    '''
+    
+    # model_dir = os.path.join(blender_proc_model_dir, 'perch_output_models')
+    # if not os.path.exists(model_dir):
+    #     os.mkdir(model_dir)
 
     scene_num = int(one_scene_dir.split('/')[-1].split('_')[-1])
-
+    
     yaml_file_prefix = '_'.join(one_scene_dir.split('/')[-2:])
-    yaml_file = os.path.join(args.files.yaml_file_root_dir, '{}.yaml'.format(yaml_file_prefix))
+    yaml_file = os.path.join(yaml_file_root_dir, '{}.yaml'.format(yaml_file_prefix))
     yaml_file_obj = yaml.load(open(yaml_file), Loader=yaml.SafeLoader)
     datagen_yaml = from_yaml_to_object_information(yaml_file_obj, df)
-
+                                                                                       
     coco_fname = os.path.join(one_scene_dir, 'coco_data', 'coco_annotations.json')
     coco_anno = json.load(open(coco_fname))
     coco = COCO(coco_fname)
@@ -457,7 +466,6 @@ def to_old_annotaiton_format(args, df, one_scene_dir):
         rot_quat = R.from_matrix(camera_frame_to_world_frame_mat[:3,:3]).as_quat()
         rot_quat = datagen_utils.get_json_cleaned_matrix(rot_quat)
         world_frame_to_camera_frame_mat = np.linalg.inv(camera_frame_to_world_frame_mat)
-
         
         #missing: all_object_bbox, all_object_segmentation_path, all_object_with_table_segmentation_path
         image_ann_new.update({
@@ -471,7 +479,7 @@ def to_old_annotaiton_format(args, df, one_scene_dir):
         images_ann_new.append(image_ann_new)
     
     '''
-    object_state: 
+    object_state, records object position and orientation information: 
     {
         'customprop_model_name': 'testing_set_scene_0_object_0',
         'customprop_category_id': 1,
@@ -493,6 +501,7 @@ def to_old_annotaiton_format(args, df, one_scene_dir):
                 continue
             category_id = int(ann['customprop_category_id'])
             object_state = category_id_to_object_state.get(category_id, None)
+            
             if object_state is None:
                 category_id_to_object_state[category_id] = ann
         
@@ -509,11 +518,14 @@ def to_old_annotaiton_format(args, df, one_scene_dir):
     category_id_to_model_name = {}
     for category_ann in coco_anno['categories']:
         category_id = category_ann['id'] # this is used during blender proc
+        
+        if category_id not in datagen_yaml:
+            continue 
         if 'scale' not in datagen_yaml[category_id]:
             continue
         datagen_yaml_info = datagen_yaml[category_id]
         object_state = category_id_to_object_state[category_id]
-
+        
         mesh_file_name = datagen_yaml_info['path']
         category_ann_new = {}
         category_ann_new.update(category_ann)
@@ -524,13 +536,16 @@ def to_old_annotaiton_format(args, df, one_scene_dir):
         scale = datagen_yaml_info['scale']
 
         actual_size = (bb_max - bb_min) * np.array([scale] * 3)
+        datagen_utils.save_correct_size_model(perch_model_dir, model_name, actual_size, mesh_file_name, turn_upright_before_scale = False)
+
+        #object_frame_to_world_frame_mat = np.asarray(object_state['matrix_world'])
+        #object_frame_to_world_frame_mat /= scale
+        #rot_quat = R.from_matrix(object_frame_to_world_frame_mat[:3,:3]).as_quat()
         
-        datagen_utils.save_correct_size_model(model_dir, model_name, actual_size, mesh_file_name, turn_upright_before_scale = False)
-
-        object_frame_to_world_frame_mat = np.asarray(object_state['matrix_world'])
-        rot_quat = R.from_matrix(object_frame_to_world_frame_mat[:3,:3]).as_quat()
+        rot_quat = R.from_euler('xyz', np.asarray(object_state['rotation_euler'])).as_quat()
         rot_quat = datagen_utils.get_json_cleaned_matrix(rot_quat)
-
+        
+        # actual_size is a must have 
         category_ann_new.update({
             'name' : model_name,
             'shapenet_category_id' : int(datagen_yaml_info['obj_cat']),
@@ -582,13 +597,15 @@ def to_old_annotaiton_format(args, df, one_scene_dir):
         object_mask[tuple(indices)] = 0
 
         seg_save_path = f'coco_data/segmentation_{image_id}_{category_id}.png'
-        seg_save_path = os.path.join('/'.join(one_scene_dir.split('/')[:-2]), seg_save_path)
-        cv2.imwrite(seg_save_path, object_mask.astype(np.uint8))
+        
+        seg_save_path_full = os.path.join(one_scene_dir, seg_save_path)
+        print("Saving segmentation: ", seg_save_path_full)
+        cv2.imwrite(seg_save_path_full, object_mask.astype(np.uint8))
 
         anno_new.update({
             'area': int(np.sum(object_mask)),
             'segmentation' : None,
-            'mask_file_path' : seg_save_path,
+            'mask_file_path' : os.path.join(*one_scene_dir.split('/')[-2:], seg_save_path),
         })
         annotations_new.append(anno_new)
     

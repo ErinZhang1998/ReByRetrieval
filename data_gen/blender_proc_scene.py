@@ -684,7 +684,7 @@ class BlenderProcScene(object):
         object_surface_sampler_module = []
         object_x_ranges = []
         object_y_ranges = []
-        for object_idx in range(len(self.selected_objects)):
+        for object_idx in range(self.num_objects):
             object_module, object_manipulator, x_range, y_range = self.create_object(object_idx)
             object_loader_module += [object_module]
             object_manipulator_module += [object_manipulator]

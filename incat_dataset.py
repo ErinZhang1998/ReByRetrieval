@@ -218,6 +218,8 @@ class InCategoryClutterDataset(Dataset):
                 continue
             if ann['area'] < self.args.dataset_config.ignore_num_pixels:
                 continue
+            if category_id not in datagen_yaml:
+                continue
             if 'scale' not in datagen_yaml[category_id]:
                 continue
             

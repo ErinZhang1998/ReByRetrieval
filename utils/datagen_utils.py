@@ -1,6 +1,7 @@
 import pybullet as p
 import numpy as np
 import copy
+import shutil
 import json
 import pandas as pd
 from scipy.spatial.transform import Rotation as R, rotation
@@ -47,7 +48,7 @@ def save_correct_size_model(model_save_root_dir, model_name, actual_size, mesh_f
             list of 3 numbers representing scale
     '''
     model_save_dir = os.path.join(model_save_root_dir, model_name)
-
+    # print(model_save_dir, model_save_root_dir, model_name)
     if not os.path.exists(model_save_dir):
         if len(model_name.split("-")) > 1:
             print("WARNING: no - used in model_name")
@@ -73,9 +74,10 @@ def save_correct_size_model(model_save_root_dir, model_name, actual_size, mesh_f
         object_mesh.apply_transform(UPRIGHT_MAT)
     
     # scale the object_mesh to have the actual_size
+    actual_size = np.asarray(actual_size).reshape(-1,)
     mesh_scale = actual_size / (object_mesh.bounds[1] - object_mesh.bounds[0])
     mesh_scale = list(mesh_scale)
-    object_mesh = datagen_utils.apply_scale_to_mesh(object_mesh, mesh_scale)
+    object_mesh = apply_scale_to_mesh(object_mesh, mesh_scale)
     print("Exporting: ", model_fname)
     object_mesh.export(model_fname)
 
@@ -96,6 +98,7 @@ def save_correct_size_model(model_save_root_dir, model_name, actual_size, mesh_f
         o3d.io.write_point_cloud(model_ply_fname, pcd)
 
     return object_mesh, mesh_scale
+
 
 def bounds_xyz_to_corners(bounds):
     '''
@@ -230,6 +233,10 @@ def euler_xyz_to_quat_wxyz(euler_xyz):
     x,y,z,w = rot_obj.as_quat()
     return [w,x,y,z]
 
+def quat_xyzw_to_euler(quat):
+    x,y,z,w = quat
+    rot = R.from_quat(np.array([x,y,z,w]))
+    return rot.as_euler('xyz', degrees=True)
 
 def apply_scale_to_mesh(mesh, scale):
     scale_matrix = np.eye(4)
