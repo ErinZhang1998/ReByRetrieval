@@ -78,7 +78,8 @@ def general_comparison_bar_plot(
     x,
     xname,
     data_list,
-    name_list
+    name_list,
+    y_name = "data",
 ):
     x = list(x)
     ratio_leng = [len(L) for L in data_list]
@@ -89,10 +90,10 @@ def general_comparison_bar_plot(
     data = []
     for L in data_list:
         data += L
-    #print(len(data))
-    df_all_ratios = pd.DataFrame(zip(x*len(data_list), labs, data), columns=[xname, "kind", "data"])
+
+    df_all_ratios = pd.DataFrame(zip(x*len(data_list), labs, data), columns=[xname, "kind", y_name])
     plt.figure(figsize=(20, 12))
-    splot = sns.barplot(x=xname, hue="kind", y="data", data=df_all_ratios)
+    splot = sns.barplot(x=xname, hue="kind", y=y_name, data=df_all_ratios)
 
     splot.set_xticklabels(splot.get_xticklabels(), rotation=45, horizontalalignment='right')
 

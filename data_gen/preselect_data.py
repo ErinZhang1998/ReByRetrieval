@@ -18,6 +18,7 @@ parser.add_option("--csv_file_dir", dest="csv_file_dir")
 parser.add_option("--shapenet_filepath", dest="shapenet_filepath")
 parser.add_option("--selected_filepath", dest="selected_filepath")
 parser.add_option("--normalized_model_save_dir", dest="normalized_model_save_dir")
+parser.add_option("--test_ratio", dest="test_ratio", type=float, default=0.3)
 
 def check_too_many_faces(csv_fname, shapenet_dir):
     df = pd.read_csv(csv_fname)
@@ -39,22 +40,26 @@ def output_selected(csv_file, selected_l):
     return res
 
 def get_dict_data(preselect):
-    csv_columns = ['synsetId', 'catId', 'name', 'ShapeNetModelId', 'objId', 'half_or_whole', 'perch_rot_angle']
+    csv_columns = None
+
     dict_data = []
     obj_id = 0
     cat_id = 0
     for cat_name, cat_synset_id, cat_objects in preselect:
-        for objs in cat_objects:
+        for name, self_defined_category_idx, objs in cat_objects:
             for obj in objs:
                 row = {
                     'synsetId': cat_synset_id,
                     'catId' : cat_id,
                     'name': cat_name,
                     'ShapeNetModelId': obj,
-                    'objId': obj_id,
+                    'objId': self_defined_category_idx,
+                    'selfDefinedName' : name,
                     'half_or_whole' : 0,
                     'perch_rot_angle' : 0,
                 }
+                if csv_columns is None:
+                    csv_columns = list(row.keys())
 
                 # obj_cat = int(row["synsetId"])
                 # obj_model_id = row["ShapeNetModelId"]
@@ -76,13 +81,13 @@ if __name__ == '__main__':
     preselect = pickle.load(f)
     test_only_ids = []
     dict_data, csv_columns = get_dict_data(preselect)
-    for row in dict_data:
-        bp_utils.save_normalized_object_to_file(args.shapenet_filepath, args.normalized_model_save_dir, row)
+    if args.normalized_model_save_dir is not None:
+        for row in dict_data:
+            bp_utils.save_normalized_object_to_file(args.shapenet_filepath, args.normalized_model_save_dir, row)
     if not os.path.exists(args.csv_file_dir):
         os.mkdir(args.csv_file_dir)
     csv_file = os.path.join(args.csv_file_dir, "preselect_table_top.csv")
     uu.write_to_csv(csv_file, dict_data, csv_columns)
-
 
     df_1 = pd.read_csv(csv_file)
     for test_id in test_only_ids:

@@ -1,4 +1,4 @@
-import pybullet as p
+# import pybullet as p
 import numpy as np
 import copy
 import shutil
@@ -20,7 +20,7 @@ from matplotlib.collections import PatchCollection
 from xml.dom import minidom
 import os
 import trimesh
-import dm_control.mujoco as mujoco
+# import dm_control.mujoco as mujoco
 from pathlib import Path
 import numpy as np
 import open3d as o3d

@@ -277,7 +277,10 @@ class InCategoryClutterDataset(Dataset):
         scene_num = int(one_scene_dir.split('/')[-1].split('_')[-1])
 
         yaml_file_prefix = '_'.join(one_scene_dir.split('/')[-2:])
-        yaml_file = os.path.join(self.args.files.yaml_file_root_dir, '{}.yaml'.format(yaml_file_prefix))
+        if self.split == 'train':
+            yaml_file = os.path.join(self.args.files.training_yaml_file_dir, '{}.yaml'.format(yaml_file_prefix))
+        else:
+            yaml_file = os.path.join(self.args.files.testing_yaml_file_dir, '{}.yaml'.format(yaml_file_prefix))
 
         yaml_file_obj = yaml.load(open(yaml_file), Loader=yaml.SafeLoader)
         datagen_yaml = bp_utils.from_yaml_to_object_information(yaml_file_obj, self.df)

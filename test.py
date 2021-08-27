@@ -42,8 +42,8 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
             
             if 'img_embed' in return_keys:
                 img_embed = return_val[return_keys.index('img_embed')]
-                obj_category = obj_category.cuda(non_blocking=args.cuda_non_blocking)
-                obj_id = obj_id.cuda(non_blocking=args.cuda_non_blocking)
+                obj_category = obj_category.cuda()
+                obj_id = obj_id.cuda()
                 
                 if args.testing_config.calculate_triplet_loss:
                 
@@ -68,8 +68,6 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
             if args.num_gpus > 1:
                 sample_id = torch.cat(du.all_gather_unaligned(sample_id), dim=0)
                 scale = torch.cat(du.all_gather_unaligned(scale), dim=0)
-                obj_category = torch.cat(du.all_gather_unaligned(obj_category), dim=0)
-                obj_id = torch.cat(du.all_gather_unaligned(obj_id), dim=0)
                 
                 image, scale_pred = du.all_gather(
                     [image, scale_pred]
@@ -84,15 +82,20 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
                     center = torch.cat(du.all_gather_unaligned(center), dim=0)
                 
                 if 'img_embed' in return_keys:
+
                     if args.testing_config.calculate_triplet_loss:
-                        img_embed, obj_category_mask, obj_id_mask = du.all_gather(
-                            [img_embed, obj_category_mask, obj_id_mask]
+                        img_embed, obj_category_mask, obj_id_mask, obj_category, obj_id = du.all_gather(
+                            [img_embed, obj_category_mask, obj_id_mask, obj_category, obj_id]
                         )
                         obj_category_loss, obj_id_loss = du.all_reduce([obj_category_loss, obj_id_loss])
                     else:
-                        img_embed = du.all_gather(
-                            [img_embed]
+                        img_embed, obj_category, obj_id = du.all_gather(
+                            [img_embed, obj_category, obj_id]
                         )
+                else:
+                    obj_category = torch.cat(du.all_gather_unaligned(obj_category), dim=0)
+                    obj_id = torch.cat(du.all_gather_unaligned(obj_id), dim=0)
+                
 
 
             if du.is_master_proc(num_gpus=args.num_gpus):

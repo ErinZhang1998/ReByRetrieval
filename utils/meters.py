@@ -151,7 +151,7 @@ class TestMeter(object):
         
         gt_label = label.reshape(-1,1)
         pred_label = label[arg_sorted_dist[:,1:]]
-
+        
         mAP_1 = metric.mapk(gt_label, pred_label, k=1)
         mAP_5 = metric.mapk(gt_label, pred_label, k=5)
         mAP_10 = metric.mapk(gt_label, pred_label, k=10)
@@ -222,6 +222,7 @@ class TestMeter(object):
             logger.info('\tcontrastive_obj_id={:.6f}'.format(loss_value * self.args.loss.lambda_obj_id))
 
             gt_val = torch.cat(self.acc_dict['obj_category'], dim=0)
+
             mapk_dict = self.calculate_mapk('obj_category', pred_val.numpy(), gt_val.numpy())
             wandb_dict.update(mapk_dict)
             for k,v in mapk_dict.items():

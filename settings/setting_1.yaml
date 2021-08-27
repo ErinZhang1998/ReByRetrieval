@@ -1,0 +1,16 @@
+data_gen:
+    selected_object_file : '/media/hdd/xiaoyuz1/preselect_august/selected_object.pkl'
+    scene_num_to_shapenet_info : '/media/hdd/xiaoyuz1/all_used_shapenet_models.pkl'
+    all_data_csv : '/media/hdd/xiaoyuz1/preselect_august/preselect_table_top.csv'
+    train_data_csv : '/media/hdd/xiaoyuz1/preselect_august/preselect_table_top_train.csv'
+    test_data_csv : '/media/hdd/xiaoyuz1/preselect_august/preselect_table_top_test.csv'
+    all:
+        all_generation_command : 'PYTHONPATH=/home/xiaoyuz1/retrieve python data_gen/preselect_data.py --csv_file_dir /media/hdd/xiaoyuz1/preselect_all --shapenet_filepath /media/hdd/xiaoyuz1/ShapeNetCore.v2 --selected_filepath /media/hdd/xiaoyuz1/preselect_all.pkl --normalized_model_save_dir /media/hdd/xiaoyuz1/blender_proc/models'
+        csv_file : '/media/hdd/xiaoyuz1/preselect_all/preselect_table_top.csv'
+    dv1:
+        dv1_generation_command : 'PYTHONPATH=/home/xiaoyuz1/retrieve python data_gen/preselect_data.py --csv_file_dir /media/hdd/xiaoyuz1/preselect_division_1 --shapenet_filepath /media/hdd/xiaoyuz1/ShapeNetCore.v2 --selected_filepath /media/hdd/xiaoyuz1/preselect_in_train.pkl --normalized_model_save_dir /media/hdd/xiaoyuz1/blender_proc/models'
+        dv1_generation_command : 'PYTHONPATH=/home/xiaoyuz1/retrieve python data_gen/preselect_data.py --csv_file_dir /media/hdd/xiaoyuz1/preselect_division_1_not --shapenet_filepath /media/hdd/xiaoyuz1/ShapeNetCore.v2 --selected_filepath /media/hdd/xiaoyuz1/preselect_not_in_train.pkl --normalized_model_save_dir /media/hdd/xiaoyuz1/blender_proc/models'
+        in_csv_file : '/media/hdd/xiaoyuz1/preselect_division_1/preselect_table_top.csv'
+        not_in_csv_file : '/media/hdd/xiaoyuz1/preselect_division_1_not/preselect_table_top.csv'
+    dv2:
+    dv3:

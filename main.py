@@ -32,7 +32,8 @@ parser.add_argument("--calculate_triplet_loss", dest="calculate_triplet_loss", d
 parser.add_argument("--training_scene_dir", dest="training_scene_dir", default='')
 parser.add_argument("--testing_scene_dir", dest="testing_scene_dir", default='')
 parser.add_argument("--csv_file_path", dest="csv_file_path", default='')
-parser.add_argument("--yaml_file_root_dir", dest="yaml_file_root_dir", default='')
+parser.add_argument("--training_yaml_file_dir", dest="training_yaml_file_dir", default='')
+parser.add_argument("--testing_yaml_file_dir", dest="testing_yaml_file_dir", default='')
 parser.add_argument("--model_dir", dest="model_dir", default='')
 
 
@@ -42,8 +43,10 @@ def fill_in_args_from_terminal(args, options):
         args.files.model_dir = options.model_dir
     if options.training_scene_dir != '':
         args.files.training_scene_dir = options.training_scene_dir
-    if options.yaml_file_root_dir != '':
-        args.files.yaml_file_root_dir = options.yaml_file_root_dir
+    if options.training_yaml_file_dir != '':
+        args.files.training_yaml_file_dir = options.training_yaml_file_dir
+    if options.testing_yaml_file_dir != '':
+        args.files.testing_yaml_file_dir = options.testing_yaml_file_dir
     if options.csv_file_path != '':
         args.files.csv_file_path = options.csv_file_path
     

@@ -53,7 +53,8 @@ def generate_blender(args):
         df = pd.read_csv(args.csv_file_path)
         synset_id_unique = [2876657, 2880940, 2946921, 3797390, 2942699, 3642806, 3593526, 3046257, 2773838]
         # df.synsetId.unique()
-        for synset_id in synset_id_unique:
+        # for synset_id in synset_id_unique:
+        for synset_id in df['synsetId'].unique():
             df_select = df[df['synsetId'] == synset_id]
             for i in range(len(df_select)):
                 row = df_select.iloc[i]
