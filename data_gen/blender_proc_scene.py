@@ -440,7 +440,8 @@ class BlenderProcScene(object):
         
     def get_cc_preload(self):
         texture_to_use = []
-        with open(self.config['texture_to_use_file'], 'rb') as fh:
+        #with open(self.config['texture_to_use_file'], 'rb') as fh:
+        with open(self.args.texture_to_use_file, 'rb') as fh:
             texture_to_use = pickle.load(fh)
         cc_preload = [{
             "module": "loader.CCMaterialLoader",

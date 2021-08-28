@@ -10,6 +10,7 @@ PYTHONPATH=/home/xiaoyuz1/retrieve python data_gen/datagen_blender_proc.py \
 --blender_proc \
 --blender_model_root_dir /media/hdd/xiaoyuz1/blender_proc/models \
 --cctextures_path /media/hdd/xiaoyuz1/cctextures \
+--texture_to_use_file /media/hdd/xiaoyuz1/cctextures_to_use.pkl \
 --blender_proc_config /home/xiaoyuz1/retrieve/data_gen/blender_proc_self.yaml \
 --scene_save_dir /media/hdd/xiaoyuz1/blender_proc \
 --train_or_test testing_set_dv \
@@ -35,6 +36,7 @@ PYTHONPATH=/home/xiaoyuz1/retrieve python data_gen/datagen_blender_proc.py \
 --blender_proc \
 --blender_model_root_dir /media/hdd/xiaoyuz1/blender_proc/models \
 --cctextures_path /media/hdd/xiaoyuz1/cctextures \
+--texture_to_use_file /media/hdd/xiaoyuz1/cctextures_to_use.pkl \
 --blender_proc_config /home/xiaoyuz1/retrieve/data_gen/blender_proc_self.yaml \
 --scene_save_dir /media/hdd/xiaoyuz1/blender_proc \
 --train_or_test training_set_dv2 \
@@ -59,6 +61,7 @@ PYTHONPATH=/home/xiaoyuz1/retrieve python data_gen/datagen_blender_proc.py \
 --blender_proc \
 --blender_model_root_dir /media/hdd/xiaoyuz1/blender_proc/models \
 --cctextures_path /media/hdd/xiaoyuz1/cctextures \
+--texture_to_use_file /media/hdd/xiaoyuz1/cctextures_to_use.pkl \
 --blender_proc_config /home/xiaoyuz1/retrieve/data_gen/blender_proc_self.yaml \
 --scene_save_dir /media/hdd/xiaoyuz1/blender_proc \
 --train_or_test training_set_dv1 \
@@ -83,6 +86,7 @@ PYTHONPATH=/home/xiaoyuz1/retrieve python data_gen/datagen_blender_proc.py \
 # --blender_proc \
 # --blender_model_root_dir /media/hdd/xiaoyuz1/blender_proc/models \
 # --cctextures_path /media/hdd/xiaoyuz1/cctextures \
+# --texture_to_use_file /media/hdd/xiaoyuz1/cctextures_to_use.pkl \
 # --blender_proc_config /home/xiaoyuz1/retrieve/data_gen/blender_proc_self.yaml \
 # --scene_save_dir /media/hdd/xiaoyuz1/blender_proc \
 # --train_or_test testing_set_new \
