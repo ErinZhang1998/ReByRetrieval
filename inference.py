@@ -290,6 +290,50 @@ def get_sample_ids(save_dir, epoch, fname_template = '{}_sample_id.npy'):
         sample_id_res.append('-'.join([str(int(item)) for item in L]))
     return sample_id_res
 
+def get_all_info(save_dir, epochs, df_all):
+    object_ids = get_features(
+        save_dir, 
+        epochs, 
+        fname_template = '{}_obj_id.npy',
+    ).reshape(-1,)
+    object_category = get_features(
+        save_dir, 
+        epochs, 
+        fname_template = '{}_obj_category.npy',
+    ).reshape(-1,)
+    model_id_idx = get_features(
+        save_dir, 
+        epochs, 
+        fname_template = '{}_shapenet_model_id.npy',
+    ).reshape(-1,)
+    model_id = df_all.iloc[list(model_id_idx),:]['ShapeNetModelId'].to_numpy()
+    
+    sample_ids = get_sample_ids(save_dir, epochs)
+    sample_ids = np.asarray(sample_ids).reshape(-1,)
+    
+    d = {
+        'self_defined_category': object_ids.astype(int), 
+        'shapenet_category': object_category.astype(int),
+        'sample_id' : sample_ids,
+        'model_id' : model_id,
+    }
+    df = pd.DataFrame(data=d)
+    return df
+    
+def uniform_distribution(save_dir, epochs, key = 'self_defined_category'):
+    df = get_all_info(save_dir, epochs)
+    # min_category = df.self_defined_category.value_counts().idxmin()
+    
+    min_num = df[key].value_counts().min()
+    selected_idx_list = []
+    for idx in df[key].unique():
+        selected_idx = df[df.self_defined_category == idx].sample(min_num).index.to_numpy()
+        selected_idx_list.append(selected_idx)
+    
+    selected_idx = np.hstack(selected_idx_list)
+    return df, selected_idx
+
+
 # Goal is to run pose estimation for one object with predicted other object
 
 def run_pred(args):
