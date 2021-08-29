@@ -268,18 +268,14 @@ def run_pred_scene(scene_num, image_id2category_id2sample_id, target_coco_annos,
         image_json_paths.append(image_json_path)
     return image_json_paths
 
-
-def get_features(args, epochs, save_dir, data_dir, feature_file_template = '{}_embedding.npy'):
-    prediction_dir = os.path.join(save_dir, 'predictions')
-    args.files.testing_scene_dir = data_dir
-    test_dataset = incat_dataset.InCategoryClutterDataset('test', args)
-    assert os.path.exists(prediction_dir)
-
-    features = np.load(os.path.join(prediction_dir, feature_file_template.format(epoch)))
-        
-    
-    feats, sample_ids = q_utils.read_npy(prediction_dir, epochs)
-    return test_dataset, feats, sample_ids
+# def get_features(args, epochs, save_dir, data_dir, feature_file_template = '{}_embedding.npy'):
+#     prediction_dir = os.path.join(save_dir, 'predictions')
+#     args.files.testing_scene_dir = data_dir
+#     test_dataset = incat_dataset.InCategoryClutterDataset('test', args)
+#     assert os.path.exists(prediction_dir)
+#     features = np.load(os.path.join(prediction_dir, feature_file_template.format(epoch)))
+#     feats, sample_ids = q_utils.read_npy(prediction_dir, epochs)
+#     return test_dataset, feats, sample_ids
 
 def get_features(save_dir, epoch, fname_template = '{}_embedding.npy'):
     prediction_dir = os.path.join(save_dir, 'predictions')

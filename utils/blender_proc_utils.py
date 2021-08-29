@@ -419,7 +419,14 @@ def bbox_to_bbox_2d_and_center(bbox):
     return bbox_2d, center
 
 
-def to_old_annotaiton_format(perch_model_dir, yaml_file_root_dir, df, one_scene_dir):
+def to_old_annotaiton_format(
+    perch_model_dir, 
+    yaml_file_root_dir, 
+    df, 
+    one_scene_dir,
+    train_or_test = None,
+    scene_num = None,
+):
     '''
     Args:
         blender_proc_model_dir: use for save_correct_size_model
@@ -433,14 +440,25 @@ def to_old_annotaiton_format(perch_model_dir, yaml_file_root_dir, df, one_scene_
     # model_dir = os.path.join(blender_proc_model_dir, 'perch_output_models')
     # if not os.path.exists(model_dir):
     #     os.mkdir(model_dir)
+    scene_dir_split_list = one_scene_dir.split('/')
 
-    scene_num = int(one_scene_dir.split('/')[-1].split('_')[-1])
+    root_dir = '/'.join(scene_dir_split_list[:-2])
+
+    if train_or_test is None:
+        train_or_test = scene_dir_split_list[-2]
+    if scene_num is None:
+        scene_num = int(scene_dir_split_list[-1].split('_')[-1])
     
-    yaml_file_prefix = '_'.join(one_scene_dir.split('/')[-2:])
-    yaml_file = os.path.join(yaml_file_root_dir, '{}.yaml'.format(yaml_file_prefix))
+    scene_name = f'{train_or_test}_scene_{scene_num:06}'
+    
+    # yaml_file_prefix = '_'.join(one_scene_dir.split('/')[-2:])
+    yaml_file = os.path.join(yaml_file_root_dir, '{}.yaml'.format(scene_name))
     yaml_file_obj = yaml.load(open(yaml_file), Loader=yaml.SafeLoader)
     datagen_yaml = from_yaml_to_object_information(yaml_file_obj, df)
-                                                                                       
+
+    if not os.path.exists(os.path.join(one_scene_dir, 'coco_data')):
+        return 
+
     coco_fname = os.path.join(one_scene_dir, 'coco_data', 'coco_annotations.json')
     coco_anno = json.load(open(coco_fname))
     coco = COCO(coco_fname)
@@ -452,14 +470,19 @@ def to_old_annotaiton_format(perch_model_dir, yaml_file_root_dir, df, one_scene_
         image_id = image_ann['id']
         h5py_fh = image_id_to_h5py_fh.get(image_id, None)
         if h5py_fh is None:
-            h5py_fh = h5py.File(os.path.join(one_scene_dir, '{}.hdf5'.format(image_id)), 'r')
+            h5py_file_name = os.path.join(one_scene_dir, '{}.hdf5'.format(image_id))
+            if not os.path.exists(h5py_file_name):
+                continue
+            h5py_fh = h5py.File(h5py_file_name, 'r')
             image_id_to_h5py_fh[image_id] = h5py_fh
         cam_pose_dict = ast.literal_eval(np.array(h5py_fh.get('campose')).tolist().decode('UTF-8'))[0]
         
         image_ann_new = {}
         image_ann_new.update(image_ann)
 
-        fname = os.path.join(*one_scene_dir.split('/')[-2:], image_ann['file_name'])
+        fname = os.path.join(train_or_test, f'scene_{scene_num:06}', image_ann['file_name']) 
+        #os.path.join(*one_scene_dir.split('/')[-2:], image_ann['file_name'])
+        
         image_id_to_fname[image_id] = fname
         intrinsics_matrix = cam_pose_dict['cam_K']
         camera_frame_to_world_frame_mat = np.asarray(cam_pose_dict['cam2world_matrix'])
@@ -510,7 +533,7 @@ def to_old_annotaiton_format(perch_model_dir, yaml_file_root_dir, df, one_scene_
         depth_scaled = depth * 1000
         depth_scaled[depth_scaled > np.iinfo(np.uint16).max] = np.iinfo(np.uint16).max
         depth_save_dir = image_id_to_fname[image_id].replace('rgb', 'depth')
-        depth_save_dir = os.path.join('/'.join(one_scene_dir.split('/')[:-2]), depth_save_dir)
+        depth_save_dir = os.path.join(root_dir, depth_save_dir)
         print("Save depth: ", depth_save_dir)
         cv2.imwrite(depth_save_dir, depth_scaled.astype(np.uint16))
     
@@ -531,7 +554,7 @@ def to_old_annotaiton_format(perch_model_dir, yaml_file_root_dir, df, one_scene_
         category_ann_new.update(category_ann)
 
         bb_max, bb_min = load_max_min_info('/'.join(mesh_file_name.split('/')[:-2]))
-        model_name = '_'.join([one_scene_dir.split('/')[-2], f'scene_{scene_num}', f'object_{category_id}'])
+        model_name = '_'.join([train_or_test, f'scene_{scene_num}', f'object_{category_id}'])
         category_id_to_model_name[category_id] = model_name
         scale = datagen_yaml_info['scale']
 
@@ -605,7 +628,7 @@ def to_old_annotaiton_format(perch_model_dir, yaml_file_root_dir, df, one_scene_
         anno_new.update({
             'area': int(np.sum(object_mask)),
             'segmentation' : None,
-            'mask_file_path' : os.path.join(*one_scene_dir.split('/')[-2:], seg_save_path),
+            'mask_file_path' : os.path.join(train_or_test, f'scene_{scene_num:06}', seg_save_path),
         })
         annotations_new.append(anno_new)
     

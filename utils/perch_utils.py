@@ -12,7 +12,16 @@ import utils.datagen_utils as datagen_utils
 
 
 def create_new_annotation_file(source_anno_path, new_anno_path, image_ann_list = None, category_ann_list = None, annotations_ann_list = None):
-    shutil.copyfile(source_anno_path, new_anno_path)
+    
+    # try:
+    #     if not os.path.samefile(source_anno_path, new_anno_path):
+    #         shutil.copyfile(source_anno_path, new_anno_path)
+    # except:
+    #     print("EXCEPTION!", source_anno_path, new_anno_path)
+
+    if source_anno_path != new_anno_path:
+        shutil.copyfile(source_anno_path, new_anno_path)
+
     new_anno = json.load(open(new_anno_path))
     if image_ann_list is not None:
         new_anno['images'] = image_ann_list
@@ -52,6 +61,7 @@ def paste_in_new_category_annotation(
             new_name = '{}-replaced-{}'.format(target_ann['name'], new_ann['name'])
         else:
             new_name = new_model_name_template.format(category_id)
+
         old_name_to_new_name[category_ann['name']] = new_name
         new_ann['name'] = new_name
 
@@ -61,7 +71,7 @@ def paste_in_new_category_annotation(
         new_ann['model_id'] = target_ann['model_id']
         if new_actual_size is None:
             new_actual_size = new_ann['actual_size']
-        # mesh_file_name = os.path.join(original_model_save_dir, category_ann['name'], 'textured.obj')
+        
         mesh_file_name = os.path.join(model_root_dir, target_ann['name'], 'textured.obj')
         _, scale_xyz = datagen_utils.save_correct_size_model(
             model_root_dir, 

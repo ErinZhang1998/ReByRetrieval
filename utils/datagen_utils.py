@@ -84,6 +84,7 @@ def save_correct_size_model(model_save_root_dir, model_name, actual_size, mesh_f
     copy_textured_mesh = o3d.io.read_triangle_mesh(model_fname)
     print("Exporting pointcloud: ", model_ply_fname)
     o3d.io.write_triangle_mesh(model_ply_fname, copy_textured_mesh)
+    import pdb; pdb.set_trace()
 
     # ## DEBUG
     # from plyfile import PlyData, PlyElement

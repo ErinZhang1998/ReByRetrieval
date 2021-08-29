@@ -24,6 +24,7 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
             scale = data['scale']
             obj_category = data['obj_category']
             obj_id = data['obj_id']
+            shapenet_model_id = data['shapenet_model_id']
             
             scale_pred = return_val[return_keys.index('scale_pred')]
             if 'class_pred' in return_keys:
@@ -33,8 +34,8 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
                     test_meter.num_classes = model.num_classes
                 
                 class_pred = return_val[return_keys.index('class_pred')]
-                if args.model_config.class_type == 'shapenet_model_id':
-                    shapenet_model_id = data['shapenet_model_id']
+                # if args.model_config.class_type == 'shapenet_model_id':
+                #     shapenet_model_id = data['shapenet_model_id']
             
             if 'center_pred' in return_keys:
                 center = data['center']
@@ -68,14 +69,15 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
             if args.num_gpus > 1:
                 sample_id = torch.cat(du.all_gather_unaligned(sample_id), dim=0)
                 scale = torch.cat(du.all_gather_unaligned(scale), dim=0)
+                shapenet_model_id = torch.cat(du.all_gather_unaligned(shapenet_model_id), dim=0)
                 
                 image, scale_pred = du.all_gather(
                     [image, scale_pred]
                 )
                 if 'class_pred' in return_keys:
                     class_pred = du.all_gather([class_pred])[0]
-                    if args.model_config.class_type == 'shapenet_model_id':
-                        shapenet_model_id = torch.cat(du.all_gather_unaligned(shapenet_model_id), dim=0)
+                    # if args.model_config.class_type == 'shapenet_model_id':
+                        # shapenet_model_id = torch.cat(du.all_gather_unaligned(shapenet_model_id), dim=0)
 
                 if 'center_pred' in return_keys:
                     center_pred = du.all_gather([center_pred])[0]
@@ -101,6 +103,7 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
             if du.is_master_proc(num_gpus=args.num_gpus):
                 iter_data = {
                     'sample_id' : sample_id.detach().cpu(),
+                    'shapenet_model_id' : shapenet_model_id.detach().cpu(),
                     'image' : image.detach().cpu(),
                     'scale' : scale.detach().cpu(),
                     'scale_pred' : scale_pred.detach().cpu(),
@@ -113,10 +116,10 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
                     iter_data.update({
                         'class_pred' : class_pred.detach().cpu(),
                     })
-                    if args.model_config.class_type == 'shapenet_model_id':
-                        iter_data.update({
-                            'shapenet_model_id' : shapenet_model_id.detach().cpu(),
-                        })
+                    # if args.model_config.class_type == 'shapenet_model_id':
+                    #     iter_data.update({
+                    #         'shapenet_model_id' : shapenet_model_id.detach().cpu(),
+                    #     })
                 
                 if 'center_pred' in return_keys:
                     iter_data.update({
