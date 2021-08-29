@@ -44,6 +44,7 @@ def paste_in_new_category_annotation(
     new_actual_size = None,
     new_model_name_template = None,
     turn_upright_before_scale = True,
+    keep_original_annotations = True,
 ):
     coco_anno1 = COCOSelf(original_anno_path)
     
@@ -89,9 +90,13 @@ def paste_in_new_category_annotation(
         if 'percentage_not_occluded' in ann:
             if ann['percentage_not_occluded'] is not None and ann['percentage_not_occluded'] < 0.1:
                 continue
+        
         if ann['model_name'] not in old_name_to_new_name:
-            new_annotations.append(ann)
+            if keep_original_annotations:
+                new_annotations.append(ann)
             continue 
+        
+        
         ann['model_name'] = old_name_to_new_name[ann['model_name']]
         new_annotations.append(ann)
     
