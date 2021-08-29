@@ -35,6 +35,86 @@ def create_new_annotation_file(source_anno_path, new_anno_path, image_ann_list =
     json_file.write(json_string)
     json_file.close()
 
+def paste_in_new_category_annotation_perch(
+    model_root_dir,
+    original_anno_path, 
+    new_anno_path,
+    category_id1, 
+    target_ann,
+    new_actual_size = None,
+    new_model_name_template = None,
+    turn_upright_before_scale = True,
+    over_write_new_anno_path = False,
+):
+    # anno_path: annotations.json
+    # new_anno_path: new one 
+    coco_anno1 = COCOSelf(original_anno_path)
+    
+    if os.path.exists(new_anno_path) and not over_write_new_anno_path:
+        new_coco_anno = json.load(open(new_anno_path))
+        category_annotations = new_coco_anno['categories']
+        new_annotations = new_coco_anno['annotations']
+    else:
+        new_coco_anno = json.load(open(original_anno_path))
+        category_annotations = []
+        new_annotations = []
+    image_ann_list = new_coco_anno['images']
+    
+    old_name_to_new_name = {}
+    for category_id, category_ann in coco_anno1.category_id_to_ann.items():
+        if category_id != category_id1:
+            continue 
+        new_ann = copy.deepcopy(category_ann)        
+        # Change annotation model name 
+        if new_model_name_template is None:
+            new_name = '{}-replaced-{}'.format(target_ann['name'], new_ann['name'])
+        else:
+            new_name = new_model_name_template.format(category_id)
+
+        old_name_to_new_name[category_ann['name']] = new_name
+        new_ann['name'] = new_name
+
+        new_ann['shapenet_category_id'] = int(target_ann['shapenet_category_id'])
+        new_ann['shapenet_object_id'] = int(target_ann['shapenet_object_id'])
+        new_ann['synset_id'] = target_ann['synset_id']
+        new_ann['model_id'] = target_ann['model_id']
+        if new_actual_size is None:
+            new_actual_size = new_ann['actual_size']
+        
+        mesh_file_name = os.path.join(model_root_dir, target_ann['name'], 'textured.obj')
+        _, scale_xyz = datagen_utils.save_correct_size_model(
+            model_root_dir, 
+            new_name, 
+            new_actual_size, 
+            mesh_file_name, 
+            turn_upright_before_scale = turn_upright_before_scale,
+        )
+        # scale_xyz = acutal_size / (bounds[1] - bounds[0])
+        new_ann['size'] = [float(item) for item in scale_xyz]
+        category_annotations.append(new_ann)
+    
+    for ann_id, ann in coco_anno1.ann_id_to_ann.items():
+        if 'percentage_not_occluded' in ann:
+            if ann['percentage_not_occluded'] is not None and ann['percentage_not_occluded'] < 0.1:
+                continue
+        
+        if ann['model_name'] not in old_name_to_new_name:
+            continue 
+        
+        ann['model_name'] = old_name_to_new_name[ann['model_name']]
+        new_annotations.append(ann)
+    
+    
+    new_coco_anno['images'] = image_ann_list
+    new_coco_anno['categories'] = category_annotations
+    new_coco_anno['annotations'] = new_annotations
+    
+    json_string = json.dumps(new_coco_anno)
+    json_file = open(new_anno_path, "w+")
+    json_file.write(json_string)
+    json_file.close()
+
+
 def paste_in_new_category_annotation(
     model_root_dir,
     original_anno_path, 
