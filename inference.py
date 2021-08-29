@@ -320,8 +320,8 @@ def get_all_info(save_dir, epochs, df_all):
     df = pd.DataFrame(data=d)
     return df
     
-def uniform_distribution(save_dir, epochs, key = 'self_defined_category'):
-    df = get_all_info(save_dir, epochs)
+def uniform_distribution(save_dir, epochs, df_all, key = 'self_defined_category'):
+    df = get_all_info(save_dir, epochs, df_all)
     # min_category = df.self_defined_category.value_counts().idxmin()
     
     min_num = df[key].value_counts().min()
