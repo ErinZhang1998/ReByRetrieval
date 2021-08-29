@@ -539,6 +539,10 @@ def to_old_annotaiton_format(
     
     categories_ann_new = []
     category_id_to_model_name = {}
+    
+    failed_category = []
+    failed_model_name = []
+    
     for category_ann in coco_anno['categories']:
         category_id = category_ann['id'] # this is used during blender proc
         
@@ -559,7 +563,11 @@ def to_old_annotaiton_format(
         scale = datagen_yaml_info['scale']
 
         actual_size = (bb_max - bb_min) * np.array([scale] * 3)
-        datagen_utils.save_correct_size_model(perch_model_dir, model_name, actual_size, mesh_file_name, turn_upright_before_scale = False)
+        returned_mesh, _ = datagen_utils.save_correct_size_model(perch_model_dir, model_name, actual_size, mesh_file_name, turn_upright_before_scale = False)
+
+        if returned_mesh is None:
+            failed_category.append(category_id)
+            failed_model_name += [model_name]
 
         #object_frame_to_world_frame_mat = np.asarray(object_state['matrix_world'])
         #object_frame_to_world_frame_mat /= scale
@@ -593,6 +601,9 @@ def to_old_annotaiton_format(
 
         category_id = anno['category_id']
         image_id = anno['image_id']
+
+        if category_id in failed_category:
+            continue
 
         _, center = bbox_to_bbox_2d_and_center(anno['bbox'])
         anno_new.update({
@@ -642,5 +653,7 @@ def to_old_annotaiton_format(
     }
     path = os.path.join(one_scene_dir, 'annotations.json')
     datagen_utils.output_json(json_dict, path)
+
+    return failed_model_name
 
 

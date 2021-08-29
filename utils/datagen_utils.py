@@ -92,11 +92,13 @@ def save_correct_size_model(model_save_root_dir, model_name, actual_size, mesh_f
     # cloud = np.transpose(np.vstack((cloud['x'], cloud['y'], cloud['z'])))
     cloud = o3d.io.read_point_cloud(model_ply_fname)
     if np.asarray(cloud.points).shape[0] > 100000:
-        import pdb; pdb.set_trace()
+        # import pdb; pdb.set_trace()
         pcd = copy_textured_mesh.sample_points_uniformly(number_of_points=20000)
         # pcd = copy_textured_mesh.sample_points_poisson_disk(number_of_points=10000, pcl=pcd)
         os.remove(model_ply_fname)
         o3d.io.write_point_cloud(model_ply_fname, pcd)
+
+        return None, mesh_scale
 
     return object_mesh, mesh_scale
 
