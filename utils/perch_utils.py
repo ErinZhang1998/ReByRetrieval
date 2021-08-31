@@ -484,7 +484,12 @@ def from_annotation_list_path_to_model_dict_list(
     annotation_list_path, 
     root_dir,
 ):
-    L_container = pickle.load(open(annotation_list_path, 'rb'))
+    if type(annotation_list_path) is list:
+        L_container = []
+        for path in annotation_list_path:
+            L_container += pickle.load(open(path, 'rb'))
+    else:
+        L_container = pickle.load(open(annotation_list_path, 'rb'))
     model_dict_list = []
     for anno_name, anno_fname in L_container:
         anno_fname = anno_fname.replace('/data/custom_dataset', root_dir)

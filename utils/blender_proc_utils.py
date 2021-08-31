@@ -567,7 +567,14 @@ def to_old_annotaiton_format(
         scale = datagen_yaml_info['scale']
 
         actual_size = (bb_max - bb_min) * np.array([scale] * 3)
-        returned_mesh, _ = datagen_utils.save_correct_size_model(perch_model_dir, model_name, actual_size, mesh_file_name, turn_upright_before_scale = True)
+        returned_mesh, _ = datagen_utils.save_correct_size_model(
+            perch_model_dir, 
+            model_name, 
+            actual_size, 
+            mesh_file_name, 
+            turn_upright_before_scale = False,
+            turn_upright_after_scale = True,
+        )
 
         if returned_mesh is None:
             failed_category.append(category_id)
