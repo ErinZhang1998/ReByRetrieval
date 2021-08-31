@@ -100,8 +100,13 @@ def paste_in_new_category_annotation(
         ann['model_name'] = old_name_to_new_name[ann['model_name']]
         new_annotations.append(ann)
     
-    create_new_annotation_file(original_anno_path, new_anno_path, image_ann_list = None, category_ann_list = category_annotations, annotations_ann_list = new_annotations)
-
+    create_new_annotation_file(
+        original_anno_path, 
+        new_anno_path, 
+        image_ann_list = None, 
+        category_ann_list = category_annotations, 
+        annotations_ann_list = new_annotations,
+    )
 
 def separate_annotation_into_images(coco_anno_path, new_fname_dir, new_fname_template, skip_image_ids = None):
     '''

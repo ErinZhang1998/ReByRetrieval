@@ -29,6 +29,26 @@ from PIL import Image as PIL_Image
 r = R.from_euler('xyz', [(1/2)*np.pi, 0, 0], degrees=False)
 UPRIGHT_MAT = np.eye(4)
 UPRIGHT_MAT[0:3, 0:3] = r.as_matrix()
+
+def format_ply_file(input_ply_file):
+    back_up = input_ply_file.split('.')[0] + '_backup' + '.ply'
+    shutil.copyfile(input_ply_file, back_up)
+
+    input_fid = open(back_up, 'rb')
+    output_fid = open(input_ply_file, 'wb')
+
+    for line in input_fid:
+        try:
+            line_decoded = line.decode('UTF-8')
+            output_fid.write(line)
+            if line_decoded.strip().startswith('element vertex'):
+                new_line = 'element face 0\n'.encode('UTF-8')
+                output_fid.write(new_line)
+        except:
+            output_fid.write(line)
+    output_fid.close()
+    input_fid.close()
+
 def save_correct_size_model(model_save_root_dir, model_name, actual_size, mesh_file_name, turn_upright_before_scale = True):
     '''
     Args:
@@ -84,7 +104,9 @@ def save_correct_size_model(model_save_root_dir, model_name, actual_size, mesh_f
     copy_textured_mesh = o3d.io.read_triangle_mesh(model_fname)
     print("Exporting pointcloud: ", model_ply_fname)
     o3d.io.write_triangle_mesh(model_ply_fname, copy_textured_mesh)
-    # import pdb; pdb.set_trace()
+    
+    pcd = copy_textured_mesh.sample_points_uniformly(number_of_points=5000)
+    o3d.io.write_point_cloud(os.path.join(model_save_dir, 'sampled.ply'), pcd)
 
     # ## DEBUG
     # from plyfile import PlyData, PlyElement
@@ -101,7 +123,6 @@ def save_correct_size_model(model_save_root_dir, model_name, actual_size, mesh_f
         return None, mesh_scale
 
     return object_mesh, mesh_scale
-
 
 def bounds_xyz_to_corners(bounds):
     '''
@@ -682,3 +703,100 @@ def from_world_frame_annotations_to_perch_cam(position, quaternion_xywz, image_a
     
     return object_position_cam.reshape(-1,), new_quat_cam.reshape(-1,)
         
+### copying from the perch object to do rotation sampling 
+def get_rotation_samples(num_samples, perch_rot_angle=None):
+    from dipy.core.geometry import cart2sphere, sphere2cart
+    num_pts = num_samples * 2
+    indices = np.arange(0, num_pts, dtype=float) + 0.5
+    phi = np.arccos(1 - 2*indices/num_pts)
+    theta = np.pi * (1 + 5**0.5) * indices
+    x, y, z = np.cos(theta) * np.sin(phi), np.sin(theta) * np.sin(phi), np.cos(phi)
+    locations = np.asarray([x, y, z]).T
+    locations = locations[locations[:,2] >= 0]
+    
+    all_rots = []
+    # for viewpoint in locations:
+    #     r, theta, phi = cart2sphere(viewpoint[0], viewpoint[1], viewpoint[2])
+    #     theta = math.pi/2 - theta
+    #     xyz_rotation_angles = [-phi, theta, 0] # euler xyz
+    #     all_rots.append(xyz_rotation_angles)
+    for viewpoint in locations:
+        r, theta, phi = cart2sphere(viewpoint[0], viewpoint[1], viewpoint[2])
+        ## sphere2euler : convert_fat_coco 
+        theta = math.pi/2 - theta
+
+        if perch_rot_angle == 0:
+            xyz_rotation_angles = [-phi, theta, 0] # euler xyz
+            all_rots.append(xyz_rotation_angles)
+        elif perch_rot_angle == 1:
+            step_size = math.pi/2
+            for yaw_temp in np.arange(0,math.pi, step_size):
+                xyz_rotation_angles = [-phi, yaw_temp, theta]
+                # xyz_rotation_angles = [yaw_temp, -phi, theta]
+                all_rots.append(xyz_rotation_angles)
+        elif perch_rot_angle == 2:
+            step_size = math.pi/4
+            for yaw_temp in np.arange(0,math.pi, step_size):
+                xyz_rotation_angles = [-phi, yaw_temp, theta]
+                # xyz_rotation_angles = [yaw_temp, -phi, theta]
+                all_rots.append(xyz_rotation_angles)
+        elif perch_rot_angle == 3:
+            xyz_rotation_angles = [-phi, 0, theta]
+            all_rots.append(xyz_rotation_angles)
+            # xyz_rotation_angles = [-phi, math.pi/2, theta]
+            # all_rots.append(xyz_rotation_angles)
+            xyz_rotation_angles = [-phi, 2*math.pi/3, theta]
+            all_rots.append(xyz_rotation_angles)
+        elif perch_rot_angle == 4:
+            # For upright sugar box
+            xyz_rotation_angles = [-phi, math.pi+theta, 0]
+            all_rots.append(xyz_rotation_angles)
+        elif perch_rot_angle == 5:
+            xyz_rotation_angles = [phi, theta, math.pi]
+            all_rots.append(xyz_rotation_angles)
+        elif perch_rot_angle == 6:
+            # This causes sampling of inplane along z
+            xyz_rotation_angles = [-phi, 0, theta]
+            all_rots.append(xyz_rotation_angles)
+            xyz_rotation_angles = [-phi, math.pi/3, theta]
+            all_rots.append(xyz_rotation_angles)
+            xyz_rotation_angles = [-phi, 2*math.pi/3, theta]
+            all_rots.append(xyz_rotation_angles)
+        elif perch_rot_angle == 7:
+            # This causes sampling of inplane along z
+            # xyz_rotation_angles = [-phi, 0, theta]
+            # all_rots.append(xyz_rotation_angles)
+            # xyz_rotation_angles = [-phi, math.pi/3, theta]
+            # all_rots.append(xyz_rotation_angles)
+            # xyz_rotation_angles = [-phi, 2*math.pi/3, theta]
+            # all_rots.append(xyz_rotation_angles)
+            # xyz_rotation_angles = [-phi, math.pi, theta]
+            # all_rots.append(xyz_rotation_angles)
+            step_size = math.pi/2
+            for yaw_temp in np.arange(0, 2*math.pi, step_size):
+                xyz_rotation_angles = [-phi, yaw_temp, theta]
+                # xyz_rotation_angles = [yaw_temp, -phi, theta]
+                all_rots.append(xyz_rotation_angles)
+        elif perch_rot_angle == 8:
+            step_size = math.pi/3
+            for yaw_temp in np.arange(0, math.pi, step_size):
+                xyz_rotation_angles = [yaw_temp, -phi, theta]
+                all_rots.append(xyz_rotation_angles)
+    
+    return all_rots
+    
+    
+    
+    
+    from sphere_fibonacci_grid_points import sphere_fibonacci_grid_points_with_sym_metric
+    from dipy.core.geometry import cart2sphere, sphere2cart
+
+    half_or_whole = half_or_whole if not half_or_whole is None else NAME_SYM_DICT[label][0]
+    perch_rot_angle = perch_rot_angle if not perch_rot_angle is None else NAME_SYM_DICT[label][1]
+
+    # rotation hypothesis in euler angles
+    all_rots = []
+    
+    viewpoints_xyz = sphere_fibonacci_grid_points_with_sym_metric(num_samples, half_or_whole)
+    
+    return all_rots

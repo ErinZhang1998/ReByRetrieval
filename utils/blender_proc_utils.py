@@ -424,6 +424,7 @@ def to_old_annotaiton_format(
     yaml_file_root_dir, 
     df, 
     one_scene_dir,
+    storage_root = '/raid',
     train_or_test = None,
     scene_num = None,
 ):
@@ -554,6 +555,9 @@ def to_old_annotaiton_format(
         object_state = category_id_to_object_state[category_id]
         
         mesh_file_name = datagen_yaml_info['path']
+        file_storage_root = mesh_file_name[:mesh_file_name.index('/xiaoyuz1')]
+        mesh_file_name = mesh_file_name.replace(file_storage_root, storage_root)
+        
         category_ann_new = {}
         category_ann_new.update(category_ann)
 
@@ -563,7 +567,7 @@ def to_old_annotaiton_format(
         scale = datagen_yaml_info['scale']
 
         actual_size = (bb_max - bb_min) * np.array([scale] * 3)
-        returned_mesh, _ = datagen_utils.save_correct_size_model(perch_model_dir, model_name, actual_size, mesh_file_name, turn_upright_before_scale = False)
+        returned_mesh, _ = datagen_utils.save_correct_size_model(perch_model_dir, model_name, actual_size, mesh_file_name, turn_upright_before_scale = True)
 
         if returned_mesh is None:
             failed_category.append(category_id)
