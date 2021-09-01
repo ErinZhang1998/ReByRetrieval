@@ -54,10 +54,13 @@ def save_correct_size_model(
     model_name, 
     actual_size, 
     mesh_file_name, 
-    turn_upright_before_scale = True,
+    turn_upright_before_scale = False,
     turn_upright_after_scale = False,
 ):
     '''
+    Turn upright before: if the actual size is defined in terms of x,y,z
+        otherwise, defined x,z,y
+    Turn upright after is used for PERCH.
     Args:
         model_save_root_dir: 
             the "model_dir" directory used in Perch 
@@ -75,13 +78,8 @@ def save_correct_size_model(
             list of 3 numbers representing scale
     '''
     model_save_dir = os.path.join(model_save_root_dir, model_name)
-    # print(model_save_dir, model_save_root_dir, model_name)
     if not os.path.exists(model_save_dir):
-        if len(model_name.split("-")) > 1:
-            print("WARNING: no - used in model_name")
         os.mkdir(model_save_dir)
-        #model_name_base = model_name.split("-")[0]
-        #os.path.join(model_save_root_dir, model_name_base)
 
     model_fname = os.path.join(model_save_dir, 'textured.obj')
     model_ply_fname = os.path.join(model_save_dir, 'textured.ply')
