@@ -204,7 +204,7 @@ class InCategoryClutterDataset(Dataset):
         for ann in object_state:
             category_id = int(ann['customprop_category_id'])
             ann['category_id'] = category_id
-            ann['model_name'] = ann['customprop_model_name']
+            # ann['model_name'] = ann['customprop_model_name']
             object_state_dict[category_id] = ann
         
         samples = {}
