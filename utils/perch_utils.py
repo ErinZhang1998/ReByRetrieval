@@ -188,7 +188,14 @@ def paste_in_new_category_annotation(
         annotations_ann_list = new_annotations,
     )
 
-def separate_annotation_into_images(coco_anno_path, new_fname_dir, new_fname_template, skip_image_ids = None):
+def separate_annotation_into_images(
+    model_save_root_dir,
+    coco_anno_path, 
+    new_fname_dir, 
+    new_fname_template, 
+    skip_image_ids = None,
+    model_name_suffx_template = None,
+):
     '''
     Separate the coco annotation file into individual annotations files, one for each image_id 
     Or just delete the other image annotations
@@ -200,6 +207,7 @@ def separate_annotation_into_images(coco_anno_path, new_fname_dir, new_fname_tem
     coco_anno_parent_path = '/'.join(coco_anno_path.split('/')[:-1])
     # os.path.join(*coco_anno.split('/')[:-1])
     image_json_paths = []
+    all_category_ann = copy.deepcopy(list(coco_anno.category_id_to_ann.values()))
     for image_id, image_ann in coco_anno.image_id_to_ann.items():
         if skip_image_ids is not None:
             if int(image_id) in skip_image_ids:
@@ -210,6 +218,37 @@ def separate_annotation_into_images(coco_anno_path, new_fname_dir, new_fname_tem
         shutil.copyfile(coco_anno_path, image_json_path)
         annotations_image_id = json.load(open(image_json_path))
         annotations_image_id['images'] = [image_ann]
+        
+        category_annotations_new = []
+        for category_ann_orig in all_category_ann:
+            category_ann = copy.deepcopy(category_ann_orig)
+            model_name = category_ann['name']
+            if model_name_suffx_template is None:
+                new_model_name = model_name + '_image_{}'.format(image_id)
+            else:
+                new_model_name = model_name + model_name_suffx_template.format(image_id)
+            print("new_model_name: ", new_model_name)
+            old_model_save_dir = os.path.join(model_save_root_dir, model_name)
+            assert os.path.exists(old_model_save_dir)
+            model_save_dir = os.path.join(model_save_root_dir, new_model_name)
+            if not os.path.exists(model_save_dir):
+                os.mkdir(model_save_dir)
+
+            files_to_copy = [
+                'textured.obj',
+                'textured.ply',
+                'sampled.ply',
+            ]
+            for fname in files_to_copy:
+                old_file = os.path.join(old_model_save_dir, fname)
+                new_file = os.path.join(model_save_dir, fname)
+                shutil.copyfile(old_file, new_file)
+            
+            category_ann['name'] = new_model_name
+            category_annotations_new += [category_ann]
+
+        
+        annotations_image_id['categories'] = category_annotations_new
         annotations_image_id['annotations'] = this_image_annotations
 
         json_string = json.dumps(annotations_image_id)
