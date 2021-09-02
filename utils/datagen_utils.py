@@ -100,6 +100,7 @@ def save_correct_size_model(
     
     # scale the object_mesh to have the actual_size
     actual_size = np.asarray(actual_size).reshape(-1,)
+    # print("object_mesh.bounds[1] - object_mesh.bounds[0]: ", object_mesh.bounds[1] - object_mesh.bounds[0])
     mesh_scale = actual_size / (object_mesh.bounds[1] - object_mesh.bounds[0])
     mesh_scale = list(mesh_scale)
     object_mesh = apply_scale_to_mesh(object_mesh, mesh_scale)

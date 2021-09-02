@@ -41,13 +41,13 @@ def paste_in_new_category_annotation_perch(
     new_anno_path,
     category_id1, 
     target_ann,
+    mesh_file_root,
+    new_model_name,
+    turn_upright_before_scale,
+    turn_upright_after_scale,
     new_actual_size = None,
-    new_model_name_template = None,
-    turn_upright_before_scale = True,
     over_write_new_anno_path = False,
 ):
-    # anno_path: annotations.json
-    # new_anno_path: new one 
     coco_anno1 = COCOSelf(original_anno_path)
     
     if os.path.exists(new_anno_path) and not over_write_new_anno_path:
@@ -58,21 +58,24 @@ def paste_in_new_category_annotation_perch(
         new_coco_anno = json.load(open(original_anno_path))
         category_annotations = []
         new_annotations = []
+
     image_ann_list = new_coco_anno['images']
-    
     old_name_to_new_name = {}
+    '''Find the one that you want to insert into the new anno path'''
+    already_replaced = False
     for category_id, category_ann in coco_anno1.category_id_to_ann.items():
         if category_id != category_id1:
             continue 
-        new_ann = copy.deepcopy(category_ann)        
-        # Change annotation model name 
-        if new_model_name_template is None:
-            new_name = '{}-replaced-{}'.format(target_ann['name'], new_ann['name'])
-        else:
-            new_name = new_model_name_template.format(category_id)
+        new_ann = copy.deepcopy(category_ann) 
+        assert not already_replaced       
+        
+        # if new_model_name_template is None:
+        #     new_name = '{}-replaced-{}'.format(target_ann['name'], new_ann['name'])
+        # else:
+        #     new_name = new_model_name_template.format(category_id)
 
-        old_name_to_new_name[category_ann['name']] = new_name
-        new_ann['name'] = new_name
+        old_name_to_new_name[category_ann['name']] = new_model_name
+        new_ann['name'] = new_model_name
 
         new_ann['shapenet_category_id'] = int(target_ann['shapenet_category_id'])
         new_ann['shapenet_object_id'] = int(target_ann['shapenet_object_id'])
@@ -81,22 +84,35 @@ def paste_in_new_category_annotation_perch(
         if new_actual_size is None:
             new_actual_size = new_ann['actual_size']
         
-        mesh_file_name = os.path.join(model_root_dir, target_ann['name'], 'textured.obj')
+        # mesh_file_name = os.path.join(model_root_dir, target_ann['name'], 'textured.obj')
+        mesh_file_name = os.path.join(
+            mesh_file_root, 
+            target_ann['synset_id'],
+            target_ann['model_id'],
+            'models',
+            'model_normalized.obj',
+        )
         _, scale_xyz = datagen_utils.save_correct_size_model(
             model_root_dir, 
-            new_name, 
+            new_model_name, 
             new_actual_size, 
             mesh_file_name, 
             turn_upright_before_scale = turn_upright_before_scale,
+            turn_upright_after_scale = turn_upright_after_scale,
         )
-        # scale_xyz = acutal_size / (bounds[1] - bounds[0])
+        print("scale_xyz: ", scale_xyz)
+
         new_ann['size'] = [float(item) for item in scale_xyz]
         category_annotations.append(new_ann)
+        already_replaced = True
     
     for ann_id, ann in coco_anno1.ann_id_to_ann.items():
         if 'percentage_not_occluded' in ann:
             if ann['percentage_not_occluded'] is not None and ann['percentage_not_occluded'] < 0.1:
                 continue
+        
+        if ann['area'] < 1000:
+            continue
         
         if ann['model_name'] not in old_name_to_new_name:
             continue 
@@ -208,11 +224,13 @@ def separate_annotation_into_images(
     # os.path.join(*coco_anno.split('/')[:-1])
     image_json_paths = []
     all_category_ann = copy.deepcopy(list(coco_anno.category_id_to_ann.values()))
+    
+    old_name_to_new_name = {}
     for image_id, image_ann in coco_anno.image_id_to_ann.items():
         if skip_image_ids is not None:
             if int(image_id) in skip_image_ids:
                 continue
-        this_image_annotations = list(coco_anno.image_id_to_category_id_to_ann[image_id].values())
+        
         image_json_path = os.path.join(new_fname_dir, new_fname_template.format(image_id))
         
         shutil.copyfile(coco_anno_path, image_json_path)
@@ -227,7 +245,8 @@ def separate_annotation_into_images(
                 new_model_name = model_name + '_image_{}'.format(image_id)
             else:
                 new_model_name = model_name + model_name_suffx_template.format(image_id)
-            print("new_model_name: ", new_model_name)
+            old_name_to_new_name[model_name] = new_model_name
+            
             old_model_save_dir = os.path.join(model_save_root_dir, model_name)
             assert os.path.exists(old_model_save_dir)
             model_save_dir = os.path.join(model_save_root_dir, new_model_name)
@@ -249,6 +268,11 @@ def separate_annotation_into_images(
 
         
         annotations_image_id['categories'] = category_annotations_new
+        this_image_annotations = []
+        for ann in list(coco_anno.image_id_to_category_id_to_ann[image_id].values()):
+            old_name = ann['model_name']
+            ann['model_name'] = old_name_to_new_name[old_name]
+            this_image_annotations += [ann]
         annotations_image_id['annotations'] = this_image_annotations
 
         json_string = json.dumps(annotations_image_id)
@@ -526,6 +550,7 @@ def from_annotation_list_path_to_model_dict_list(
     if type(annotation_list_path) is list:
         L_container = []
         for path in annotation_list_path:
+            print("Loading: ", path)
             L_container += pickle.load(open(path, 'rb'))
     else:
         L_container = pickle.load(open(annotation_list_path, 'rb'))
