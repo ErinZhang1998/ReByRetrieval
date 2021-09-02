@@ -93,14 +93,12 @@ def save_correct_size_model(
     if os.path.exists(model_ply_fname) and not os.path.exists(model_ply_fname_backup):
         shutil.copyfile(model_ply_fname, model_ply_fname_backup)
 
-    print("Loading: ", mesh_file_name)
+    # print("Loading: ", mesh_file_name)
     object_mesh = trimesh.load(mesh_file_name, force='mesh')
     if turn_upright_before_scale:
         object_mesh.apply_transform(UPRIGHT_MAT)
     
-    # scale the object_mesh to have the actual_size
     actual_size = np.asarray(actual_size).reshape(-1,)
-    # print("object_mesh.bounds[1] - object_mesh.bounds[0]: ", object_mesh.bounds[1] - object_mesh.bounds[0])
     mesh_scale = actual_size / (object_mesh.bounds[1] - object_mesh.bounds[0])
     mesh_scale = list(mesh_scale)
     object_mesh = apply_scale_to_mesh(object_mesh, mesh_scale)
@@ -110,10 +108,10 @@ def save_correct_size_model(
     if turn_upright_before_scale and turn_upright_before_scale:
         print("WARNING WARNING: turning ShapeNet meshes upright before and after scaling!")
     
-    print("Exporting: ", model_fname)
+    # print("Exporting: ", model_fname)
     object_mesh.export(model_fname)
     copy_textured_mesh = o3d.io.read_triangle_mesh(model_fname)
-    print("Exporting pointcloud: ", model_ply_fname)
+    # print("Exporting pointcloud: ", model_ply_fname)
     o3d.io.write_triangle_mesh(model_ply_fname, copy_textured_mesh)
     pcd = copy_textured_mesh.sample_points_uniformly(number_of_points=5000)
     o3d.io.write_point_cloud(os.path.join(model_save_dir, 'sampled.ply'), pcd)
@@ -211,7 +209,6 @@ def determine_object_scale(obj_cat, mesh):
         len_x = np.random.uniform(1, 4, 1)[0]
         len_y = len_x * np.random.uniform(0.5, 2.5, 1)[0]
         len_z = len_x * np.random.uniform(0.8, 1.7, 1)[0]
-    # print(obj_cat, len_x, len_y, len_z)
     scale_x = len_x / a
     scale_y = len_y / b
     scale_z = len_z / c

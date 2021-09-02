@@ -535,7 +535,7 @@ def to_old_annotaiton_format(
         depth_scaled[depth_scaled > np.iinfo(np.uint16).max] = np.iinfo(np.uint16).max
         depth_save_dir = image_id_to_fname[image_id].replace('rgb', 'depth')
         depth_save_dir = os.path.join(root_dir, depth_save_dir)
-        print("Save depth: ", depth_save_dir)
+        # print("Save depth: ", depth_save_dir)
         cv2.imwrite(depth_save_dir, depth_scaled.astype(np.uint16))
     
     categories_ann_new = []
@@ -644,7 +644,7 @@ def to_old_annotaiton_format(
         seg_save_path = f'coco_data/segmentation_{image_id}_{category_id}.png'
         
         seg_save_path_full = os.path.join(one_scene_dir, seg_save_path)
-        print("Saving segmentation: ", seg_save_path_full)
+        # print("Saving segmentation: ", seg_save_path_full)
         cv2.imwrite(seg_save_path_full, object_mask.astype(np.uint8))
 
         anno_new.update({

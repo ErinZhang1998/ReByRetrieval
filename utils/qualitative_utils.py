@@ -14,31 +14,6 @@ import matplotlib.image as mpimg
 import utils.plot_image as uplot 
 import utils.metric as metric 
 
-def pariwise_distances(X, Y, squared=False):
-    XX = torch.matmul(X, torch.transpose(X, 0, 1)) #mxm
-    YY = torch.matmul(Y, torch.transpose(Y, 0, 1)) #nxn
-    YX = torch.matmul(Y, torch.transpose(X, 0, 1)) #nxm
-    
-    XX = torch.diagonal(XX)
-    XX = torch.unsqueeze(XX, 0) #1xm
-    
-    YY = torch.diagonal(YY)
-    YY = torch.unsqueeze(YY, 1) #nx1
-    
-    distances = XX - 2.0 * YX + YY #nxm
-    distances = torch.max(distances, torch.zeros_like(distances))
-    if not squared:
-        mask = torch.isclose(distances, torch.zeros_like(distances), rtol=0).float()
-        distances = torch.sqrt(distances)
-        distances = distances * (1.0 - mask)
-    
-    return distances.T #mxn
-
-def torchify(feat):
-    feat = torch.FloatTensor(feat)
-    feat = feat.cuda()
-    return feat
-
 def get_arg_sorted_dist(feat1, feat2):
     pairwise_dist = pariwise_distances(feat1, feat2, squared=False).cpu()
     arg_sorted_dist = np.argsort(pairwise_dist.numpy(), axis=1)
