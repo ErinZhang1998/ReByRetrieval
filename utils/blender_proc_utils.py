@@ -16,142 +16,6 @@ from pycocotools.coco import COCO
 from scipy.spatial.transform import Rotation as R, rotation    
 import utils.datagen_utils as datagen_utils
 
-class BlenderProcObject(object):
-    def __init__(
-        self,
-        model_name,
-        synset_id,
-        model_id,
-        shapenet_file_name,
-        num_objects_in_scene,
-    ):
-        self.synset_id = synset_id
-        self.model_id = model_id
-        self.model_name = model_name
-        self.shapenet_file_name = shapenet_file_name
-        self.num_objects_in_scene = num_objects_in_scene
-
-        object_mesh = trimesh.load(shapenet_file_name, force='mesh')
-        r = R.from_euler('xyz', [(1/2)*np.pi, 0, 0], degrees=False)
-        upright_mat = np.eye(4)
-        upright_mat[0:3, 0:3] = r.as_matrix()
-        self.upright_mat = upright_mat
-        object_mesh.apply_transform(upright_mat) 
-        self.object_mesh = object_mesh
-        
-        self.rot = R.from_euler('xyz', np.zeros(3), degrees=False) 
-        self.pos = np.zeros(3)
-        self.actual_size = np.ones(3)
-        self.scale = np.ones(3)
-    
-    def get_blender_proc_dict(self):
-        upright_rot = self.upright_mat[0:3, 0:3]
-        final_rot_matrix = self.rot.as_matrix() @ upright_rot
-        final_rot = R.from_matrix(final_rot_matrix)
-        return {
-                'model_name': self.model_name,
-                'synset_id': self.synset_id,
-                'model_id': self.model_id,
-                'actual_size': self.actual_size,
-                'position': self.pos,
-                'euler' : final_rot.as_euler('xyz'),
-                'scale' : self.scale,
-            }
-
-
-class BlenderProcTable(BlenderProcObject):
-    def __init__(self, **kwargs):
-        
-        table_id = '97b3dfb3af4487b2b7d2794d2db4b0e7'#np.random.choice(kwargs['model_id_available'])
-        synset_id = kwargs['synset_id']
-        table_mesh_fname = os.path.join(kwargs['shapenet_filepath'], f'{synset_id}/{table_id}/models/model_normalized.obj')
-        super().__init__(
-            model_name = kwargs['model_name'],
-            synset_id = kwargs['synset_id'],
-            model_id = table_id,
-            shapenet_file_name = table_mesh_fname,
-            num_objects_in_scene = kwargs['num_objects_in_scene'],
-        )  
-        
-        self.table_size = kwargs['table_size']
-        self.table_size_xyz = kwargs['table_size_xyz']
-        self.rot = R.from_euler('xyz', np.zeros(3), degrees=False) 
-
-        table_bounds = self.object_mesh.bounds
-        # table_xyz_range = np.min(table_bounds[1, :2] - table_bounds[0, :2])
-        # table_scale = self.table_size/table_xyz_range
-        # scale_vec = np.array([table_scale]*3)
-        scale_vec = np.asarray(self.table_size_xyz) / (table_bounds[1] - table_bounds[0])
-       
-        scale_matrix = np.eye(4)
-        scale_matrix[:3, :3] *= scale_vec
-        self.object_mesh.apply_transform(scale_matrix)
-        
-        table_bounds = self.object_mesh.bounds
-        
-        self.actual_size = table_bounds[1] - table_bounds[0]
-        
-        self.height = self.object_mesh.bounds[1][2] - self.object_mesh.bounds[0][2]
-        self.pos = np.array([0.0, 0.0, -self.object_mesh.bounds[0][2]])
-        self.scale = scale_vec
-
-                 
-class BlenderProcNonTable(BlenderProcObject):
-    def __init__(self, **kwargs):
-        super().__init__(
-            model_name = kwargs['model_name'],
-            synset_id = kwargs['synset_id'],
-            model_id = kwargs['model_id'],
-            shapenet_file_name = kwargs['shapenet_file_name'],
-            num_objects_in_scene = kwargs['num_objects_in_scene'],
-        )
-
-        self.object_idx = kwargs['object_idx']
-        self.half_or_whole = kwargs['selected_object_info']['half_or_whole']
-        self.perch_rot_angle = kwargs['selected_object_info']['perch_rot_angle']
-        self.upright_ratio = kwargs['upright_ratio']
-
-        if 'size_xyz' in kwargs['selected_object_info']:
-            self.actual_size = kwargs['selected_object_info']['size']  
-            mesh_scale = kwargs['selected_object_info']['size'] / (self.object_mesh.bounds[1] - self.object_mesh.bounds[0])
-            self.size = list(mesh_scale)
-        else:
-            xy_range_max = max((self.object_mesh.bounds[1] - self.object_mesh.bounds[0])[:2])        
-            self.actual_size = (self.object_mesh.bounds[1] - self.object_mesh.bounds[0]) * (kwargs['selected_object_info']['size'] / xy_range_max)
-            mesh_scale = self.actual_size / (self.object_mesh.bounds[1] - self.object_mesh.bounds[0])
-            self.size = list(mesh_scale)
-
-
-        if np.random.uniform(0,1) > self.upright_ratio:
-            random_rotation = [
-                np.random.uniform(-90.0, 90),
-                np.random.uniform(-90.0, 90),
-                np.random.uniform(0, 360),
-            ]
-            self.upright = False
-        else:
-            random_rotation = [
-                0,
-                0,
-                np.random.uniform(0, 360),
-            ]
-            self.upright = True
-        self.rot = R.from_euler('xyz', random_rotation, degrees=True)
-
-        if 'position' in kwargs['selected_object_info']:
-            pre_selected_position = kwargs['selected_object_info']['position']
-            if len(pre_selected_position) == 2:
-                self.pos_x, self.pos_y = pre_selected_position
-                self.pos_z = kwargs['table_height'] + (-self.object_mesh.bounds[0,2]) + 0.005
-            else:
-                self.pos_x, self.pos_y, self.pos_z = pre_selected_position
-        else:
-            self.pos_x, self.pos_y = np.random.normal(loc=[0,0], scale=np.array([0.15, 0.15]))
-            self.pos_z = kwargs['table_height'] + (-self.object_mesh.bounds[0,2]) + 0.005
-        self.pos = np.array([self.pos_x, self.pos_y, self.pos_z])
-        
-
-
 def read_obj(model_path, flags = ('v')):
     fid = open(model_path, 'r', encoding="utf-8")
 
@@ -297,6 +161,7 @@ def scale_obj_file(input_obj_file, output_obj_file, actual_size, add_name = None
 
     return bb_max, bb_min, total_size, centroid
 
+
 def save_normalized_object_to_file(shapenet_filepath, normalized_model_save_dir, ann, actual_size_used=False):
     model_name = '{}_{}'.format(ann['synsetId'], ann['ShapeNetModelId'])
     shapenet_dir = os.path.join(
@@ -327,7 +192,6 @@ def save_normalized_object_to_file(shapenet_filepath, normalized_model_save_dir,
             shutil.rmtree(new_image_dir)
         shutil.copytree(image_material_dir, new_image_dir) 
 
-    # normalize_obj_file(input_obj_file, output_obj_file, add_name=model_name)
     if actual_size_used:
         x,y,z = ann['actual_size']
         bb_max, bb_min, _, _ = scale_obj_file(input_obj_file, output_obj_file, np.array([x,z,y]), add_name=model_name)
@@ -571,7 +435,8 @@ def to_old_annotaiton_format(
             perch_model_dir, 
             model_name, 
             actual_size, 
-            mesh_file_name, 
+            mesh_file_name,
+            scale=[scale] * 3, 
             turn_upright_before_scale = False,
             turn_upright_after_scale = True,
         )
@@ -580,6 +445,7 @@ def to_old_annotaiton_format(
             failed_category.append(category_id)
             failed_model_name += [model_name]
 
+        actual_size = returned_mesh.bounds[1] - returned_mesh.bounds[0]
         #object_frame_to_world_frame_mat = np.asarray(object_state['matrix_world'])
         #object_frame_to_world_frame_mat /= scale
         #rot_quat = R.from_matrix(object_frame_to_world_frame_mat[:3,:3]).as_quat()

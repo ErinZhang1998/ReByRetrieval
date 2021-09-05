@@ -214,7 +214,6 @@ def save_pred_size(args):
 
 
 def main(args):
-
     df_all = pd.read_csv(os.path.join(args.file_root, args.all_csv_file))
     
     bb_max_min_info = pickle.load(open(args.bb_max_min_info, 'rb'))

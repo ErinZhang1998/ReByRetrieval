@@ -53,7 +53,8 @@ def save_correct_size_model(
     model_save_root_dir, 
     model_name, 
     actual_size, 
-    mesh_file_name, 
+    mesh_file_name,
+    scale = None, 
     turn_upright_before_scale = False,
     turn_upright_after_scale = False,
 ):
@@ -98,9 +99,16 @@ def save_correct_size_model(
     if turn_upright_before_scale:
         object_mesh.apply_transform(UPRIGHT_MAT)
     
-    actual_size = np.asarray(actual_size).reshape(-1,)
-    mesh_scale = actual_size / (object_mesh.bounds[1] - object_mesh.bounds[0])
-    mesh_scale = list(mesh_scale)
+    if scale is not None:
+        if type(scale) is list:
+            mesh_scale = scale 
+        else:
+            mesh_scale = [scale] * 3
+    else:
+        actual_size = np.asarray(actual_size).reshape(-1,)
+        mesh_scale = actual_size / (object_mesh.bounds[1] - object_mesh.bounds[0])
+        mesh_scale = list(mesh_scale)
+    
     object_mesh = apply_scale_to_mesh(object_mesh, mesh_scale)
     if turn_upright_after_scale:
         object_mesh.apply_transform(UPRIGHT_MAT)
