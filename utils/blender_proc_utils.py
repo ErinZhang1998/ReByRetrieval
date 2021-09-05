@@ -424,7 +424,7 @@ def to_old_annotaiton_format(
     yaml_file_root_dir, 
     df, 
     one_scene_dir,
-    storage_root = '/raid',
+    storage_root = None,
     train_or_test = None,
     scene_num = None,
 ):

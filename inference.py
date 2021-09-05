@@ -6,6 +6,7 @@ import pandas as pd
 import pickle
 import torch
 import shutil
+import tqdm
 
 import utils.perch_utils as p_utils
 import utils.qualitative_utils as q_utils
@@ -18,6 +19,9 @@ import incat_dataset
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--config_yaml", dest="config_yaml")
+parser.add_argument("--output_retrieval_results", action="store_true", dest="output_retrieval_results")
+parser.add_argument("--save_pred_size", action="store_true", dest="save_pred_size")
+
 
 def sample_id_to_parts(sample_id):
     scene_num, image_id, category_id = sample_id.split('-')
@@ -98,6 +102,7 @@ def all_to_old_annotaiton_format(storage_root, perch_model_dir, yaml_file_root_d
         if not scene_sub_dir.startswith('scene_'):
             continue 
         one_scene_dir = os.path.join(scene_save_dir, scene_sub_dir)
+        print("To old annotations: ", one_scene_dir)
         bp_utils.to_old_annotaiton_format(
             perch_model_dir, 
             yaml_file_root_dir, 
@@ -105,6 +110,108 @@ def all_to_old_annotaiton_format(storage_root, perch_model_dir, yaml_file_root_d
             one_scene_dir,
             storage_root = storage_root,
         )
+
+def output_retrieval_results(args):
+    df_all = pd.read_csv(os.path.join(args.file_root, args.all_csv_file))
+    
+    # bb_max_min_info = pickle.load(open(args.bb_max_min_info, 'rb'))
+    # query_train_or_test = args.query.data_dir.split('/')[-1]
+    target_train_or_test = args.target.data_dir.split('/')[-1]
+    experiment_name = f'{args.result_name}-{target_train_or_test}-{args.target.epoch}-{args.query.epoch}'
+
+    # pred_scale = get_features(args.query.save_dir, args.query.epoch, fname_template = '{}_scale_pred.npy').reshape(-1,)
+    # df_query = get_all_info(args.query.save_dir, args.query.epoch, df_all)
+    # df_target = get_all_info(args.target.save_dir, args.target.epoch, df_all)
+    # df_target, selected_idx = uniform_distribution(args.target.save_dir, args.target.epoch, df_all, key = 'self_defined_category')
+
+    query_feats = get_features(args.query.save_dir, args.query.epoch, fname_template = '{}_img_embed.npy')
+    target_feats = get_features(args.target.save_dir, args.target.epoch, fname_template = '{}_img_embed.npy')
+    # target_feats = target_feats[selected_idx]
+    query_feats = torchify(query_feats)
+    target_feats = torchify(target_feats)
+
+    pairwise_dist = pariwise_distances(query_feats, target_feats, squared=False)
+    sorted_dist, arg_sorted_dist = torch.sort(pairwise_dist, dim=1)
+
+    # # query_sample_ids = df_query.sample_id.to_numpy()
+    # target_sample_ids = df_target.sample_id.to_numpy()
+
+    arg_sorted_dist = arg_sorted_dist.cpu().numpy()
+    # selected_target_sample_id = np.asarray(target_sample_ids)[arg_sorted_dist]
+
+    retrieval_result_dir = os.path.join(args.query.save_dir, experiment_name)
+    if not os.path.exists(retrieval_result_dir):
+        os.mkdir(retrieval_result_dir)
+    
+    fname = os.path.join(retrieval_result_dir, 'result.npy')
+    np.save(fname, arg_sorted_dist)
+
+def save_pred_size(args):
+
+    df_all = pd.read_csv(os.path.join(args.file_root, args.all_csv_file))
+    
+    bb_max_min_info = pickle.load(open(args.bb_max_min_info, 'rb'))
+    query_train_or_test = args.query.data_dir.split('/')[-1]
+    target_train_or_test = args.target.data_dir.split('/')[-1]
+    experiment_name = f'{args.result_name}-{target_train_or_test}-{args.target.epoch}-{args.query.epoch}'
+
+    pred_scale = get_features(args.query.save_dir, args.query.epoch, fname_template = '{}_scale_pred.npy').reshape(-1,)
+    df_query = get_all_info(args.query.save_dir, args.query.epoch, df_all)
+    df_target = get_all_info(args.target.save_dir, args.target.epoch, df_all)
+
+    query_sample_ids = df_query.sample_id.to_numpy()
+    target_sample_ids = df_target.sample_id.to_numpy()
+
+    fname = os.path.join(args.query.save_dir, experiment_name, 'result.npy')
+    arg_sorted_dist = np.load(fname)
+    print(arg_sorted_dist.shape)
+    selected_target_sample_id = np.asarray(target_sample_ids)[arg_sorted_dist]
+
+    all_pred_sizes = []
+    all_actual_sizes = []
+    for query_idx in tqdm.tqdm(range(len(query_sample_ids))):
+        sample_id = query_sample_ids[query_idx]
+        target_sample_ids = selected_target_sample_id[query_idx]
+
+        query_scene, query_image, category_id1 = sample_id_to_parts(sample_id)
+        query_annotation_path = os.path.join(
+            args.query.data_dir,
+            f'scene_{query_scene:06}',
+            'image_annotations',
+            args.new_fname_template.format(query_image),
+        )            
+        json_obj_2 = p_utils.COCOSelf(query_annotation_path)
+        query_ann = json_obj_2.category_id_to_ann[category_id1]
+        all_actual_sizes.append(query_ann['actual_size'])
+
+        pred_sizes = []
+        for prediction_idx in range(10):
+            target_sample_id = target_sample_ids[prediction_idx] 
+            target_scene, target_image, category_id2 = sample_id_to_parts(target_sample_id)
+
+            model_2_annotation_path = os.path.join(args.target.data_dir, f'scene_{target_scene:06}', 'annotations.json')
+            json_obj_2 = p_utils.COCOSelf(model_2_annotation_path)
+            target_ann = json_obj_2.category_id_to_ann[category_id2]
+
+            synset_id = target_ann['synset_id']
+            model_id = target_ann['model_id']
+            bb_max, bb_min = bb_max_min_info[(synset_id, model_id)]
+            scale = pred_scale[query_idx]
+            pred_size = (bb_max - bb_min) * np.array([scale] * 3)
+            pred_sizes.append(pred_size)
+        
+        all_pred_sizes.append(pred_sizes)
+    
+    retrieval_result_dir = os.path.join(args.query.save_dir, experiment_name)
+    if not os.path.exists(retrieval_result_dir):
+        os.mkdir(retrieval_result_dir)
+    
+    fname = os.path.join(retrieval_result_dir, 'pred_size.npy')
+    np.save(fname, np.asarray(all_pred_sizes))
+
+    fname = os.path.join(retrieval_result_dir, 'actual_size.npy')
+    np.save(fname, np.asarray(all_actual_sizes))
+
 
 def main(args):
 
@@ -133,14 +240,18 @@ def main(args):
 
     arg_sorted_dist = arg_sorted_dist.cpu().numpy()
     selected_target_sample_id = np.asarray(target_sample_ids)[arg_sorted_dist]
+    # import pdb; pdb.set_trace()
 
-    for query_idx,(sample_id, target_sample_ids) in enumerate(zip(query_sample_ids, selected_target_sample_id)):
+    # for query_idx,(sample_id, target_sample_ids) in enumerate(zip(query_sample_ids, selected_target_sample_id)):
+    for query_idx in tqdm.tqdm(range(len(query_sample_ids))):
+        sample_id = query_sample_ids[query_idx]
+        target_sample_ids = selected_target_sample_id[query_idx]
+        
         for prediction_idx in range(5):
-
             target_sample_id = target_sample_ids[prediction_idx] 
             new_model_name = '{}__{}__{}'.format(sample_id, target_sample_id, prediction_idx)
         
-            print("\n", new_model_name, sample_id, target_sample_id)
+            # print("\n", new_model_name, sample_id, target_sample_id)
         
             query_scene, query_image, category_id1 = sample_id_to_parts(sample_id)
             target_scene, target_image, category_id2 = sample_id_to_parts(target_sample_id)
@@ -164,7 +275,6 @@ def main(args):
             model_2_annotation_path = os.path.join(args.target.data_dir, f'scene_{target_scene:06}', 'annotations.json')
             json_obj_2 = p_utils.COCOSelf(model_2_annotation_path)
             target_ann = json_obj_2.category_id_to_ann[category_id2]
-            model_name_2 = target_ann['name']
 
             synset_id = target_ann['synset_id']
             model_id = target_ann['model_id']
@@ -173,24 +283,29 @@ def main(args):
             pred_size = (bb_max - bb_min) * np.array([scale] * 3)
 
             p_utils.paste_in_new_category_annotation_perch(
-                args.perch_model_dir,
-                original_anno_path, 
-                new_anno_path,
-                category_id1, 
-                target_ann,
-                args.blender_proc_model_dir,
-                new_model_name,
-                turn_upright_before_scale = False,
-                turn_upright_after_scale = True,
-                new_actual_size = pred_size,
-                over_write_new_anno_path = False,
+                original_anno_path=original_anno_path,
+                new_anno_path=new_anno_path,
+                category_id=category_id1,
+                new_annotation=target_ann,
+                new_model_name=new_model_name,
+                model_save_dir=args.perch_model_dir,
+                normalized_shapenet_model_dir=args.blender_proc_model_dir,
+                turn_upright_before_scale=False,
+                turn_upright_after_scale=True,
+                save_new_model=True,
+                new_actual_size=pred_size,
+                new_scale=[scale]*3,
+                over_write_new_anno_path=False,
             )
             
 
 def run_to_old_annotation(args):
     df_all = pd.read_csv(os.path.join(args.file_root, args.all_csv_file))
-    all_to_old_annotaiton_format(args.storage_root, args.perch_model_dir, args.target.yaml_file_root_dir, args.target.data_dir, df_all)
-    all_to_old_annotaiton_format(args.storage_root, args.perch_model_dir, args.query.yaml_file_root_dir, args.query.data_dir, df_all)
+    if args.target.run_to_old_annotation:
+        all_to_old_annotaiton_format(args.storage_root, args.perch_model_dir, args.target.yaml_file_root_dir, args.target.data_dir, df_all)
+    if args.query.run_to_old_annotation:
+        all_to_old_annotaiton_format(args.storage_root, args.perch_model_dir, args.query.yaml_file_root_dir, args.query.data_dir, df_all)
+
 
 def split_into_per_image_annotation(args):
     for scene_sub_dir in os.listdir(args.query.data_dir):
@@ -212,13 +327,15 @@ def split_into_per_image_annotation(args):
         
         print("Processing: ", coco_anno_path)
         p_utils.separate_annotation_into_images(
-            args.perch_model_dir,
+            args.query.model_dir,
             coco_anno_path, 
             new_fname_dir, 
             args.new_fname_template, 
             skip_image_ids = None,
             model_name_suffx_template = None,
+            new_anno_model_save_root_dir = args.perch_model_dir,
         )
+
 
 def clean(args):
     target_train_or_test = args.target.data_dir.split('/')[-1]
@@ -235,19 +352,8 @@ def clean(args):
             print("Remove: ", new_anno_dir)
             shutil.rmtree(new_anno_dir)
 
-if __name__ == '__main__':
-
-    args = parser.parse_args()
-    with open(args.config_yaml, 'r') as cfg:
-        config = yaml.load(cfg)
-    
-    cfg =  open(args.config_yaml, 'r')
-    args_dict = yaml.safe_load(cfg)
-    args = uu.Struct(args_dict)
-    cfg.close()
-
-    if args.run_to_old_annotation:
-        run_to_old_annotation(args)
+def run(args):
+    run_to_old_annotation(args)
 
     if args.split_into_per_image_annotation:
         split_into_per_image_annotation(args)
@@ -255,5 +361,24 @@ if __name__ == '__main__':
     if args.clean:
         clean(args)
 
-    main(args)
+    if args.run_main:
+        main(args)
+
+
+if __name__ == '__main__':
+
+    options = parser.parse_args()
+    cfg =  open(options.config_yaml, 'r')
+    args_dict = yaml.safe_load(cfg)
+    args = uu.Struct(args_dict)
+    cfg.close()
+
+    if options.output_retrieval_results:
+        output_retrieval_results(args)
+    elif options.save_pred_size:
+        print("hello")
+        save_pred_size(args)
+    else:
+        run(args)
+    
 

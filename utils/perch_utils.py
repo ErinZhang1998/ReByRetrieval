@@ -9,7 +9,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 
 import utils.datagen_utils as datagen_utils
-
+import utils.blender_proc_utils as bp_utils
 
 def create_new_annotation_file(source_anno_path, new_anno_path, image_ann_list = None, category_ann_list = None, annotations_ann_list = None):
     
@@ -35,18 +35,23 @@ def create_new_annotation_file(source_anno_path, new_anno_path, image_ann_list =
     json_file.write(json_string)
     json_file.close()
 
+
+
+
 def paste_in_new_category_annotation_perch(
-    model_root_dir,
     original_anno_path, 
     new_anno_path,
-    category_id1, 
-    target_ann,
-    mesh_file_root,
+    category_id, 
+    new_annotation,
     new_model_name,
+    model_save_dir,
+    normalized_shapenet_model_dir,
     turn_upright_before_scale,
     turn_upright_after_scale,
-    new_actual_size = None,
-    over_write_new_anno_path = False,
+    save_new_model,
+    new_actual_size,
+    new_scale,
+    over_write_new_anno_path,
 ):
     coco_anno1 = COCOSelf(original_anno_path)
     
@@ -63,45 +68,54 @@ def paste_in_new_category_annotation_perch(
     old_name_to_new_name = {}
     '''Find the one that you want to insert into the new anno path'''
     already_replaced = False
-    for category_id, category_ann in coco_anno1.category_id_to_ann.items():
-        if category_id != category_id1:
+    for category_id_orig, category_ann in coco_anno1.category_id_to_ann.items():
+        if category_id_orig != category_id:
             continue 
         new_ann = copy.deepcopy(category_ann) 
+        # import pdb; pdb.set_trace()
         assert not already_replaced       
         
         # if new_model_name_template is None:
-        #     new_name = '{}-replaced-{}'.format(target_ann['name'], new_ann['name'])
+        #     new_name = '{}-replaced-{}'.format(new_annotation['name'], new_ann['name'])
         # else:
         #     new_name = new_model_name_template.format(category_id)
 
         old_name_to_new_name[category_ann['name']] = new_model_name
         new_ann['name'] = new_model_name
 
-        new_ann['shapenet_category_id'] = int(target_ann['shapenet_category_id'])
-        new_ann['shapenet_object_id'] = int(target_ann['shapenet_object_id'])
-        new_ann['synset_id'] = target_ann['synset_id']
-        new_ann['model_id'] = target_ann['model_id']
-        if new_actual_size is None:
-            new_actual_size = new_ann['actual_size']
+        new_ann['shapenet_category_id'] = int(new_annotation['shapenet_category_id'])
+        new_ann['shapenet_object_id'] = int(new_annotation['shapenet_object_id'])
+        new_ann['synset_id'] = new_annotation['synset_id']
+        new_ann['model_id'] = new_annotation['model_id']
+        # if new_actual_size is None:
+        #     new_actual_size = new_ann['actual_size']
         
-        # mesh_file_name = os.path.join(model_root_dir, target_ann['name'], 'textured.obj')
-        mesh_file_name = os.path.join(
-            mesh_file_root, 
-            target_ann['synset_id'],
-            target_ann['model_id'],
-            'models',
-            'model_normalized.obj',
-        )
-        _, scale_xyz = datagen_utils.save_correct_size_model(
-            model_root_dir, 
-            new_model_name, 
-            new_actual_size, 
-            mesh_file_name, 
-            turn_upright_before_scale = turn_upright_before_scale,
-            turn_upright_after_scale = turn_upright_after_scale,
-        )
-        print("scale_xyz: ", scale_xyz)
-
+        if save_new_model:
+            mesh_file_name = os.path.join(
+                normalized_shapenet_model_dir, 
+                new_annotation['synset_id'],
+                new_annotation['model_id'],
+                'models',
+                'model_normalized.obj',
+            )
+            _, scale_xyz = datagen_utils.save_correct_size_model(
+                model_save_dir, 
+                new_model_name, 
+                new_actual_size, 
+                mesh_file_name, 
+                turn_upright_before_scale = turn_upright_before_scale,
+                turn_upright_after_scale = turn_upright_after_scale,
+            )
+        else:
+            assert new_scale is not None
+            # mesh_file_root = os.path.join(
+            #     normalized_shapenet_model_dir, 
+            #     new_annotation['synset_id'],
+            #     new_annotation['model_id'],
+            # )
+            # bb_max, bb_min = bp_utils.load_max_min_info(mesh_file_root)
+            # scale_xyz = new_actual_size / (bb_max - bb_min)
+            scale_xyz = new_scale
         new_ann['size'] = [float(item) for item in scale_xyz]
         category_annotations.append(new_ann)
         already_replaced = True
@@ -135,7 +149,7 @@ def paste_in_new_category_annotation(
     model_root_dir,
     original_anno_path, 
     new_anno_path,
-    category_id1, 
+    category_id, 
     target_ann,
     new_actual_size = None,
     new_model_name_template = None,
@@ -147,7 +161,7 @@ def paste_in_new_category_annotation(
     category_annotations = []
     old_name_to_new_name = {}
     for category_id, category_ann in coco_anno1.category_id_to_ann.items():
-        if category_id != category_id1:
+        if category_id != category_id:
             category_annotations.append(category_ann)
             continue 
         new_ann = copy.deepcopy(category_ann)
@@ -205,12 +219,13 @@ def paste_in_new_category_annotation(
     )
 
 def separate_annotation_into_images(
-    model_save_root_dir,
+    orig_anno_model_save_root_dir,
     coco_anno_path, 
     new_fname_dir, 
     new_fname_template, 
     skip_image_ids = None,
     model_name_suffx_template = None,
+    new_anno_model_save_root_dir = None,
 ):
     '''
     Separate the coco annotation file into individual annotations files, one for each image_id 
@@ -224,6 +239,9 @@ def separate_annotation_into_images(
     # os.path.join(*coco_anno.split('/')[:-1])
     image_json_paths = []
     all_category_ann = copy.deepcopy(list(coco_anno.category_id_to_ann.values()))
+
+    if new_anno_model_save_root_dir is None:
+        new_anno_model_save_root_dir = orig_anno_model_save_root_dir
     
     old_name_to_new_name = {}
     for image_id, image_ann in coco_anno.image_id_to_ann.items():
@@ -247,9 +265,10 @@ def separate_annotation_into_images(
                 new_model_name = model_name + model_name_suffx_template.format(image_id)
             old_name_to_new_name[model_name] = new_model_name
             
-            old_model_save_dir = os.path.join(model_save_root_dir, model_name)
+            old_model_save_dir = os.path.join(orig_anno_model_save_root_dir, model_name)
+
             assert os.path.exists(old_model_save_dir)
-            model_save_dir = os.path.join(model_save_root_dir, new_model_name)
+            model_save_dir = os.path.join(new_anno_model_save_root_dir, new_model_name)
             if not os.path.exists(model_save_dir):
                 os.mkdir(model_save_dir)
 
@@ -555,11 +574,13 @@ def from_annotation_list_path_to_model_dict_list(
     else:
         L_container = pickle.load(open(annotation_list_path, 'rb'))
     model_dict_list = []
+    doesnt_exist = []
     for anno_name, anno_fname in L_container:
         anno_fname = anno_fname.replace('/data/custom_dataset', root_dir)
         perch_dir = os.path.join(perch_output_dir, anno_name)
         if not os.path.exists(perch_dir):
-            print(perch_dir, "does not exist.")
+            # print(perch_dir, "does not exist.")
+            doesnt_exist += [perch_dir]
             continue
         acc_fname = os.path.join(perch_dir, 'accuracy_6d.txt')
         df_acc = pd.read_csv(acc_fname)
@@ -594,6 +615,7 @@ def from_annotation_list_path_to_model_dict_list(
         'df' : df_final,
         'model_dict_list' : model_dict_list,
         'anno_list' : L_container,
+        'doesnt_exist' : doesnt_exist,
     }
 
 

@@ -544,7 +544,6 @@ class BlenderProcScene(object):
             face_sample_range_min = 0.5 * (1 - (range_side_length / self.config['table']['size'][0]))
             face_sample_range_max = 1 - face_sample_range_min
             max_distance = 0.5 * (all_ranges[0] + all_ranges[1]) * np.sqrt(2) 
-            # import pdb; pdb.set_trace()
         else:
             face_sample_range_min = on_surface_config['face_sample_range_min']
             face_sample_range_max = on_surface_config['face_sample_range_max']

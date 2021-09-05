@@ -150,7 +150,6 @@ def determine_object_scale(obj_cat, mesh):
     object_bounds = mesh.bounds
     a, b, c = object_bounds[1] - object_bounds[0]
     len_x, len_y, len_z = None, None, None
-    # import pdb; pdb.set_trace()
     if obj_cat == 2773838:
         # bag
         len_x = np.random.uniform(1, 4, 1)[0]
