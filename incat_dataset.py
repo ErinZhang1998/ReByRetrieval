@@ -30,7 +30,7 @@ from pycocotools.coco import COCO
 
 import utils.utils as uu
 import utils.blender_proc_utils as bp_utils
-import utils.plot_image as plot_utils
+import utils.perch_utils as p_utils
 
 class InCategoryClutterDataset(Dataset):
     
@@ -190,8 +190,8 @@ class InCategoryClutterDataset(Dataset):
         # image_ann = coco.loadImgs(image_id)[0] 
         # anns_ids = coco.getAnnIds(imgIds = image_ann['id'])
         # anns = coco.loadAnns(anns_ids)
-        image_ann = coco.get_ann('images', image_id)
-        anns = coco.get_ann_with_image_category_id(image_id).values()
+        image_ann = coco.image_id_to_ann[image_id]
+        anns = coco.image_id_to_category_id_to_ann[image_id].values()
         
         img_rgb = np.array(h5py_fh.get('colors'))
         segcolormap_list = ast.literal_eval(np.array(h5py_fh.get('segcolormap')).tolist().decode('UTF-8'))
@@ -285,10 +285,10 @@ class InCategoryClutterDataset(Dataset):
         yaml_file_obj = yaml.load(open(yaml_file), Loader=yaml.SafeLoader)
         datagen_yaml = bp_utils.from_yaml_to_object_information(yaml_file_obj, self.df)
         coco_fname = os.path.join(one_scene_dir, 'coco_data', 'coco_annotations.json')
-        # coco = COCO(coco_fname)
-        # image_ids = coco.getImgIds()
-        coco = uu.COCOAnnotation(coco_fname)
-        image_ids = list(coco.total_ann_dict['images'].keys())
+        print(coco_fname)
+
+        coco = p_utils.COCOSelf(coco_fname)
+        image_ids = list(coco.image_id_to_ann.keys())
 
         data_dict = {}
         scene_dict_all = {}
@@ -624,7 +624,3 @@ class InCategoryClutterDataset(Dataset):
                 "obj_points_features" : obj_points_features,
             }
             basic_data.update(pc_data)            
-
-        
-
-
