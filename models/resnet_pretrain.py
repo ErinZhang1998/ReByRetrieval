@@ -59,6 +59,10 @@ class PretrainedResNetSpatialSoftmax(nn.Module):
             resnet = resnet50(pretrained=True, remove_avg_pool_layer=True)
         self.resnet_out_channel = resnet.fc.in_features
         resnet.conv1 = nn.Conv2d(4, 64, kernel_size=(7, 7), stride=(2, 2), padding=(0, 0), bias=False)
+        # for name,param in resnet.named_parameters():
+        #     if name != 'conv1.weight':
+        #         param.requires_grad = False
+
         self.resnet_no_fc = resnet #nn.Sequential(*list(resnet.children())[:-2])
 
         self.ss = args.model_config.spatial_softmax

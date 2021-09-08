@@ -3,6 +3,8 @@ import shutil
 import json
 import copy
 import pickle
+import tqdm
+
 from PIL import Image 
 import numpy as np
 import pandas as pd
@@ -576,7 +578,9 @@ def from_annotation_list_path_to_model_dict_list(
         L_container = pickle.load(open(annotation_list_path, 'rb'))
     model_dict_list = []
     doesnt_exist = []
-    for anno_name, anno_fname in L_container:
+    
+    for anno_idx in tqdm.tqdm(range(len(L_container))):
+        anno_name, anno_fname = L_container[anno_idx]
         anno_fname = anno_fname.replace('/data/custom_dataset', root_dir)
         perch_dir = os.path.join(perch_output_dir, anno_name)
         if not os.path.exists(perch_dir):

@@ -202,9 +202,11 @@ def save_pred_size(args):
         os.mkdir(retrieval_result_dir)
     
     fname = os.path.join(retrieval_result_dir, 'query_size.npy')
+    print("Saved ground truth size in: ", fname)
     np.save(fname, np.asarray(all_query_sizes))
 
     fname = os.path.join(retrieval_result_dir, 'pred_size.npy')
+    print("Saved predicted size in: ", fname)
     np.save(fname, np.asarray(all_target_sizes))
 
 
@@ -244,7 +246,6 @@ def main(args):
 
     pred_scale = get_features(args.query.save_dir, args.query.epoch, fname_template = '{}_scale_pred.npy').reshape(-1,)
     df_query = get_all_info(args.query.save_dir, args.query.epoch, df_all)
-    # df_target, selected_idx = uniform_distribution(args.target.save_dir, args.target.epoch, df_all, key = 'self_defined_category')
     df_target = get_all_info(args.target.save_dir, args.target.epoch, df_all)
 
     query_sample_ids = df_query.sample_id.to_numpy()
