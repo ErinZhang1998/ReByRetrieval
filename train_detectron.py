@@ -102,9 +102,7 @@ parser.add_argument("--experiment_save_dir_default", dest="experiment_save_dir_d
 parser.add_argument("--init_method", dest="init_method", default="tcp://localhost:9999",type=str)
 parser.add_argument("--resume", action="store_true", dest="resume")
                 
-def get_data_detectron(args, split):
-    df = pd.read_csv(args.files.csv_file_path)
-    
+def get_data_detectron(args, split):    
     if split == 'train':
         scene_dir = args.files.training_scene_dir
     elif split == 'test':
