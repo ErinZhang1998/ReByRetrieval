@@ -7,10 +7,11 @@ import pandas as pd
 
 import matplotlib.pyplot as plt
 import pycocotools.mask as coco_mask
+import PIL
 
 import utils.logging as logging
 import utils.utils as uu
-import incat_dataset
+import utils.plot_image as uplot
 import utils.perch_utils as p_utils
 import utils.blender_proc_utils as bp_utils
 from detectron_mapper import RetrievalMapper
@@ -45,14 +46,7 @@ from detectron2.data import (
 )
 from detectron2.engine import default_argument_parser, default_setup, default_writers, launch
 from detectron2.evaluation import (
-    CityscapesInstanceEvaluator,
-    CityscapesSemSegEvaluator,
     COCOEvaluator,
-    COCOPanopticEvaluator,
-    DatasetEvaluators,
-    LVISEvaluator,
-    PascalVOCDetectionEvaluator,
-    SemSegEvaluator,
     inference_on_dataset,
     print_csv_format,
 )
@@ -106,13 +100,8 @@ parser.add_argument("--config_file", dest="config_file")
 parser.add_argument("--experiment_save_dir", dest="experiment_save_dir")
 parser.add_argument("--experiment_save_dir_default", dest="experiment_save_dir_default")
 parser.add_argument("--init_method", dest="init_method", default="tcp://localhost:9999",type=str)
+parser.add_argument("--resume", action="store_true", dest="resume")
 
-'''
-Load the image
-Apply transform
-Get back to numpy array? 
-
-'''
 
 def load_annotations_detectron(args, split, df, one_scene_dir):
     scene_num = int(one_scene_dir.split('/')[-1].split('_')[-1])
@@ -217,6 +206,7 @@ def setup(options, args):
         experiment_save_dir = options.experiment_save_dir
     if comm.is_main_process():
         uu.create_dir(experiment_save_dir)
+        uu.create_dir(os.path.join(experiment_save_dir, 'saved_images'))
         logging.setup_logging(log_to_file=args.log_to_file, experiment_dir=experiment_save_dir)
     
     logger.info("cfg.OUTPUT_DIR: {}".format(experiment_save_dir))
@@ -224,19 +214,52 @@ def setup(options, args):
     cfg = get_cfg()
     cfg.merge_from_file(model_zoo.get_config_file("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"))
     cfg.DATASETS.TRAIN = ("blender_proc_dataset_train",)
-    cfg.DATASETS.TEST = ()
+    cfg.DATASETS.TEST = ("blender_proc_dataset_test",)
     cfg.DATALOADER.NUM_WORKERS = 10
     cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")  
-    cfg.SOLVER.IMS_PER_BATCH = 128
+    cfg.SOLVER.IMS_PER_BATCH = 64
     cfg.SOLVER.BASE_LR = 0.00025  # pick a good LR
     cfg.SOLVER.MAX_ITER = 10000    
     cfg.SOLVER.STEPS = []        # do not decay learning rate
     cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 512  
     cfg.MODEL.ROI_HEADS.NUM_CLASSES = len(idx_to_name)  
     cfg.INPUT.MASK_FORMAT = 'bitmask'
+    
+    cfg.TEST.EVAL_PERIOD = 1
     cfg.OUTPUT_DIR = experiment_save_dir
 
+    cfg.WANDB_ENABLED = wandb_enabled
+
     return cfg
+
+
+def do_test(cfg, model):
+
+    # cfg.MODEL.WEIGHTS = os.path.join(cfg.OUTPUT_DIR, "model_final.pth")
+    # cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.2   # set a custom testing threshold
+    # predictor = DefaultPredictor(cfg)
+    # evaluator = COCOEvaluator("blender_proc_dataset_test", output_dir=this_experiment_dir)
+    # val_loader = build_detection_test_loader(cfg, "blender_proc_dataset_test")
+    # print(inference_on_dataset(predictor.model, val_loader, evaluator))
+    # # another equivalent way to evaluate the model is to use `trainer.test`
+
+    results = OrderedDict()
+    for dataset_name in cfg.DATASETS.TEST:
+        data_loader = build_detection_test_loader(cfg, dataset_name, mapper=RetrievalMapper(cfg, is_train=False))
+        evaluator = COCOEvaluator(
+            dataset_name, 
+            output_dir=os.path.join(cfg.OUTPUT_DIR, "inference", dataset_name),
+        )
+        results_i = inference_on_dataset(model, data_loader, evaluator)
+        results[dataset_name] = results_i
+        if comm.is_main_process():
+            logger.info("Evaluation results for {} in csv format:".format(dataset_name))
+            print_csv_format(results_i)
+    if len(results) == 1:
+        results = list(results.values())[0]
+    # import pdb; pdb.set_trace()
+    return results
+
 
 def do_train(cfg, model, resume=False):
     model.train()
@@ -258,10 +281,33 @@ def do_train(cfg, model, resume=False):
     writers = default_writers(cfg.OUTPUT_DIR, max_iter) if comm.is_main_process() else []
 
     data_loader = build_detection_train_loader(cfg, mapper=RetrievalMapper(cfg, is_train=True))
+    
     logger.info("Starting training from iteration {}".format(start_iter))
     with EventStorage(start_iter) as storage:
         for data, iteration in zip(data_loader, range(start_iter, max_iter)):
             storage.iter = iteration
+
+            if comm.is_main_process() and iteration % 1000 == 0:
+                    
+                selected_idx = np.random.choice(len(data))
+                fig, axs = plt.subplots(1, 2, figsize=(30,20))
+                image_PIL = torchvision.transforms.ToPILImage()(data[selected_idx]['image'])
+                mask_PIL = torchvision.transforms.ToPILImage()(data[selected_idx]['instances'].gt_masks.tensor[0].float())
+                background = PIL.Image.new("RGB", image_PIL.size, 0)
+                masked_image = PIL.Image.composite(image_PIL, background, mask_PIL)
+                axs[0].imshow(np.asarray(image_PIL))
+                axs[1].imshow(np.asarray(masked_image))
+
+                image_name = data[selected_idx]['image_id']
+
+                if cfg.WANDB_ENABLED:
+                    final_img = uplot.plt_to_image(fig)
+                    log_key = '{}/{}'.format('train_image', image_name)
+                    wandb.log({log_key: wandb.Image(final_img)}, step=iteration)
+                else:
+                    image_path = os.path.join(cfg.OUTPUT_DIR, 'saved_images', "iter_{}_{}.png".format(iteration, image_name))
+                    plt.savefig(image_path)
+                plt.close()
 
             loss_dict = model(data)
             losses = sum(loss_dict.values())
@@ -269,6 +315,7 @@ def do_train(cfg, model, resume=False):
 
             loss_dict_reduced = {k: v.item() for k, v in comm.reduce_dict(loss_dict).items()}
             losses_reduced = sum(loss for loss in loss_dict_reduced.values())
+            # import pdb; pdb.set_trace()
             if comm.is_main_process():
                 storage.put_scalars(total_loss=losses_reduced, **loss_dict_reduced)
 
@@ -278,14 +325,19 @@ def do_train(cfg, model, resume=False):
             storage.put_scalar("lr", optimizer.param_groups[0]["lr"], smoothing_hint=False)
             scheduler.step()
 
-            # if (
-            #     cfg.TEST.EVAL_PERIOD > 0
-            #     and (iteration + 1) % cfg.TEST.EVAL_PERIOD == 0
-            #     and iteration != max_iter - 1
-            # ):
-            #     do_test(cfg, model)
-            #     # Compared to "train_net.py", the test results are not dumped to EventStorage
-            #     comm.synchronize()
+            if (
+                cfg.TEST.EVAL_PERIOD > 0
+                and (iteration + 1) % cfg.TEST.EVAL_PERIOD == 0
+                and iteration != max_iter - 1
+            ):
+                test_results = do_test(cfg, model)
+                comm.all_gather(test_results)
+                print(test_results)
+                # for k,v in test_results:
+                #     if type(v) is not dict:
+                #         storage.put_scalar(f"test/{k}", v, smoothing_hint=False)
+
+                comm.synchronize()
 
             if iteration - start_iter > 5 and (
                 (iteration + 1) % 20 == 0 or iteration == max_iter - 1
@@ -304,16 +356,16 @@ def main(options, args):
         model = DistributedDataParallel(
             model, device_ids=[comm.get_local_rank()], broadcast_buffers=False
         )
-    if comm.is_main_process():
-        for split in ["train", "test"]:
-            DatasetCatalog.register(
-                "blender_proc_dataset_" + split, 
-                lambda split = split: get_data_detectron(args, split),
-            )
-            MetadataCatalog.get("blender_proc_dataset_" + split).thing_classes = list(idx_to_name.values())
-        
+    # if comm.is_main_process():
+    for split in ["train", "test"]:
+        DatasetCatalog.register(
+            "blender_proc_dataset_" + split, 
+            lambda split = split: get_data_detectron(args, split),
+        )
+        MetadataCatalog.get("blender_proc_dataset_" + split).thing_classes = list(idx_to_name.values())
     
-    do_train(cfg, model, resume=args.resume)
+    
+    do_train(cfg, model, resume=options.resume)
     
     
     # trainer = DefaultTrainer(cfg) 

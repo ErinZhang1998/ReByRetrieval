@@ -16,13 +16,16 @@ __all__ = ["RetrievalMapper"]
 class RetrievalMapper:
     def __init__(self, cfg, is_train = True):
         # augs = utils.build_augmentation(cfg, is_train)
-        augs = [
-            T.RandomBrightness(0.8, 1.8),
-            T.RandomContrast(0.6, 1.3),
-            T.RandomSaturation(0.8, 1.4),
-            T.RandomLighting(0.7),
-            T.RandomFlip(prob=0.4, horizontal=True, vertical=False),
-        ]
+        if is_train:
+            augs = [
+                T.RandomBrightness(0.8, 1.3),
+                T.RandomContrast(0.6, 1.3),
+                T.RandomSaturation(0.8, 1.4),
+                T.RandomLighting(0.7),
+                T.RandomFlip(prob=0.4, horizontal=True, vertical=False),
+            ]
+        else:
+            augs = []
         self.is_train               = is_train
         self.augmentations          = T.AugmentationList(augs)
         self.image_format           = cfg.INPUT.FORMAT
