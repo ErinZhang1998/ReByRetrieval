@@ -12,8 +12,6 @@ import PIL
 import utils.logging as logging
 import utils.utils as uu
 import utils.plot_image as uplot
-import utils.perch_utils as p_utils
-import utils.blender_proc_utils as bp_utils
 from detectron_mapper import RetrievalMapper
 
 # check pytorch installation: 
@@ -181,7 +179,7 @@ def setup(options, args):
     cfg.MODEL.ROI_HEADS.NUM_CLASSES = len(idx_to_name)  
     cfg.INPUT.MASK_FORMAT = 'bitmask'
     
-    cfg.TEST.EVAL_PERIOD = 1
+    cfg.TEST.EVAL_PERIOD = 500
     cfg.OUTPUT_DIR = experiment_save_dir
 
     cfg.WANDB_ENABLED = wandb_enabled
@@ -213,7 +211,7 @@ def do_test(cfg, model):
             print_csv_format(results_i)
     if len(results) == 1:
         results = list(results.values())[0]
-    # import pdb; pdb.set_trace()
+
     return results
 
 
@@ -287,11 +285,13 @@ def do_train(cfg, model, resume=False):
                 and iteration != max_iter - 1
             ):
                 test_results = do_test(cfg, model)
-                comm.all_gather(test_results)
-                print(test_results)
-                # for k,v in test_results:
-                #     if type(v) is not dict:
-                #         storage.put_scalar(f"test/{k}", v, smoothing_hint=False)
+                if comm.is_main_process():
+                    for k,v in test_results:
+                        if type(v) is not dict:
+                            storage.put_scalar(f"test/{k}", v, smoothing_hint=False)
+                        else:
+                            for ki,vi in v.items():
+                                storage.put_scalar(f"test/{k}_{ki}", vi, smoothing_hint=False)
 
                 comm.synchronize()
 
@@ -307,12 +307,12 @@ def main(options, args):
     cfg = setup(options, args)
     model = build_model(cfg)
     distributed = comm.get_world_size() > 1
-    # logger.info("Model:\n{}".format(model))
+
     if distributed:
         model = DistributedDataParallel(
             model, device_ids=[comm.get_local_rank()], broadcast_buffers=False
         )
-    # if comm.is_main_process():
+
     for split in ["train", "test"]:
         DatasetCatalog.register(
             "blender_proc_dataset_" + split, 
@@ -322,31 +322,16 @@ def main(options, args):
     
     
     do_train(cfg, model, resume=options.resume)
-    
-    
-    # trainer = DefaultTrainer(cfg) 
-    # trainer.resume_or_load(resume=False)
-    # trainer.train()
-
-    # cfg.MODEL.WEIGHTS = os.path.join(cfg.OUTPUT_DIR, "model_final.pth")
-    # cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.2   # set a custom testing threshold
-    # predictor = DefaultPredictor(cfg)
-    # evaluator = COCOEvaluator("blender_proc_dataset_test", output_dir=this_experiment_dir)
-    # val_loader = build_detection_test_loader(cfg, "blender_proc_dataset_test")
-    # print(inference_on_dataset(predictor.model, val_loader, evaluator))
-    # # another equivalent way to evaluate the model is to use `trainer.test`
 
 if __name__ == '__main__':
     options = parser.parse_args()
     f =  open(options.config_file)
     args_dict = yaml.safe_load(f)
-    # default_args_dict = yaml.safe_load(open('configs/default.yaml'))
-    # args_dict = uu.fill_in_args_from_default(args_dict, default_args_dict)
     config_args = uu.Struct(args_dict)
 
     launch(
         main,
-        4,
+        config_args.num_gpus,
         num_machines=1,
         machine_rank=0,
         dist_url=options.init_method,

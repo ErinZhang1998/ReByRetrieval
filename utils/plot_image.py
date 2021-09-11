@@ -1,9 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.image as mpimg
 import wandb
 import io 
-from PIL import Image
 import PIL
 import os 
 import copy
