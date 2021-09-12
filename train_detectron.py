@@ -3,7 +3,7 @@ import os, json, cv2, random
 import yaml
 import wandb
 import argparse
-import pandas as pd
+import pickle
 
 import matplotlib.pyplot as plt
 import pycocotools.mask as coco_mask
@@ -54,7 +54,7 @@ from detectron2.utils.events import EventStorage
 
 logger = logging.get_logger(__name__)
 
-idx_to_name = {
+IDX_TO_NAME = {
     0: 'mug-cylinder',
     1: 'mug-square_handle',
     2: 'mug-tappered',
@@ -82,7 +82,7 @@ idx_to_name = {
     24: 'bottle-round-body',
 }
 
-idx_to_name = {
+IDX_TO_NAME = {
     0: 'mug',
     1: 'bag',
     2: 'laptop',
@@ -92,6 +92,7 @@ idx_to_name = {
     6: 'bowl',
     7: 'bottle',
 }
+NAME_TO_IDX = dict(zip(IDX_TO_NAME.values(), IDX_TO_NAME.keys()))
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--config_file", dest="config_file")
@@ -99,19 +100,17 @@ parser.add_argument("--experiment_save_dir", dest="experiment_save_dir")
 parser.add_argument("--experiment_save_dir_default", dest="experiment_save_dir_default")
 parser.add_argument("--init_method", dest="init_method", default="tcp://localhost:9999",type=str)
 parser.add_argument("--resume", action="store_true", dest="resume")
-                
-def get_data_detectron(args, split):    
-    if split == 'train':
-        scene_dir = args.files.training_scene_dir
-    elif split == 'test':
-        scene_dir = args.files.testing_scene_dir
-    else:
-        raise
+parser.add_argument("--model_path", dest="model_path")
 
-    dir_list = uu.data_dir_list(
-        scene_dir, 
-        must_contain_file = ['0.hdf5', 'coco_data/coco_annotations.json']
-    )
+
+def get_data_detectron(args, split):
+    if split == 'train':
+        directory_list_file = args.detectron.train.directory_list_file
+    else:
+        directory_list_file = args.detectron.test.directory_list_file
+    fh = open(directory_list_file, 'rb')
+    dir_list = pickle.load(fh)
+    fh.close()
 
     if args.dataset_config.only_load < 0:
         dir_list_load = dir_list
@@ -125,10 +124,21 @@ def get_data_detectron(args, split):
         ))
         for data_dict in data_dict_list:
             new_annos = []
+            height = data_dict['height']
+            width = data_dict['width']
             for ann in data_dict['annotations']:
+                if ann['category_id'] is None:
+                    ann['category_id'] = NAME_TO_IDX[ann['category_name']]
+                
                 ann['bbox_mode'] = BoxMode.XYWH_ABS
-                rle = ann['segmentation']
-                ann['segmentation'] = coco_mask.frPyObjects(rle, rle['size'][0], rle['size'][1])
+                is_polygon = ann['polygon']
+                if not is_polygon:
+                    rle = ann['segmentation']
+                    segmentation = coco_mask.frPyObjects(rle, rle['size'][0], rle['size'][1])
+                else:
+                    rles = coco_mask.frPyObjects(ann['segmentation'], height, width)
+                    segmentation = coco_mask.merge(rles)
+                ann['segmentation'] = segmentation
                 new_annos += [ann]
             data_dict['annotations'] = new_annos 
             data_dict_all += [data_dict]
@@ -167,36 +177,38 @@ def setup(options, args):
     
     cfg = get_cfg()
     cfg.merge_from_file(model_zoo.get_config_file("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml"))
-    cfg.DATASETS.TRAIN = ("blender_proc_dataset_train",)
-    cfg.DATASETS.TEST = ("blender_proc_dataset_test",)
-    cfg.DATALOADER.NUM_WORKERS = 10
+    cfg.DATASETS.TRAIN = (args.detectron.train.dataset_name,)
+    cfg.DATASETS.TEST = (args.detectron.test.dataset_name,)
+    cfg.DATALOADER.NUM_WORKERS = args.detectron.dataloader.num_workers
     cfg.MODEL.WEIGHTS = model_zoo.get_checkpoint_url("COCO-InstanceSegmentation/mask_rcnn_R_50_FPN_3x.yaml")  
-    cfg.SOLVER.IMS_PER_BATCH = 64
-    cfg.SOLVER.BASE_LR = 0.00025  # pick a good LR
-    cfg.SOLVER.MAX_ITER = 10000    
-    cfg.SOLVER.STEPS = []        # do not decay learning rate
-    cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 512  
-    cfg.MODEL.ROI_HEADS.NUM_CLASSES = len(idx_to_name)  
-    cfg.INPUT.MASK_FORMAT = 'bitmask'
     
-    cfg.TEST.EVAL_PERIOD = 500
+    if options.model_path is not None:
+        cfg.MODEL.WEIGHTS = options.model_path
+    else:
+        last_checkpoint_file = os.path.join(experiment_save_dir, 'last_checkpoint')
+        if os.path.exists(last_checkpoint_file) and options.resume:
+            ckpt_fh = open(last_checkpoint_file, 'r')
+            ckpt_lines = ckpt_fh.readlines()
+            ckpt_path = os.path.join(experiment_save_dir, ckpt_lines[0])
+            if os.path.exists(ckpt_path):
+                cfg.MODEL.WEIGHTS = ckpt_path
+    
+    cfg.SOLVER.IMS_PER_BATCH = args.detectron.solver.ims_per_batch
+    cfg.SOLVER.BASE_LR = args.detectron.solver.base_lr   # pick a good LR
+    cfg.SOLVER.MAX_ITER = args.detectron.solver.max_iter 
+    cfg.SOLVER.CHECKPOINT_PERIOD = args.detectron.solver.checkpoint_period   
+    cfg.SOLVER.STEPS = []        # do not decay learning rate
+    cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 512
+    cfg.MODEL.ROI_HEADS.NUM_CLASSES = len(IDX_TO_NAME)
+    cfg.INPUT.MASK_FORMAT = 'bitmask'
+    cfg.TEST.EVAL_PERIOD = args.detectron.test.eval_period
     cfg.OUTPUT_DIR = experiment_save_dir
-
     cfg.WANDB_ENABLED = wandb_enabled
 
     return cfg
 
 
 def do_test(cfg, model):
-
-    # cfg.MODEL.WEIGHTS = os.path.join(cfg.OUTPUT_DIR, "model_final.pth")
-    # cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = 0.2   # set a custom testing threshold
-    # predictor = DefaultPredictor(cfg)
-    # evaluator = COCOEvaluator("blender_proc_dataset_test", output_dir=this_experiment_dir)
-    # val_loader = build_detection_test_loader(cfg, "blender_proc_dataset_test")
-    # print(inference_on_dataset(predictor.model, val_loader, evaluator))
-    # # another equivalent way to evaluate the model is to use `trainer.test`
-
     results = OrderedDict()
     for dataset_name in cfg.DATASETS.TEST:
         data_loader = build_detection_test_loader(cfg, dataset_name, mapper=RetrievalMapper(cfg, is_train=False))
@@ -224,7 +236,7 @@ def do_train(cfg, model, resume=False):
         model, cfg.OUTPUT_DIR, optimizer=optimizer, scheduler=scheduler
     )
     start_iter = (
-        checkpointer.resume_or_load(cfg.MODEL.WEIGHTS, resume=resume).get("iteration", -1) + 1
+        checkpointer.resume_or_load(cfg.MODEL.WEIGHTS, resume=False).get("iteration", -1) + 1
     )
     max_iter = cfg.SOLVER.MAX_ITER
 
@@ -286,7 +298,7 @@ def do_train(cfg, model, resume=False):
             ):
                 test_results = do_test(cfg, model)
                 if comm.is_main_process():
-                    for k,v in test_results:
+                    for k,v in test_results.items():
                         if type(v) is not dict:
                             storage.put_scalar(f"test/{k}", v, smoothing_hint=False)
                         else:
@@ -313,13 +325,13 @@ def main(options, args):
             model, device_ids=[comm.get_local_rank()], broadcast_buffers=False
         )
 
-    for split in ["train", "test"]:
-        DatasetCatalog.register(
-            "blender_proc_dataset_" + split, 
-            lambda split = split: get_data_detectron(args, split),
-        )
-        MetadataCatalog.get("blender_proc_dataset_" + split).thing_classes = list(idx_to_name.values())
-    
+    for split in ['train', 'test']:
+        if split == 'train':
+            DatasetCatalog.register(args.detectron.train.dataset_name, lambda split = split : get_data_detectron(args, split))
+            MetadataCatalog.get(args.detectron.train.dataset_name).thing_classes = list(IDX_TO_NAME.values())
+        else:
+            DatasetCatalog.register(args.detectron.test.dataset_name, lambda split = split : get_data_detectron(args, split))
+            MetadataCatalog.get(args.detectron.test.dataset_name).thing_classes = list(IDX_TO_NAME.values())
     
     do_train(cfg, model, resume=options.resume)
 

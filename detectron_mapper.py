@@ -18,6 +18,7 @@ class RetrievalMapper:
         # augs = utils.build_augmentation(cfg, is_train)
         if is_train:
             augs = [
+                T.Resize((480,640)),
                 T.RandomBrightness(0.8, 1.3),
                 T.RandomContrast(0.6, 1.3),
                 T.RandomSaturation(0.8, 1.4),
