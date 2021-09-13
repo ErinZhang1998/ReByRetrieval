@@ -100,6 +100,7 @@ parser.add_argument("--experiment_save_dir", dest="experiment_save_dir")
 parser.add_argument("--experiment_save_dir_default", dest="experiment_save_dir_default")
 parser.add_argument("--init_method", dest="init_method", default="tcp://localhost:9999",type=str)
 parser.add_argument("--resume", action="store_true", dest="resume")
+parser.add_argument("--only_test", action="store_true", dest="only_test")
 parser.add_argument("--model_path", dest="model_path")
 
 
@@ -333,7 +334,13 @@ def main(options, args):
             DatasetCatalog.register(args.detectron.test.dataset_name, lambda split = split : get_data_detectron(args, split))
             MetadataCatalog.get(args.detectron.test.dataset_name).thing_classes = list(IDX_TO_NAME.values())
     
-    do_train(cfg, model, resume=options.resume)
+    if options.only_test:
+        DetectionCheckpointer(model, save_dir=cfg.OUTPUT_DIR).resume_or_load(
+            cfg.MODEL.WEIGHTS, resume=False
+        )
+        do_test(cfg, model)
+    else:
+        do_train(cfg, model, resume=options.resume)
 
 if __name__ == '__main__':
     options = parser.parse_args()
