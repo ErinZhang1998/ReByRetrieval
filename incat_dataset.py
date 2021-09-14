@@ -32,6 +32,76 @@ import utils.utils as uu
 import utils.blender_proc_utils as bp_utils
 import utils.perch_utils as p_utils
 
+class RealWorldDataset(Dataset):
+    def __init__(self, split, args):
+        self.split = split 
+        self.args = args 
+        
+        if split == 'train':
+            # self.scene_dir = args.files.training_scene_dir
+            raise
+        else:
+            self.scene_dir = args.files.testing_scene_dir
+        
+        self.dir_list = uu.data_dir_list(
+            self.scene_dir, 
+            must_contain_file = []
+        )
+
+        self.all_data_dict = dict()
+        idx = 0
+        if args.dataset_config.only_load < 0:
+            dir_list_load = self.dir_list
+        else:
+            dir_list_load = self.dir_list[:args.dataset_config.only_load]
+        
+        for dir_path in dir_list_load:
+            data_dict, scene_dict, idx = self.load_annotations_blender_proc(dir_path, idx)
+
+    def process_input(self, sample):
+        
+        img_rgb = torchvision.transforms.ToTensor()(img_rgb)
+        img_mask = torchvision.transforms.ToTensor()(img_mask)
+
+        if len(img_mask.shape) > 2:
+            img_mask = img_mask[:1,:,:]
+
+        img = torch.cat((img_rgb, img_mask), 0)
+        image = torch.FloatTensor(img)
+
+        cx,cy = center.reshape(-1,)
+        cx /= self.size_w
+        cy /= self.size_h
+
+        position = torch.FloatTensor(sample['position'].reshape(-1,))
+        scale = torch.FloatTensor(np.array([sample['scale']]).reshape(-1,))
+        center = torch.FloatTensor(np.array([cx,cy]))
+        category = torch.FloatTensor(np.array([sample['obj_cat']]).reshape(-1,))
+        obj_id = torch.FloatTensor(np.array([sample['obj_id']]).reshape(-1,))
+        sample_id = torch.FloatTensor(np.array(sample['sample_id_int']))
+        shapenet_model_id = torch.FloatTensor(np.array([sample['shapenet_model_id']]))
+
+        data = {
+            "image": image,
+            "position" : position,
+            "scale": scale,
+            "center" : center,
+            "obj_category":category,
+            "obj_id":obj_id,
+            "sample_id":sample_id,
+            "shapenet_model_id" : shapenet_model_id, 
+        }
+        if not self.args.blender_proc:
+            data.update({
+                "area_type": torch.FloatTensor(np.array([area_x, area_y]).reshape(-1,2)),
+            })
+
+        return data
+
+         
+    
+
+
 class InCategoryClutterDataset(Dataset):
     
     def __init__(self, split, args):
@@ -41,8 +111,7 @@ class InCategoryClutterDataset(Dataset):
         # self.size = args.dataset_config.size 
         self.size_w = args.dataset_config.size_w
         self.size_h = args.dataset_config.size_h
-        self.max_num_pixel_in_final_tensor = args.dataset_config.max_num_pixel_in_final_tensor
-        self.min_num_pixel_in_final_tensor = args.dataset_config.min_num_pixel_in_final_tensor
+
         self.superimpose = args.dataset_config.superimpose
         self.num_area_range =  args.dataset_config.superimpose_num_area_range
         if split == 'train':
@@ -79,6 +148,7 @@ class InCategoryClutterDataset(Dataset):
             hue = (a,b)
         else:
             hue = args.dataset_config.color_jitter.hue
+        
         self.color_jitter_prob = args.dataset_config.color_jitter.prob
         self.color_jitter_transform = K.ColorJitter(
             brightness=brightness, 
@@ -272,7 +342,6 @@ class InCategoryClutterDataset(Dataset):
         
         return samples, scene_dict, idx_i
 
-    
     def load_annotations_blender_proc(self, one_scene_dir, idx):
         scene_num = int(one_scene_dir.split('/')[-1].split('_')[-1])
 
@@ -303,7 +372,6 @@ class InCategoryClutterDataset(Dataset):
 
         return data_dict, scene_dict_all, idx_i
 
-    
     def load_annotations(self, dir_path, idx):
         '''
         Given abs-path of the scene directory, which contains images and annotaitons, return processed samples
@@ -394,7 +462,6 @@ class InCategoryClutterDataset(Dataset):
         
         return data_dict, scene_dict, idx_i
 
-
     def determine_patch_x_y(self, area_type, area_x_range, area_y_range):
         xmin,xmax = area_x_range
         ymin,ymax = area_y_range
@@ -417,11 +484,11 @@ class InCategoryClutterDataset(Dataset):
 
         rgb_all = PIL.Image.open(sample['rgb_file'])
         mask = mpimg.imread(sample['object_mask_path'])
-        mask = utrans.mask_to_PIL(mask)
+        mask = utrans.mask_to_invert_PIL(mask)
         # mask_all = mpimg.imread(sample['all_object_with_table_mask_path'])
-        # mask_all = utrans.mask_to_PIL(mask_all)
+        # mask_all = utrans.mask_to_invert_PIL(mask_all)
         mask_all = mpimg.imread(sample['all_object_mask_path'])
-        mask_all = utrans.mask_to_PIL(mask_all)
+        mask_all = utrans.mask_to_invert_PIL(mask_all)
 
         center = copy.deepcopy(sample['object_position_2d'].reshape(-1,))
         corners = copy.deepcopy(sample['scene_bounds'])
@@ -451,9 +518,9 @@ class InCategoryClutterDataset(Dataset):
             shape_ratio = (a1-a0) * (b1-b0) / (cropped_h * cropped_w)
             
             if self.split == "train":
-                num_pixels_final = np.random.uniform(self.min_num_pixel_in_final_tensor,self.max_num_pixel_in_final_tensor,1)[0]
+                num_pixels_final = np.random.uniform(self.args.dataset_config.min_num_pixel_in_final_tensor, self.args.dataset_config.max_num_pixel_in_final_tensor,1)[0]
             else:
-                num_pixels_final = int(0.5*(self.min_num_pixel_in_final_tensor+self.max_num_pixel_in_final_tensor))
+                num_pixels_final = int(0.5*(self.args.dataset_config.min_num_pixel_in_final_tensor+self.args.dataset_config.max_num_pixel_in_final_tensor))
             patch_ratio = num_pixels_final * 900 / shape_ratio
             # patch_ratio = (sampled_ratio * (self.size_w * self.size_h)) #/ (shape_ratio)
             if cropped_w > cropped_h:
@@ -528,7 +595,7 @@ class InCategoryClutterDataset(Dataset):
         
         # resize mask
         img_mask = sample['img_mask']
-        img_mask_object_is_0 = utrans.mask_to_PIL(img_mask)
+        img_mask_object_is_0 = utrans.mask_to_invert_PIL(img_mask)
         img_mask_object_is_255 = PIL.ImageOps.invert(img_mask_object_is_0).resize((self.size_w, self.size_h))
         
         # normalize center value to [0,1]
@@ -546,24 +613,12 @@ class InCategoryClutterDataset(Dataset):
 
         return img_rgb, img_mask, center_trans
     
-    
     def process_input(self, sample):
         if not self.args.blender_proc:
             img_rgb, img_mask, center, area_x, area_y = self.process_sample(sample)
         else:
             img_rgb, img_mask, center = self.process_sample_blender_proc(sample)
         img_rgb = torchvision.transforms.ToTensor()(img_rgb)
-        
-        # if self.split == 'train':
-        #     if np.random.rand() < self.color_jitter_prob:
-        #         img_rgb = self.color_jitter_transform(img_rgb)[0]
-        #         if np.random.rand() < 0.4:
-        #             if np.random.rand() < 0.5:
-        #                 img_rgb = kornia.color.rgb_to_hls(img_rgb)
-        #             else:
-        #                 img_rgb = kornia.color.rgb_to_hsv(img_rgb)
-
-        #img_rgb = utrans.normalize(img_rgb, self.img_mean, self.img_std)
         img_mask = torchvision.transforms.ToTensor()(img_mask)
 
         if len(img_mask.shape) > 2:

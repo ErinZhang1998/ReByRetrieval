@@ -147,10 +147,16 @@ class RandomHorizontalFlip(object):
         
         return img, mask, center_copy
 
-def mask_to_PIL(pil_img):
+def mask_to_invert_PIL(pil_img):
     pil_img[pil_img > 0] = 1
     pil_img_3 = np.stack([pil_img]*3,axis=2)
     pil_img_3 = 1 - pil_img_3
+    PIL_image = PIL.Image.fromarray(np.uint8(pil_img_3 * 255)).convert('RGB')
+    return PIL_image
+
+def mask_to_PIL(pil_img):
+    pil_img[pil_img > 0] = 1
+    pil_img_3 = np.stack([pil_img]*3,axis=2)
     PIL_image = PIL.Image.fromarray(np.uint8(pil_img_3 * 255)).convert('RGB')
     return PIL_image
 

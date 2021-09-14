@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 import pycocotools.mask as coco_mask
 import PIL
 
+import utils.category as cat_utils
 import utils.logging as logging
 import utils.utils as uu
 import utils.plot_image as uplot
@@ -54,44 +55,7 @@ from detectron2.utils.events import EventStorage
 
 logger = logging.get_logger(__name__)
 
-IDX_TO_NAME = {
-    0: 'mug-cylinder',
-    1: 'mug-square_handle',
-    2: 'mug-tappered',
-    3: 'bag-triangular',
-    4: 'bag-rectangular',
-    5: 'laptop-straight',
-    6: 'laptop-slightly_slanted',
-    7: 'laptop-slanted',
-    8: 'jar-vase',
-    9: 'jar-short_neck',
-    10: 'can',
-    11: 'camera-box',
-    12: 'camera-protruded',
-    13: 'bowl-shallow',
-    14: 'bowl-deep',
-    15: 'bottle-wine',
-    16: 'weird',
-    17: 'bottle-square-body',
-    18: 'bottle-water',
-    19: 'bottle-cylinder',
-    20: 'bottle-pill',
-    21: 'bottle-beer',
-    22: 'bottle-flask',
-    23: 'bottle-jar-like',
-    24: 'bottle-round-body',
-}
-
-IDX_TO_NAME = {
-    0: 'mug',
-    1: 'bag',
-    2: 'laptop',
-    3: 'jar',
-    4: 'can',
-    5: 'camera',
-    6: 'bowl',
-    7: 'bottle',
-}
+IDX_TO_NAME = cat_utils.shapenet_category_idx_to_name
 NAME_TO_IDX = dict(zip(IDX_TO_NAME.values(), IDX_TO_NAME.keys()))
 
 parser = argparse.ArgumentParser()
@@ -102,6 +66,29 @@ parser.add_argument("--init_method", dest="init_method", default="tcp://localhos
 parser.add_argument("--resume", action="store_true", dest="resume")
 parser.add_argument("--only_test", action="store_true", dest="only_test")
 parser.add_argument("--model_path", dest="model_path")
+
+
+class Predictor:
+
+    def __init__(self, cfg):
+        self.cfg = cfg.clone()  # cfg can be modified by model
+        self.model = build_model(self.cfg)
+        self.model.eval()
+        if len(cfg.DATASETS.TEST):
+            self.metadata = MetadataCatalog.get(cfg.DATASETS.TEST[0])
+        checkpointer = DetectionCheckpointer(self.model)
+        checkpointer.load(cfg.MODEL.WEIGHTS)
+        self.input_format = cfg.INPUT.FORMAT
+        assert self.input_format in ["RGB", "BGR"], self.input_format
+
+    def __call__(self, images):
+        height,width = images[0].shape[:2]
+        imgs_input = [
+            {"image": torch.as_tensor(img.astype("float32").transpose(2, 0, 1)), "height": height, "width": width} for img in images
+        ]
+        with torch.no_grad():  
+            predictions = self.model(imgs_input)
+            return predictions
 
 
 def get_data_detectron(args, split):
@@ -208,6 +195,9 @@ def setup(options, args):
 
     return cfg
 
+
+def do_inference():
+    return
 
 def do_test(cfg, model):
     results = OrderedDict()

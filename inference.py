@@ -60,7 +60,10 @@ def torchify(feat):
 
 def get_features(save_dir, epoch, fname_template = '{}_embedding.npy'):
     prediction_dir = os.path.join(save_dir, 'predictions')
-    features = np.load(os.path.join(prediction_dir, fname_template.format(epoch)))
+    path = os.path.join(prediction_dir, fname_template.format(epoch))
+    if not os.path.exists(path):
+        return None
+    features = np.load()
     return features
 
 def get_sample_ids(save_dir, epoch, fname_template = '{}_sample_id.npy'):

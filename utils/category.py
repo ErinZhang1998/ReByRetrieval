@@ -1,3 +1,14 @@
+shapenet_category_idx_to_name = {
+    0: 'mug',
+    1: 'bag',
+    2: 'laptop',
+    3: 'jar',
+    4: 'can',
+    5: 'camera',
+    6: 'bowl',
+    7: 'bottle',
+}
+
 name_to_idx = {
     'mugs': 0,
     'mugs_square_handle': 1,
