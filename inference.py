@@ -63,7 +63,7 @@ def get_features(save_dir, epoch, fname_template = '{}_embedding.npy'):
     path = os.path.join(prediction_dir, fname_template.format(epoch))
     if not os.path.exists(path):
         return None
-    features = np.load()
+    features = np.load(path)
     return features
 
 def get_sample_ids(save_dir, epoch, fname_template = '{}_sample_id.npy'):
@@ -143,6 +143,7 @@ def output_retrieval_results(args, uniform=False):
     if uniform:
         fname = os.path.join(retrieval_result_dir, 'result_uniform.npy')
         fname_selected_idx = os.path.join(retrieval_result_dir, 'selected_idx.npy')
+        print("Save selected indices at: ", fname_selected_idx)
         np.save(fname_selected_idx, selected_idx)
     else:
         fname = os.path.join(retrieval_result_dir, 'result.npy')
@@ -152,6 +153,46 @@ def output_retrieval_results(args, uniform=False):
 
 
 def save_pred_size(args):
+    df_all = pd.read_csv(os.path.join(args.file_root, args.all_csv_file))
+    experiment_name = p_utils.get_experiment_names(args)
+    bb_max_min_info = pickle.load(open(args.bb_max_min_info, 'rb'))
+    
+    pred_scale = get_features(args.query.save_dir, args.query.epoch, fname_template = '{}_scale_pred.npy').reshape(-1,)
+    df_target = get_all_info(args.target.save_dir, args.target.epoch, df_all)
+    
+    arg_sorted_dist = np.load(args.arg_sorted_dist_path)
+    selected_idx = np.load(args.selected_idx_path)
+    target_sample_ids = df_target.sample_id.to_numpy()
+    arg_sorted_dist = selected_idx[arg_sorted_dist]
+    selected_target_sample_id = np.asarray(target_sample_ids)[arg_sorted_dist]
+
+    all_target_sizes = []
+    for query_idx in tqdm.tqdm(range(len(pred_scale))):
+        target_sizes = []
+        for target_sample_id in selected_target_sample_id[query_idx][:10]:
+            scene_num, image_id, category_id = sample_id_to_parts(target_sample_id)
+            target_annotation_path = os.path.join(
+                args.target.data_dir,
+                f'scene_{scene_num:06}',
+                'annotations.json',
+            )            
+            json_obj = p_utils.COCOSelf(target_annotation_path)
+            target_ann = json_obj.category_id_to_ann[category_id]
+            loaded_bb_min, loaded_bb_max = bb_max_min_info[(target_ann['synset_id'], target_ann['model_id'])]
+            pred_sizes = (loaded_bb_max - loaded_bb_min) * pred_scale[query_idx]
+            target_sizes.append(list(pred_sizes))
+        all_target_sizes.append(target_sizes)
+
+    retrieval_result_dir = os.path.join(args.query.save_dir, experiment_name)
+    if not os.path.exists(retrieval_result_dir):
+        os.mkdir(retrieval_result_dir)
+
+    fname = os.path.join(retrieval_result_dir, 'pred_size.npy')
+    print("Saved predicted size in: ", fname)
+    np.save(fname, np.asarray(all_target_sizes))
+
+
+def save_gt_and_pred_size(args):
     df_all = pd.read_csv(os.path.join(args.file_root, args.all_csv_file))
     experiment_name = p_utils.get_experiment_names(args)
 
