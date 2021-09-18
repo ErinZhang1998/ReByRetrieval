@@ -92,7 +92,7 @@ class PretrainedResNetSpatialSoftmax(nn.Module):
             self.add_module('img_embed', nn.Linear(self.resnet_out_channel*2, self.emb_dim))
         
         if args.model_config.condition_on_extrinsics:
-            self.add_module('extrinsics', nn.Linear(12, args.model_config.extrinsics_emb_dim))
+            self.add_module('extrinsics', nn.Linear(args.model_config.extrinsics_in_dim, args.model_config.extrinsics_emb_dim))
         
         if 'scale_pred' in model_return:
             if args.model_config.condition_on_extrinsics:
