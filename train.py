@@ -40,7 +40,11 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
     for batch_idx, data in enumerate(train_loader):
         optimizer.zero_grad()
         image = data['image'].cuda(non_blocking=args.cuda_non_blocking)
-        return_keys, return_val = model([image])
+        if 'extrinsics' in data:
+            extrinsics = data['extrinsics'].cuda(non_blocking=args.cuda_non_blocking)
+            return_keys, return_val = model([image, extrinsics])
+        else:
+            return_keys, return_val = model([image])
 
         if 'scale_pred' in return_keys:
             scale_pred = return_val[return_keys.index('scale_pred')]
@@ -161,7 +165,7 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
         if du.is_master_proc(num_gpus=args.num_gpus):
             if 'img_embed' in return_keys and cnt % args.training_config.plot_triplet_every == 0:               
                 image_tensor = image.cpu().detach()[:,:3,:,:]
-                mask_tensor = image.cpu().detach()[:,3:,:,:]
+                mask_tensor = image.cpu().detach()[:,-1:,:,:]
                 image_tensor = utrans.denormalize(image_tensor, train_loader.dataset.img_mean, train_loader.dataset.img_std)
                 
                 mask_L = [
@@ -181,7 +185,7 @@ def train_epoch(args, train_loader, model, optimizer, epoch, cnt, image_dir=None
                             idx_in_batch = triplet[i]
                             gt_value_i = gt_value[idx_in_batch]
                             image_PIL = torchvision.transforms.ToPILImage()(image_tensor[idx_in_batch])
-                            mask_PIL = torchvision.transforms.ToPILImage()(mask_tensor[idx_in_batch])
+                            mask_PIL = torchvision.transforms.ToPILImage()(mask_tensor[idx_in_batch]).convert("L")
                             obj_background = PIL.Image.new("RGB", image_PIL.size, 0)
                             masked_image = PIL.Image.composite(image_PIL, obj_background, mask_PIL)
                             axs[i].imshow(np.asarray(masked_image))

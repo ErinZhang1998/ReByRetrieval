@@ -18,7 +18,11 @@ def test(args, test_loader, test_meter, model, epoch, cnt, image_dir=None, predi
         for batch_idx, data in enumerate(test_loader):
             
             image = data['image'].cuda(non_blocking=args.cuda_non_blocking)
-            return_keys, return_val = model([image])
+            if 'extrinsics' in data:
+                extrinsics = data['extrinsics'].cuda(non_blocking=args.cuda_non_blocking)
+                return_keys, return_val = model([image, extrinsics])
+            else:
+                return_keys, return_val = model([image])
 
             sample_id = data['sample_id']
             scale = data['scale']

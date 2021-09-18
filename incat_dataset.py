@@ -7,6 +7,7 @@ import h5py
 import ast 
 import numpy as np
 import pandas as pd
+import cv2
 
 import torch
 import torch.nn
@@ -31,6 +32,298 @@ from pycocotools.coco import COCO
 import utils.utils as uu
 import utils.blender_proc_utils as bp_utils
 import utils.perch_utils as p_utils
+
+class BlenderProc(Dataset):
+    
+    def __init__(self, split, args):
+
+        self.split = split 
+        self.args = args
+        # self.size = args.dataset_config.size 
+        self.size_w = args.dataset_config.size_w
+        self.size_h = args.dataset_config.size_h
+
+        if split == 'train':
+            self.scene_dir = args.files.training_scene_dir
+        elif split == 'base':
+            self.scene_dir = args.files.base_scene_dir
+        else:
+            self.scene_dir = args.files.testing_scene_dir
+
+        self.scene_dir_parent = os.path.abspath(os.path.join(self.scene_dir, os.pardir))
+        self.csv_file_path = args.files.csv_file_path
+        self.shapenet_filepath = args.files.shapenet_filepath
+        self.img_mean = args.dataset_config.img_mean#[0.5,0.5,0.5]
+        self.img_std = args.dataset_config.img_std#[0.5,0.5,0.5]
+        
+        if type(args.dataset_config.color_jitter.brightness) is list:
+            a,b = args.dataset_config.color_jitter.brightness
+            brightness = (a,b)
+        else:
+            brightness = args.dataset_config.color_jitter.brightness
+        if type(args.dataset_config.color_jitter.contrast) is list:
+            a,b = args.dataset_config.color_jitter.contrast
+            contrast = (a,b)
+        else:
+            contrast = args.dataset_config.color_jitter.contrast
+        if type(args.dataset_config.color_jitter.saturation) is list:
+            a,b = args.dataset_config.color_jitter.saturation
+            saturation = (a,b)
+        else:
+            saturation = args.dataset_config.color_jitter.saturation
+        if type(args.dataset_config.color_jitter.hue) is list:
+            a,b = args.dataset_config.color_jitter.hue
+            hue = (a,b)
+        else:
+            hue = args.dataset_config.color_jitter.hue
+        
+        self.color_jitter_prob = args.dataset_config.color_jitter.prob
+        self.color_jitter_transform = K.ColorJitter(
+            brightness=brightness, 
+            contrast=contrast, 
+            saturation=saturation, 
+            hue=hue,
+            p=args.dataset_config.color_jitter.p,
+        )
+        self.dir_list = uu.data_dir_list(
+            self.scene_dir, 
+            must_contain_file = ['annotations.json']
+        )
+        
+        self.sample_id_to_idx = dict()
+        self.all_data_dict = dict()
+        self.all_scene_cam_dict = dict()
+        idx = 0
+        if args.dataset_config.only_load < 0:
+            dir_list_load = self.dir_list
+        else:
+            dir_list_load = self.dir_list[:args.dataset_config.only_load]
+        for dir_path in dir_list_load:
+            if args.blender_proc:
+                data_dict, scene_dict, idx = self.load_annotations_blender_proc(dir_path, idx)
+            else:
+                data_dict, scene_dict, idx = self.load_annotations(dir_path, idx)
+                
+            self.all_data_dict.update(data_dict)
+            self.all_scene_cam_dict.update(scene_dict)
+
+        self.reset()
+    
+    def reset(self, seed=0):
+        np.random.seed(seed)
+
+        self.object_id_to_dict_idx = dict()
+        for k,v in self.all_scene_cam_dict.items():
+            l1,l2 = v
+            for idx in l1:
+                idx_obj_id = self.all_data_dict[idx]['obj_id']
+                L = self.object_id_to_dict_idx.get(idx_obj_id, [])
+                L.append(idx)
+                self.object_id_to_dict_idx[idx_obj_id] = L
+            if len(l2) > 0:
+                idx2 = np.random.choice(l2, 1, replace=False)[0]
+                idx2_obj_id = self.all_data_dict[idx2]['obj_id']
+                L = self.object_id_to_dict_idx.get(idx2_obj_id, [])
+                L.append(idx2)
+                self.object_id_to_dict_idx[idx2_obj_id] = L
+
+        self.total_ele = 0
+        for k,v in self.object_id_to_dict_idx.items():
+            if len(v) %2 == 0:
+                self.total_ele += len(v)
+                continue 
+            if self.split == 'train':
+                j = np.random.randint(0, len(v),1)[0]
+            else:
+                j = 0
+            v.remove(v[j])
+            self.object_id_to_dict_idx[k] = v
+            assert len(v)%2 == 0 
+            self.total_ele += len(v)
+
+    def load_annotations_blender_proc(self, one_scene_dir, idx):
+        scene_num = int(one_scene_dir.split('/')[-1].split('_')[-1])
+        coco_fname = os.path.join(one_scene_dir, 'annotations.json')
+        coco = p_utils.COCOSelf(coco_fname)
+        image_ids = list(coco.image_id_to_ann.keys())
+
+        data_dict = {}
+        scene_dict_all = {}
+
+        idx_i = idx
+        for image_id in image_ids:
+            image_ann = coco.image_id_to_ann[image_id]
+            anns = coco.image_id_to_category_id_to_ann[image_id].values()
+
+            img_rgb = np.array(h5py_fh.get('colors'))
+            depth = np.array(h5py_fh.get('depth'))
+            
+            samples = {}
+            scene_dict = {}
+
+            import pdb; pdb.set_trace()
+
+            for ann in anns:
+                category_id = ann['category_id']
+                assert image_id == ann['image_id']
+                
+                if category_id == 0:
+                    continue
+                if ann['area'] < self.args.dataset_config.ignore_num_pixels:
+                    continue
+                if category_id not in datagen_yaml:
+                    continue
+                if 'scale' not in datagen_yaml[category_id]:
+                    continue
+                
+                sample_id_int = [scene_num, image_id, category_id]
+                sample_id = '-'.join([str(item) for item in sample_id_int])
+
+                mask_rle = coco_mask.frPyObjects([ann['segmentation']], image_ann['height'], image_ann['width'])
+                img_mask = coco_mask.decode(mask_rle)[:,:,0]
+
+                # xmin, ymin, xleng, yleng = ann['bbox']
+                # ymax = ymin + yleng
+                # xmax = xmin + xleng
+                # bbox_2d = np.array([[xmin, ymin],[xmax, ymax]])
+                # center = [int((xmin + xmax) * 0.5), int((ymin + ymax) * 0.5)]
+
+                bbox_2d, center = bp_utils.bbox_to_bbox_2d_and_center(ann['bbox'])
+                bbox_2d = np.asarray(bbox_2d)
+
+                position = object_state_dict[category_id]['location']
+                scale = datagen_yaml[category_id]['scale']
+                model_id = datagen_yaml[category_id]['model_id']
+
+                sample = {
+                    'depth' : depth,
+                    'sample_id' : sample_id,
+                    'sample_id_int' : sample_id_int,
+                    'position' : np.asarray(position),
+                    'scale' : scale,
+                    'obj_cat' : datagen_yaml[category_id]['obj_cat'],
+                    'obj_id' : datagen_yaml[category_id]['obj_id'],
+                    'shapenet_model_id' : self.shapenet_model_name_to_id[model_id],
+                    'model_id' : model_id,
+                    'synset_id' : datagen_yaml[category_id]['synset_id'],
+                    'img_rgb' : copy.deepcopy(img_rgb),
+                    'img_mask' : copy.deepcopy(img_mask),
+                    'center' : np.asarray(center),
+                    'total_pixel_in_scene' : ann['area'],
+                    'object_bbox_world_frame_2d' : bbox_2d,
+                }
+                
+                samples[idx_i] = sample
+                scene_dict_l_must,  scene_dict_l_one = scene_dict.get((scene_num, image_id), ([],[]))
+                if self.split == "train":
+                    scene_dict_l_must.append(idx_i)
+                else:
+                    scene_dict_l_must.append(idx_i)
+                
+                scene_dict[(scene_num, image_id)] = (scene_dict_l_must, scene_dict_l_one)
+                self.sample_id_to_idx[sample_id] = idx_i
+                idx_i += 1
+                
+
+        return data_dict, scene_dict_all, idx_i
+ 
+    def process_sample_blender_proc(self, sample):
+        # resize img 
+        img_rgb = sample['img_rgb'] #numpy.array
+        img_h, img_w, _ = img_rgb.shape
+        img_rgb = PIL.Image.fromarray(img_rgb).resize((self.size_w, self.size_h))
+        
+        # resize mask
+        img_mask = sample['img_mask']
+        img_mask_object_is_0 = utrans.mask_to_invert_PIL(img_mask)
+        img_mask_object_is_255 = PIL.ImageOps.invert(img_mask_object_is_0).resize((self.size_w, self.size_h))
+        
+        # normalize center value to [0,1]
+        center = sample['center']
+        cx,cy = center
+        cx *= (self.size_w / img_w)
+        cy *= (self.size_h / img_h)
+        center = np.array([cx,cy])
+
+        depth = sample['depth']
+        depth = cv2.resize(depth, (self.size_w, self.size_h), interpolation = cv2.INTER_AREA)
+        
+        if self.split == 'train':
+            flip_trans = utrans.PILRandomHorizontalFlip()
+            img_rgb, img_mask, center_trans, depth = flip_trans(img_rgb, img_mask_object_is_255, center, depth)
+        else:
+            img_rgb, img_mask, center_trans = img_rgb, img_mask_object_is_255, center
+        
+        
+        return img_rgb, img_mask, center_trans, depth
+    
+    def process_input(self, sample):
+        # if not self.args.blender_proc:
+        #     img_rgb, img_mask, center, area_x, area_y = self.process_sample(sample)
+        # else:
+        img_rgb, img_mask, center, depth = self.process_sample_blender_proc(sample)
+        img_rgb = torchvision.transforms.ToTensor()(img_rgb)
+        img_mask = torchvision.transforms.ToTensor()(img_mask)
+
+        if len(img_mask.shape) > 2:
+            img_mask = img_mask[:1,:,:]
+
+        if self.args.use_depth:
+            img_depth = torch.unsqueeze(torch.FloatTensor(depth), axis=0)
+            try:
+                img = torch.cat([img_rgb, img_depth, img_mask], 0)
+            except:
+                import pdb; pdb.set_trace()
+        else:
+            img = torch.cat((img_rgb, img_mask), 0)
+        
+        image = torch.FloatTensor(img)
+
+        cx,cy = center.reshape(-1,)
+        cx /= self.size_w
+        cy /= self.size_h
+
+        position = torch.FloatTensor(sample['position'].reshape(-1,))
+        scale = torch.FloatTensor(np.array([sample['scale']]).reshape(-1,))
+        center = torch.FloatTensor(np.array([cx,cy]))
+        category = torch.FloatTensor(np.array([sample['obj_cat']]).reshape(-1,))
+        obj_id = torch.FloatTensor(np.array([sample['obj_id']]).reshape(-1,))
+        sample_id = torch.FloatTensor(np.array(sample['sample_id_int']))
+        shapenet_model_id = torch.FloatTensor(np.array([sample['shapenet_model_id']]))
+
+        data = {
+            "image": image,
+            "position" : position,
+            "scale": scale,
+            "center" : center,
+            "obj_category":category,
+            "obj_id":obj_id,
+            "sample_id":sample_id,
+            "shapenet_model_id" : shapenet_model_id, 
+        }
+        if self.args.model_config.condition_on_extrinsics:
+            extrinsics_matrix = np.asarray(self.args.dataset_config.camera_extrinsics).reshape(-1,)
+            extrinsics = torch.FloatTensor(extrinsics_matrix)
+            data.update({
+                "extrinsics" : extrinsics,
+            })
+        
+        # if not self.args.blender_proc:
+        #     data.update({
+        #         "area_type": torch.FloatTensor(np.array([area_x, area_y]).reshape(-1,2)),
+        #     })
+
+        return data
+
+    def __len__(self):
+        # return len(self.idx_to_data_dict)
+        return self.total_ele
+    
+    def __getitem__(self, idx):
+        
+        sample = self.all_data_dict[idx]
+        basic_data = self.process_input(sample)
+        return basic_data
 
 class InCategoryClutterDataset(Dataset):
     
@@ -194,6 +487,7 @@ class InCategoryClutterDataset(Dataset):
         anns = coco.image_id_to_category_id_to_ann[image_id].values()
         
         img_rgb = np.array(h5py_fh.get('colors'))
+        depth = np.array(h5py_fh.get('depth'))
         segcolormap_list = ast.literal_eval(np.array(h5py_fh.get('segcolormap')).tolist().decode('UTF-8'))
         segcolormap = {}
         for ele in segcolormap_list:
@@ -209,6 +503,9 @@ class InCategoryClutterDataset(Dataset):
         
         samples = {}
         scene_dict = {}
+
+        extrinsics = ast.literal_eval(np.array(h5py_fh.get('campose')).tolist().decode('UTF-8'))[0]['cam2world_matrix']
+        extrinsics = np.asarray(extrinsics[:-1]).reshape(-1,)
         
         for ann in anns:
             category_id = ann['category_id']
@@ -243,6 +540,8 @@ class InCategoryClutterDataset(Dataset):
             model_id = datagen_yaml[category_id]['model_id']
 
             sample = {
+                'extrinsics' : extrinsics,
+                'depth' : depth,
                 'sample_id' : sample_id,
                 'sample_id_int' : sample_id_int,
                 'position' : np.asarray(position),
@@ -284,8 +583,6 @@ class InCategoryClutterDataset(Dataset):
         yaml_file_obj = yaml.load(open(yaml_file), Loader=yaml.SafeLoader)
         datagen_yaml = bp_utils.from_yaml_to_object_information(yaml_file_obj, self.df)
         coco_fname = os.path.join(one_scene_dir, 'coco_data', 'coco_annotations.json')
-        print(coco_fname)
-
         coco = p_utils.COCOSelf(coco_fname)
         image_ids = list(coco.image_id_to_ann.keys())
 
@@ -511,7 +808,7 @@ class InCategoryClutterDataset(Dataset):
 
             if self.split == 'train':
                 flip_trans = utrans.PILRandomHorizontalFlip()
-                img_rgb, img_mask, center_trans = flip_trans(superimposed_img, object_canvas_mask, canvas_center)
+                img_rgb, img_mask, center_trans, _ = flip_trans(superimposed_img, object_canvas_mask, canvas_center)
             else:
                 img_rgb, img_mask, center_trans = superimposed_img, object_canvas_mask, canvas_center
         
@@ -535,26 +832,38 @@ class InCategoryClutterDataset(Dataset):
         cy *= (self.size_h / img_h)
         center = np.array([cx,cy])
 
+        depth = sample['depth']
+        depth = cv2.resize(depth, (self.size_w, self.size_h), interpolation = cv2.INTER_AREA)
+        
         if self.split == 'train':
             flip_trans = utrans.PILRandomHorizontalFlip()
-            img_rgb, img_mask, center_trans = flip_trans(img_rgb, img_mask_object_is_255, center)
+            img_rgb, img_mask, center_trans, depth = flip_trans(img_rgb, img_mask_object_is_255, center, depth)
         else:
             img_rgb, img_mask, center_trans = img_rgb, img_mask_object_is_255, center
-
-        return img_rgb, img_mask, center_trans
+        
+        
+        return img_rgb, img_mask, center_trans, depth
     
     def process_input(self, sample):
-        if not self.args.blender_proc:
-            img_rgb, img_mask, center, area_x, area_y = self.process_sample(sample)
-        else:
-            img_rgb, img_mask, center = self.process_sample_blender_proc(sample)
+        # if not self.args.blender_proc:
+        #     img_rgb, img_mask, center, area_x, area_y = self.process_sample(sample)
+        # else:
+        img_rgb, img_mask, center, depth = self.process_sample_blender_proc(sample)
         img_rgb = torchvision.transforms.ToTensor()(img_rgb)
         img_mask = torchvision.transforms.ToTensor()(img_mask)
 
         if len(img_mask.shape) > 2:
             img_mask = img_mask[:1,:,:]
 
-        img = torch.cat((img_rgb, img_mask), 0)
+        if self.args.use_depth:
+            img_depth = torch.unsqueeze(torch.FloatTensor(depth), axis=0)
+            try:
+                img = torch.cat([img_rgb, img_depth, img_mask], 0)
+            except:
+                import pdb; pdb.set_trace()
+        else:
+            img = torch.cat((img_rgb, img_mask), 0)
+        
         image = torch.FloatTensor(img)
 
         cx,cy = center.reshape(-1,)
@@ -579,10 +888,17 @@ class InCategoryClutterDataset(Dataset):
             "sample_id":sample_id,
             "shapenet_model_id" : shapenet_model_id, 
         }
-        if not self.args.blender_proc:
+        if self.args.model_config.condition_on_extrinsics:
+            extrinsics_matrix = np.asarray(self.args.dataset_config.camera_extrinsics).reshape(-1,)
+            extrinsics = torch.FloatTensor(extrinsics_matrix)
             data.update({
-                "area_type": torch.FloatTensor(np.array([area_x, area_y]).reshape(-1,2)),
+                "extrinsics" : extrinsics,
             })
+        
+        # if not self.args.blender_proc:
+        #     data.update({
+        #         "area_type": torch.FloatTensor(np.array([area_x, area_y]).reshape(-1,2)),
+        #     })
 
         return data
 
@@ -609,3 +925,5 @@ class InCategoryClutterDataset(Dataset):
                 "obj_points_features" : obj_points_features,
             }
             basic_data.update(pc_data)            
+
+

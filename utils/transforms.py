@@ -209,7 +209,7 @@ class PILRandomHorizontalFlip(object):
     def __init__(self, prob=0.5):
         self.prob = prob
         
-    def __call__(self, img, mask, center):
+    def __call__(self, img, mask, center, depth=None):
         center_copy = copy.deepcopy(center)
         center_copy = center_copy.reshape(-1,)
         w,h = img.size
@@ -218,9 +218,11 @@ class PILRandomHorizontalFlip(object):
             img = img.transpose(PIL.Image.FLIP_LEFT_RIGHT)
             mask = mask.transpose(PIL.Image.FLIP_LEFT_RIGHT)
             center_copy[0] = w - center_copy[0]
-            return img,  mask, center_copy
+            if depth is not None:
+                depth = cv2.flip(depth, 1)
+            return img,  mask, center_copy, depth
         
-        return img, mask, center_copy
+        return img, mask, center_copy, depth
 
 class PILResized(object):
     def __init__(self, width = 227, height = 227):

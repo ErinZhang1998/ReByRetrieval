@@ -58,10 +58,13 @@ class PretrainedResNetSpatialSoftmax(nn.Module):
         elif args.model_config.resnet_type == 'resnet50':
             resnet = resnet50(pretrained=True, remove_avg_pool_layer=True)
         self.resnet_out_channel = resnet.fc.in_features
-        resnet.conv1 = nn.Conv2d(4, 64, kernel_size=(7, 7), stride=(2, 2), padding=(0, 0), bias=False)
-        # for name,param in resnet.named_parameters():
-        #     if name != 'conv1.weight':
-        #         param.requires_grad = False
+        first_conv_num_chan = args.model_config.first_conv_num_chan
+        resnet.conv1 = nn.Conv2d(first_conv_num_chan, 64, kernel_size=(7, 7), stride=(2, 2), padding=(0, 0), bias=False)
+        
+        if args.model_config.freeze_other_than_first_conv:
+            for name,param in resnet.named_parameters():
+                if name != 'conv1.weight':
+                    param.requires_grad = False
 
         self.resnet_no_fc = resnet #nn.Sequential(*list(resnet.children())[:-2])
 
@@ -82,14 +85,22 @@ class PretrainedResNetSpatialSoftmax(nn.Module):
             self.add_module('class_pred', nn.Linear(self.resnet_out_channel*2, num_classes))
             self.num_classes = num_classes
         
-        if 'scale_pred' in model_return:
-            self.add_module('scale_pred', nn.Linear(self.resnet_out_channel*2, 1))
-        
         if 'center_pred' in model_return:
             self.add_module('center_pred', nn.Linear(self.resnet_out_channel*2, 2))
         
         if 'img_embed' in model_return:
             self.add_module('img_embed', nn.Linear(self.resnet_out_channel*2, self.emb_dim))
+        
+        if args.model_config.condition_on_extrinsics:
+            self.add_module('extrinsics', nn.Linear(12, args.model_config.extrinsics_emb_dim))
+        
+        if 'scale_pred' in model_return:
+            if args.model_config.condition_on_extrinsics:
+                self.add_module('scale_pred', nn.Linear(self.resnet_out_channel*2 + args.model_config.extrinsics_emb_dim, 1))
+            else:
+                self.add_module('scale_pred', nn.Linear(self.resnet_out_channel*2, 1))
+    
+        
         self.model_return = model_return
         self.candidate_return = candidate_return
             
@@ -103,10 +114,17 @@ class PretrainedResNetSpatialSoftmax(nn.Module):
         
         for pred_key in self.candidate_return:
             if pred_key in self.model_return:
-                pred = getattr(self, pred_key)(x)
+                if pred_key == 'scale_pred' and self.args.model_config.condition_on_extrinsics:
+                    extrinsics_x = getattr(self, 'extrinsics')(xs[1])
+                    x_with_extrinsics = torch.cat((x, extrinsics_x), dim=1)
+                    pred = getattr(self, pred_key)(x_with_extrinsics)
+                else:
+                    pred = getattr(self, pred_key)(x)
+                
                 if pred_key == 'img_embed':
                     pred -= pred.min(1, keepdim=True)[0]
                     pred /= pred.max(1, keepdim=True)[0]
+                
                 return_val += [pred]
                 return_keys += [pred_key]
 
