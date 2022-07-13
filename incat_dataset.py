@@ -598,10 +598,7 @@ class InCategoryClutterDataset(Dataset):
 
         if self.args.use_depth:
             img_depth = torch.unsqueeze(torch.FloatTensor(depth), axis=0)
-            try:
-                img = torch.cat([img_rgb, img_depth, img_mask], 0)
-            except:
-                import pdb; pdb.set_trace()
+            img = torch.cat([img_rgb, img_depth, img_mask], 0)
         else:
             img = torch.cat((img_rgb, img_mask), 0)
         
@@ -835,13 +832,17 @@ class InCategoryClutterDatasetBlenderProc(Dataset):
         scene_dict = {}
         
         cam_pose = ast.literal_eval(np.array(h5py_fh.get('campose')).tolist().decode('UTF-8'))[0]
-        # extrinsics = cam_pose['cam2world_matrix'][:-1]
-        # extrinsics = np.asarray(extrinsics)
-        # camera_position = extrinsics[:,-1]
-        # camera_quat = R.from_matrix(extrinsics[:,:-1]).as_quat()
-        # # extrinsics = np.asarray(extrinsics[:-1]).reshape(-1,)
-        # extrinsics = np.concatenate([camera_position, camera_quat]).reshape(-1,)
-        extrinsics = np.array(cam_pose['location'] + cam_pose['rotation_euler'])
+        extrinsics = cam_pose['cam2world_matrix'][:-1]
+        if self.args.model_config.extrinsics_in_dim == 12:
+            extrinsics = np.asarray(extrinsics).reshape(-1,)
+        elif self.args.model_config.extrinsics_in_dim == 6:
+            extrinsics = np.array(cam_pose['location'] + cam_pose['rotation_euler'])
+        elif self.args.model_config.extrinsics_in_dim == 7:
+            extrinsics = np.asarray(extrinsics)
+            camera_position = extrinsics[:,-1]
+            camera_quat = R.from_matrix(extrinsics[:,:-1]).as_quat()
+            extrinsics = np.concatenate([camera_position, camera_quat]).reshape(-1,)
+            
         for ann in anns:
             category_id = ann['category_id']
             assert image_id == ann['image_id']

@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import utils.datagen_utils as datagen_utils
 import utils.blender_proc_utils as bp_utils
 
-def get_experiment_names(args):
+def get_experiment_names(args, real_world=False):
     target_train_or_test = args.target.data_dir.split('/')[-1]
     experiment_name = f'{args.result_name}-{target_train_or_test}-{args.target.epoch}-{args.query.epoch}'
     return experiment_name

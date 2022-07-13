@@ -117,29 +117,29 @@ def all_to_old_annotaiton_format(storage_root, perch_model_dir, yaml_file_root_d
             storage_root = storage_root,
         )
 
-def output_retrieval_results(args, uniform=False):
-    df_all = pd.read_csv(os.path.join(args.file_root, args.all_csv_file))
-    experiment_name = p_utils.get_experiment_names(args)
+def output_retrieval_results(args_inf, uniform=False, experiment_name=None):
+    df_all = pd.read_csv(args_inf.all_csv_file)
+    experiment_name = experiment_name if experiment_name is not None else p_utils.get_experiment_names(args_inf)
 
-    query_feats = get_features(args.query.save_dir, args.query.epoch, fname_template = '{}_img_embed.npy')
-    target_feats = get_features(args.target.save_dir, args.target.epoch, fname_template = '{}_img_embed.npy')
+    query_feats = get_features(args_inf.query.save_dir, args_inf.query.epoch, fname_template = '{}_img_embed.npy')
+    target_feats = get_features(args_inf.target.save_dir, args_inf.target.epoch, fname_template = '{}_img_embed.npy')
     if uniform:
-        np.random.seed(args.uniform_seed)
-        df_target, selected_idx = uniform_distribution(args.target.save_dir, args.target.epoch, df_all, key = 'self_defined_category')
-        
+        np.random.seed(args_inf.uniform_seed)
+        df_target, selected_idx = uniform_distribution(args_inf.target.save_dir, args_inf.target.epoch, df_all, key = 'self_defined_category')
         target_feats = target_feats[selected_idx]
         # import pdb; pdb.set_trace()
     
     query_feats = torchify(query_feats)
     target_feats = torchify(target_feats)
     pairwise_dist = pariwise_distances(query_feats, target_feats, squared=False)
-    sorted_dist, arg_sorted_dist = torch.sort(pairwise_dist, dim=1)
-    arg_sorted_dist = arg_sorted_dist.cpu().numpy()
+    sorted_dist, sorted_target_idx = torch.sort(pairwise_dist, dim=1)
+    sorted_target_idx = sorted_target_idx.cpu().numpy()
 
-    retrieval_result_dir = os.path.join(args.query.save_dir, experiment_name)
+    retrieval_result_dir = os.path.join(args_inf.query.save_dir, experiment_name)
     if not os.path.exists(retrieval_result_dir):
         os.mkdir(retrieval_result_dir)
     
+    fname, fname_selected_idx = None,None
     if uniform:
         fname = os.path.join(retrieval_result_dir, 'result_uniform.npy')
         fname_selected_idx = os.path.join(retrieval_result_dir, 'selected_idx.npy')
@@ -148,23 +148,24 @@ def output_retrieval_results(args, uniform=False):
     else:
         fname = os.path.join(retrieval_result_dir, 'result.npy')
     
-    print("Saved arg_sorted_dist in: ", fname)
-    np.save(fname, arg_sorted_dist)
+    print("Saved sorted_target_idx in: ", fname)
+    np.save(fname, sorted_target_idx)
 
+    return fname, fname_selected_idx
 
 def save_pred_size(args):
-    df_all = pd.read_csv(os.path.join(args.file_root, args.all_csv_file))
+    df_all = pd.read_csv(args.all_csv_file)
     experiment_name = p_utils.get_experiment_names(args)
     bb_max_min_info = pickle.load(open(args.bb_max_min_info, 'rb'))
     
     pred_scale = get_features(args.query.save_dir, args.query.epoch, fname_template = '{}_scale_pred.npy').reshape(-1,)
     df_target = get_all_info(args.target.save_dir, args.target.epoch, df_all)
     
-    arg_sorted_dist = np.load(args.arg_sorted_dist_path)
+    sorted_target_idx = np.load(args.sorted_target_idx_path)
     selected_idx = np.load(args.selected_idx_path)
     target_sample_ids = df_target.sample_id.to_numpy()
-    arg_sorted_dist = selected_idx[arg_sorted_dist]
-    selected_target_sample_id = np.asarray(target_sample_ids)[arg_sorted_dist]
+    sorted_target_idx = selected_idx[sorted_target_idx]
+    selected_target_sample_id = np.asarray(target_sample_ids)[sorted_target_idx]
 
     all_target_sizes = []
     for query_idx in tqdm.tqdm(range(len(pred_scale))):
@@ -203,11 +204,11 @@ def save_gt_and_pred_size(args):
     query_sample_ids = df_query.sample_id.to_numpy()
     df_target = get_all_info(args.target.save_dir, args.target.epoch, df_all)
     
-    arg_sorted_dist = np.load(args.arg_sorted_dist_path)
+    sorted_target_idx = np.load(args.sorted_target_idx_path)
     selected_idx = np.load(args.selected_idx_path)
     target_sample_ids = df_target.sample_id.to_numpy()
-    arg_sorted_dist = selected_idx[arg_sorted_dist]
-    selected_target_sample_id = np.asarray(target_sample_ids)[arg_sorted_dist]
+    sorted_target_idx = selected_idx[sorted_target_idx]
+    selected_target_sample_id = np.asarray(target_sample_ids)[sorted_target_idx]
 
     all_query_sizes = []
     all_target_sizes = []
@@ -295,11 +296,11 @@ def main(args):
     query_sample_ids = df_query.sample_id.to_numpy()
     target_sample_ids = df_target.sample_id.to_numpy()
     
-    arg_sorted_dist = np.load(args.arg_sorted_dist_path)
+    sorted_target_idx = np.load(args.sorted_target_idx_path)
     selected_idx = np.load(args.selected_idx_path)
-    arg_sorted_dist = selected_idx[arg_sorted_dist]
+    sorted_target_idx = selected_idx[sorted_target_idx]
     
-    selected_target_sample_id = np.asarray(target_sample_ids)[arg_sorted_dist]
+    selected_target_sample_id = np.asarray(target_sample_ids)[sorted_target_idx]
 
     total_len = len(query_sample_ids)
     # total_len = 100

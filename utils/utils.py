@@ -87,11 +87,22 @@ def load_model_from(args, model, data_parallel=False):
         logger.info("=> Loading model file from: {}".format(args.model_config.model_path))
         ckp_path = os.path.join(args.model_config.model_path)
         checkpoint = torch.load(ckp_path)
+        state_dict_ckpt = checkpoint['model_state_dict']
+        state_dict_model = ms.state_dict()
+        
+        state_dict_ckpt_key_renamed = {remove_module_key_transform(k): v for k, v in state_dict_ckpt.items()}
         try:
-            ms.load_state_dict(checkpoint['model_state_dict'])
+            ms.load_state_dict(state_dict_ckpt_key_renamed)
         except:
-            state_dict = rename_state_dict_keys(ckp_path, remove_module_key_transform)
-            ms.load_state_dict(state_dict)
+            print("WARNING!!!!!!!!!!! SOME LOADING FAILED")
+            pretrained_dict = {k: v for k, v in state_dict_ckpt_key_renamed.items() if k in state_dict_model and state_dict_model[k].shape == v.shape}
+            state_dict_model.update(pretrained_dict)
+            ms.load_state_dict(state_dict_model)
+        # try:
+        #     ms.load_state_dict(state_dict_ckpt)
+        # except:
+        #     state_dict = rename_state_dict_keys(ckp_path, remove_module_key_transform)
+        #     ms.load_state_dict(state_dict)
 
 def save_model(epoch, model, model_dir):
     model_path = os.path.join(model_dir, '{}.pth'.format(epoch))

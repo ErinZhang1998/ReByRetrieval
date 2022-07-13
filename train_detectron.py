@@ -67,7 +67,6 @@ parser.add_argument("--resume", action="store_true", dest="resume")
 parser.add_argument("--only_test", action="store_true", dest="only_test")
 parser.add_argument("--model_path", dest="model_path")
 
-
 class Predictor:
 
     def __init__(self, cfg):
@@ -195,9 +194,6 @@ def setup(options, args):
 
     return cfg
 
-
-def do_inference():
-    return
 
 def do_test(cfg, model):
     results = OrderedDict()
@@ -331,6 +327,9 @@ def main(options, args):
         do_test(cfg, model)
     else:
         do_train(cfg, model, resume=options.resume)
+
+def do_inference():
+    return
 
 if __name__ == '__main__':
     options = parser.parse_args()

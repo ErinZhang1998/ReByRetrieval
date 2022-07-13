@@ -21,6 +21,8 @@ import matplotlib.ticker as plticker
 from matplotlib.ticker import LinearLocator
 import PIL
 
+from scipy.spatial.transform import Rotation as R
+
 import pycocotools.mask as coco_mask
 
 import inference 
